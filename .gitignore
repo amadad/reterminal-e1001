@@ -1,0 +1,25 @@
+# PlatformIO
+firmware/.pio/
+firmware/.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+.venv/
+venv/
+
+# IDE
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Temp
+*.raw
+*.log
