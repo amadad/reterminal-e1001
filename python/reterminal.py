@@ -171,6 +171,7 @@ def image_to_raw(image_path: str, invert: bool = False, dither: bool = True) -> 
         img = Image.eval(img, lambda x: 255 - x)
 
     # Convert to raw bytes (MSB first)
+    # GxEPD2 draws 1-bits as BLACK, so invert: set 1 for dark pixels
     data = bytearray(IMAGE_BYTES)
     pixels = img.load()
 
@@ -178,7 +179,7 @@ def image_to_raw(image_path: str, invert: bool = False, dither: bool = True) -> 
         for x in range(WIDTH):
             byte_idx = (y * WIDTH + x) // 8
             bit_idx = 7 - (x % 8)
-            if pixels[x, y]:  # White pixel
+            if not pixels[x, y]:  # Black pixel = set bit
                 data[byte_idx] |= (1 << bit_idx)
 
     return bytes(data)
@@ -239,6 +240,7 @@ def text_to_raw(text: str, font_size: int = 48, align: str = "center",
         draw.text((x, y), line, font=font, fill=0)  # Black text
 
     # Convert to raw bytes
+    # GxEPD2 draws 1-bits as BLACK, so set 1 for dark pixels
     data = bytearray(IMAGE_BYTES)
     pixels = img.load()
 
@@ -246,7 +248,7 @@ def text_to_raw(text: str, font_size: int = 48, align: str = "center",
         for x in range(WIDTH):
             byte_idx = (y * WIDTH + x) // 8
             bit_idx = 7 - (x % 8)
-            if pixels[x, y]:  # White pixel
+            if not pixels[x, y]:  # Black pixel = set bit
                 data[byte_idx] |= (1 << bit_idx)
 
     return bytes(data)
