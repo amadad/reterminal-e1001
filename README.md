@@ -1,6 +1,6 @@
 # reTerminal E1001
 
-HTTP API firmware and Python client for Seeed reTerminal E1001 ePaper display.
+HTTP API firmware and Python client for [Seeed reTerminal E1001 ePaper display](https://wiki.seeedstudio.com/getting_started_with_reterminal_e1001/).
 
 ![reTerminal E1001](https://files.seeedstudio.com/wiki/reterminal_e10xx/img/132.jpg)
 
