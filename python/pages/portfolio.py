@@ -2,7 +2,7 @@
 """
 Display portfolio summary on reTerminal.
 
-Reads from agent-alpha portfolio snapshots.
+Reads from schwab-cli-tools portfolio snapshots.
 
 Usage:
     python portfolio.py --host 192.168.7.77 --page 0
@@ -22,7 +22,7 @@ except ImportError:
     print("Pillow required: pip install Pillow")
     sys.exit(1)
 
-SNAPSHOT_DIR = Path.home() / "Desktop/base/agent-alpha/private/snapshots"
+SNAPSHOT_DIR = Path.home() / "base/projects/schwab-cli-tools/private/snapshots"
 
 
 def get_latest_snapshot():

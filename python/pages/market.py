@@ -23,7 +23,7 @@ except ImportError:
 
 
 def get_market_data():
-    """Get market data from Schwab via agent-alpha."""
+    """Get market data from Schwab via schwab-cli-tools."""
     script = '''
 from src.schwab_client import get_authenticated_client
 import json
@@ -46,7 +46,7 @@ if resp.status_code == 200:
     try:
         result = subprocess.run(
             ["uv", "run", "python", "-c", script],
-            cwd=Path.home() / "Desktop/base/agent-alpha",
+            cwd=Path.home() / "base/projects/schwab-cli-tools",
             capture_output=True,
             text=True,
             timeout=30

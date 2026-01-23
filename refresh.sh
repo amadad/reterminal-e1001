@@ -1,14 +1,20 @@
 #!/bin/bash
 # Refresh reTerminal pages
 # Usage: ./refresh.sh [page_name]
-#   ./refresh.sh           # Refresh all pages
+#   ./refresh.sh           # Refresh market page (default for cron)
 #   ./refresh.sh market    # Refresh just market page
+#   ./refresh.sh all       # Refresh all pages
 
-cd "$(dirname "$0")"
-source .venv/bin/activate
+cd "$(dirname "$0")/python"
+source .venv/bin/activate 2>/dev/null || source ../.venv/bin/activate 2>/dev/null
+
+# Load environment if .env exists
+if [ -f .env ]; then
+    export $(grep -v '^#' .env | xargs)
+fi
 
 if [ -n "$1" ]; then
-    python python/refresh.py --page "$1"
+    python -m reterminal refresh "$1"
 else
-    python python/refresh.py --page market  # Default to market only for cron
+    python -m reterminal refresh market  # Default to market only for cron
 fi
