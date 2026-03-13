@@ -1,20 +1,20 @@
-#!/bin/bash
-# Refresh reTerminal pages
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Legacy page refresh wrapper.
+# Prefer `uv run reterminal publish --feed ...` for the new scene pipeline.
 # Usage: ./refresh.sh [page_name]
-#   ./refresh.sh           # Refresh market page (default for cron)
+#   ./refresh.sh           # Refresh market page (default)
 #   ./refresh.sh market    # Refresh just market page
-#   ./refresh.sh all       # Refresh all pages
+#   ./refresh.sh all       # Refresh all legacy pages
 
 cd "$(dirname "$0")/python"
-source .venv/bin/activate 2>/dev/null || source ../.venv/bin/activate 2>/dev/null
 
-# Load environment if .env exists
-if [ -f .env ]; then
-    export $(grep -v '^#' .env | xargs)
-fi
+HOST="${RETERMINAL_HOST:-192.168.7.77}"
+PAGE="${1:-market}"
 
-if [ -n "$1" ]; then
-    python -m reterminal refresh "$1"
+if command -v uv >/dev/null 2>&1; then
+    uv run reterminal refresh --host "$HOST" "$PAGE"
 else
-    python -m reterminal refresh market  # Default to market only for cron
+    python3 -m reterminal refresh --host "$HOST" "$PAGE"
 fi

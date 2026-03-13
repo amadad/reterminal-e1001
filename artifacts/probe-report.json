@@ -1,0 +1,181 @@
+{
+  "generated_at": "2026-03-13T18:01:37.513832+00:00",
+  "host": "192.168.7.76",
+  "expected_pages": 7,
+  "requested_slots": 8,
+  "upload_pages": true,
+  "status": {
+    "ip": "192.168.7.76",
+    "rssi": -41,
+    "ssid": "HORUS",
+    "uptime_ms": 533177,
+    "free_heap": 225044,
+    "current_page": 0,
+    "page_name": "dashboard"
+  },
+  "status_missing_fields": [],
+  "page_info": {
+    "page": 0,
+    "name": "dashboard",
+    "total": 4,
+    "loaded": false
+  },
+  "original_page": 0,
+  "inferred_slot_count": 4,
+  "slot_results": [
+    {
+      "slot": 0,
+      "push_stored": true,
+      "push_displayed": false,
+      "selected_page_matches": true,
+      "push_response": {
+        "success": true,
+        "page": 0
+      },
+      "set_response": {
+        "page": 0,
+        "name": "dashboard"
+      },
+      "notes": [
+        "stored",
+        "selectable via /page"
+      ]
+    },
+    {
+      "slot": 1,
+      "push_stored": true,
+      "push_displayed": false,
+      "selected_page_matches": true,
+      "push_response": {
+        "success": true,
+        "page": 1
+      },
+      "set_response": {
+        "page": 1,
+        "name": "clock"
+      },
+      "notes": [
+        "stored",
+        "selectable via /page"
+      ]
+    },
+    {
+      "slot": 2,
+      "push_stored": true,
+      "push_displayed": false,
+      "selected_page_matches": true,
+      "push_response": {
+        "success": true,
+        "page": 2
+      },
+      "set_response": {
+        "page": 2,
+        "name": "github"
+      },
+      "notes": [
+        "stored",
+        "selectable via /page"
+      ]
+    },
+    {
+      "slot": 3,
+      "push_stored": true,
+      "push_displayed": false,
+      "selected_page_matches": true,
+      "push_response": {
+        "success": true,
+        "page": 3
+      },
+      "set_response": {
+        "page": 3,
+        "name": "quote"
+      },
+      "notes": [
+        "stored",
+        "selectable via /page"
+      ]
+    },
+    {
+      "slot": 4,
+      "push_stored": false,
+      "push_displayed": true,
+      "selected_page_matches": false,
+      "push_response": {
+        "success": true,
+        "displayed": true
+      },
+      "set_response": {
+        "page": 0,
+        "name": "dashboard"
+      },
+      "notes": [
+        "displayed immediately instead of storing",
+        "set_page returned 0"
+      ]
+    },
+    {
+      "slot": 5,
+      "push_stored": false,
+      "push_displayed": true,
+      "selected_page_matches": false,
+      "push_response": {
+        "success": true,
+        "displayed": true
+      },
+      "set_response": {
+        "page": 1,
+        "name": "clock"
+      },
+      "notes": [
+        "displayed immediately instead of storing",
+        "set_page returned 1"
+      ]
+    },
+    {
+      "slot": 6,
+      "push_stored": false,
+      "push_displayed": true,
+      "selected_page_matches": false,
+      "push_response": {
+        "success": true,
+        "displayed": true
+      },
+      "set_response": {
+        "page": 2,
+        "name": "github"
+      },
+      "notes": [
+        "displayed immediately instead of storing",
+        "set_page returned 2"
+      ]
+    },
+    {
+      "slot": 7,
+      "push_stored": false,
+      "push_displayed": true,
+      "selected_page_matches": false,
+      "push_response": {
+        "success": true,
+        "displayed": true
+      },
+      "set_response": {
+        "page": 3,
+        "name": "quote"
+      },
+      "notes": [
+        "displayed immediately instead of storing",
+        "set_page returned 3"
+      ]
+    }
+  ],
+  "warnings": [
+    "Expected 7 host-side pages, but automated probe only confirmed 4 contiguous firmware slots."
+  ],
+  "manual_checks": [
+    "Visually confirm the uploaded pattern appears on every stored page slot that the probe marked as supported.",
+    "Press the physical previous/next/refresh buttons and confirm they navigate the same slot range as the API.",
+    "Power-cycle the device and record whether stored page buffers survive reboot.",
+    "Measure full-screen refresh time and note any ghosting or partial-update artifacts.",
+    "If OTA is required, test one OTA flash on the same firmware build and record success/failure."
+  ]
+}

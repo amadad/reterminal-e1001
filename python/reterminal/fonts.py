@@ -2,7 +2,7 @@
 
 import platform
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional
 
 from PIL import ImageFont
 from loguru import logger

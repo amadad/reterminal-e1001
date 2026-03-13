@@ -1,185 +1,105 @@
 # AGENTS.md
 
-Instructions for AI agents working with this repository.
+Instructions for AI agents working in this repository.
 
-## What This Is
+## Source of truth
 
-reTerminal E1001 is a 7.5" ePaper display connected to the local network. It shows a 7-page carousel of information that can be navigated with physical buttons or controlled via HTTP API and CLI.
+Before making architecture claims, use these files:
 
-## Device Details
+- `docs/device-contract.md`
+- `docs/hardware-verification.md`
+- `docs/refactor-plan.md`
+- `artifacts/probe-report.json`
 
-- **IP:** 192.168.7.77
-- **Display:** 800x480 monochrome ePaper
-- **Refresh:** ~3 seconds (slow - minimize updates)
+The current flashed firmware is verified as a **4-slot** device, not a 7-slot carousel.
 
-## CLI Reference
+## Mental model
 
-The CLI is invoked via `python -m reterminal` from the `python/` directory:
+Treat this repo as a small publishing system for a monochrome ePaper target.
+
+- **Firmware**: bitmap storage, display, buttons, HTTP API
+- **Host SDK**: capability discovery, safe slot operations
+- **Scene pipeline**: providers -> scenes -> scheduler -> renderer -> device
+
+Do not center new work around the legacy fixed-page system unless explicitly asked.
+
+## Verified constraints
+
+- Resolution: `800x480`
+- Format: `1-bit`
+- Raw image bytes: `48000`
+- Physical slots: `0..3`
+- `POST /page` wraps modulo 4 for out-of-range values
+- `POST /imageraw?page=N` displays immediately instead of storing for out-of-range slots
+
+## Active Python modules
+
+```text
+python/reterminal/
+├── app/            # publish scenes to previews/device slots
+├── cli/            # active CLI
+├── device/         # device SDK + capabilities
+├── providers/      # scene adapters
+├── render/         # monochrome layouts and art handling
+├── scheduler/      # logical scenes -> 4 slots
+├── scenes/         # scene schema
+├── pages/          # legacy fixed page flow
+└── probe.py        # verification tooling
+```
+
+## Core commands
 
 ```bash
-cd ~/base/projects/reterminal-e1001/python
-source ../.venv/bin/activate
+cd ~/projects/reterminal-e1001/python
 
-# Or with environment
-export RETERMINAL_HOST=192.168.7.77
+uv run reterminal status
+uv run reterminal capabilities
+uv run reterminal probe
+uv run reterminal publish --feed examples/agent-feed.json --preview ./previews
+uv run reterminal publish --feed examples/agent-feed.json --preview ./previews --push
 ```
 
-### Commands
+## Legacy commands
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `status` | Device status | `python -m reterminal status` |
-| `config` | Show settings | `python -m reterminal config` |
-| `beep` | Trigger buzzer | `python -m reterminal beep -n 3` |
-| `buttons` | Button states | `python -m reterminal buttons --watch` |
-| `page` | Page control | `python -m reterminal page next` |
-| `refresh` | Update pages | `python -m reterminal refresh market` |
-| `push` | Push content | `python -m reterminal push --text "Hi"` |
-| `watch` | Continuous updates | `python -m reterminal watch clock -i 60` |
-
-### Common Operations
+These still exist but are not the preferred architecture:
 
 ```bash
-# Check device is reachable
-python -m reterminal status
-
-# Refresh specific page
-python -m reterminal refresh market
-
-# Refresh all pages
-python -m reterminal refresh all
-
-# Push custom text
-python -m reterminal push --text "Hello World" --page 0
-
-# Push QR code
-python -m reterminal push --qr "https://example.com"
-
-# Preview without pushing (renders to PNG)
-python -m reterminal refresh market --preview ./output/
-
-# Navigate pages
-python -m reterminal page next
-python -m reterminal page 0
-
-# Watch mode (continuous updates)
-python -m reterminal watch clock -i 30
+uv run reterminal refresh market
+uv run reterminal watch clock -i 60
+./refresh.sh market
 ```
 
-### Shell Wrapper (for cron)
+## Design direction
+
+Prefer these extension points:
+
+- **providers** for Paperclip, local feeds, generated media, etc.
+- **renderers/templates** for strong typography and layout
+- **scheduler strategies** for slot rotation
+- **device capabilities** for hardware-aware behavior
+
+Avoid baking external integrations directly into firmware or into slot-specific host code.
+
+## When adding features
+
+1. keep the device SDK small and truthful
+2. put external system logic behind providers/adapters
+3. keep scene data structured, not pre-rendered
+4. make renderers responsible for visual composition
+5. never assume more than 4 physical slots unless firmware changes and is re-probed
+
+## Verification
+
+For code changes, run targeted tests from `python/`:
 
 ```bash
-./refresh.sh market   # Single page
-./refresh.sh all      # All pages
+uv run --extra dev pytest -q
+uv run --extra dev ruff check reterminal tests
 ```
 
-## Page Assignments
-
-| Page | Name | Content |
-|------|------|---------|
-| 0 | market | VIX, S&P 500, Dow Jones |
-| 1 | clock | Time and date |
-| 2 | github | GitHub activity |
-| 3 | status | System status |
-| 4 | portfolio | Account summary |
-| 5 | dashboard | System info |
-| 6 | weather | Current conditions |
-
-List pages: `python -m reterminal refresh --list`
-
-## Adding Content
-
-To add a new page:
-
-1. Create `python/reterminal/pages/newpage.py`:
-
-```python
-from reterminal.pages.base import BasePage
-from reterminal.pages import register
-
-@register("newpage", page_number=7)
-class NewPage(BasePage):
-    name = "newpage"
-
-    def get_data(self):
-        return {"message": "Hello"}
-
-    def render(self, data):
-        img, draw = self.create_canvas()
-        fonts = self.load_fonts()
-        draw.text((50, 50), data["message"], font=fonts["large"], fill=0)
-        return img
-```
-
-2. Import in `python/reterminal/pages/__init__.py`:
-
-```python
-from reterminal.pages import newpage
-```
-
-3. Test: `python -m reterminal refresh newpage`
-
-## Important Notes
-
-- **Minimize refreshes** - ePaper flickers on update; don't refresh frequently
-- **Preview mode** - Use `--preview DIR` to test rendering without pushing
-- **White background** - Use `self.create_canvas()` for correct encoding
-- **Market data** - Requires Schwab auth in schwab-cli-tools project
-- **Weather** - Uses Open-Meteo API (free, no key required)
-- **Retry logic** - Client retries 3x with exponential backoff on failures
-
-## Configuration
-
-Set via environment or `.env` file in `python/`:
+For live-device work, probe first:
 
 ```bash
-RETERMINAL_HOST=192.168.7.77
-RETERMINAL_TIMEOUT=30
-RETERMINAL_LOG_LEVEL=INFO
-RETERMINAL_RETRY_ATTEMPTS=3
-```
-
-View current config: `python -m reterminal config`
-
-## Firmware Updates
-
-```bash
-cd ~/base/projects/reterminal-e1001/firmware
-pio run -e ota -t upload  # OTA over WiFi (preferred)
-```
-
-Only update firmware if display behavior needs changing. Page content changes are Python-only.
-
-## When to Update Display
-
-Good reasons:
-- User explicitly requests it
-- Scheduled cron (market open/close)
-- Significant event (alert, notification)
-
-Bad reasons:
-- Every few seconds/minutes
-- Testing (use `--preview` or `/status` instead)
-- Multiple rapid updates
-
-## Integration Points
-
-- **Clawdbot:** Skill at `~/base/clawdbot/skills/reterminal/`
-- **Telegram:** Can trigger via clawdbot min bot
-- **Cron:** Auto-refresh at 6:30 AM and 1:00 PM PT (Mon-Fri)
-
-## Debugging
-
-```bash
-# Verbose output
-python -m reterminal -v refresh market
-
-# Check configuration
-python -m reterminal config
-
-# Preview rendering
-python -m reterminal refresh all --preview /tmp/previews/
-
-# Test connection with short timeout
-RETERMINAL_TIMEOUT=5 python -m reterminal status
+uv run reterminal capabilities
+uv run reterminal probe
 ```

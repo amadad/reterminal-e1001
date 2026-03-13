@@ -1,0 +1,62 @@
+{
+  "scenes": [
+    {
+      "id": "agents-live",
+      "kind": "hero",
+      "title": "Agents are live",
+      "subtitle": "Paperclip-ready display pipeline",
+      "priority": 100,
+      "preferred_slot": 0,
+      "metric": {
+        "label": "Active",
+        "value": "3",
+        "detail": "orb • kara • min"
+      },
+      "body": [
+        "host renders scenes and schedules them into 4 hardware slots",
+        "Paperclip can plug in later through a provider adapter",
+        "typography-first layouts tuned for monochrome ePaper"
+      ],
+      "footer": "hero / operations"
+    },
+    {
+      "id": "ops-metrics",
+      "kind": "metrics",
+      "title": "Ops board",
+      "subtitle": "snapshot",
+      "priority": 90,
+      "preferred_slot": 1,
+      "metrics": [
+        {"label": "Runs", "value": "12", "detail": "today"},
+        {"label": "Queued", "value": "4", "detail": "waiting"},
+        {"label": "Tokens", "value": "182k", "detail": "session"},
+        {"label": "Cost", "value": "$1.92", "detail": "tracked"}
+      ],
+      "footer": "metrics / queue / spend"
+    },
+    {
+      "id": "agent-feed",
+      "kind": "bulletin",
+      "title": "Recent feed",
+      "subtitle": "what the agents are doing",
+      "priority": 80,
+      "preferred_slot": 2,
+      "items": [
+        "orb finished the repo probe and confirmed the live firmware is 4-slot only",
+        "kara is drafting the new capability-driven SDK boundary",
+        "min wants stronger poster-like layouts and black-white art scenes",
+        "paperclip integration should arrive as a provider, not a firmware dependency"
+      ],
+      "footer": "bulletin / rotating feed"
+    },
+    {
+      "id": "poster-scene",
+      "kind": "poster",
+      "title": "Build a tiny publishing system, not a pile of fixed pages.",
+      "subtitle": "Providers fetch signals. Renderers make scenes. The scheduler owns the four slots.",
+      "priority": 70,
+      "preferred_slot": 3,
+      "footer": "poster / monochrome editorial"
+    }
+  ]
+}

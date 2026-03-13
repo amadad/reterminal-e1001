@@ -4,11 +4,10 @@ from datetime import datetime
 from typing import Any, Dict
 
 from PIL import Image
-from loguru import logger
 
 from reterminal.pages.base import BasePage
 from reterminal.pages import register
-from reterminal.config import WIDTH, HEIGHT
+from reterminal.config import WIDTH
 
 
 @register("clock", page_number=1)

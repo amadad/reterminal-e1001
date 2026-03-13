@@ -117,7 +117,7 @@ def text_to_raw(
     Returns:
         Raw bitmap data (48000 bytes)
     """
-    from PIL import ImageDraw, ImageFont
+    from PIL import ImageDraw
     from reterminal.fonts import load_font
 
     img = Image.new("1", (WIDTH, HEIGHT), color=1)  # White background

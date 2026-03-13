@@ -1,6 +1,8 @@
-"""Page registry and discovery for reTerminal display pages."""
+"""Page registry and discovery for legacy fixed pages."""
 
+from importlib import import_module
 from typing import Dict, Type, Optional
+
 from reterminal.pages.base import BasePage
 
 # Page registry: name -> (page_class, default_page_number)
@@ -48,15 +50,18 @@ def get_all_page_names() -> list:
     return list(_registry.keys())
 
 
-# Import pages to trigger registration
-# These imports must come after the register function is defined
-from reterminal.pages import market
-from reterminal.pages import clock
-from reterminal.pages import github
-from reterminal.pages import status
-from reterminal.pages import portfolio
-from reterminal.pages import dashboard
-from reterminal.pages import weather
+# Import pages to trigger registration.
+# Keep this dynamic so the legacy registry doesn't fight lint/import-order rules.
+for _module in (
+    "market",
+    "clock",
+    "github",
+    "status",
+    "portfolio",
+    "dashboard",
+    "weather",
+):
+    import_module(f"reterminal.pages.{_module}")
 
 # Populate 'all' alias after imports
 ALIASES["all"] = get_all_page_names()

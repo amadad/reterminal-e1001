@@ -9,11 +9,17 @@ from typing import Optional
 import typer
 from loguru import logger
 
+from reterminal.app import DisplayPublisher
 from reterminal.cli.app import app
 from reterminal.client import ReTerminal
 from reterminal.config import settings, get_host, WIDTH, HEIGHT
+from reterminal.device import ReTerminalDevice
 from reterminal.encoding import text_to_raw, image_to_raw, create_pattern, pil_to_raw
 from reterminal.pages import get_page, list_pages, ALIASES
+from reterminal.probe import VALID_PATTERNS, format_report, run_probe
+from reterminal.providers import FileSceneProvider, PaperclipSceneProvider, SystemSceneProvider
+from reterminal.render import MonoRenderer
+from reterminal.scheduler import PriorityScheduler
 
 
 # Common options
@@ -304,13 +310,141 @@ def config():
 
 
 @app.command()
+def probe(
+    host: Optional[str] = HostOption,
+    upload_pages: bool = typer.Option(
+        False,
+        "--upload-pages",
+        help="Destructively upload a test pattern into page slots",
+    ),
+    slots: int = typer.Option(8, "--slots", min=1, help="How many page slots to probe"),
+    expected_pages: int = typer.Option(
+        7,
+        "--expected-pages",
+        min=1,
+        help="Expected host-side page count to compare against",
+    ),
+    pattern: str = typer.Option(
+        "checkerboard",
+        "--pattern",
+        help=f"Probe pattern: {', '.join(VALID_PATTERNS)}",
+    ),
+    output: Optional[Path] = typer.Option(None, "--output", help="Write full JSON report to file"),
+):
+    """Probe device capabilities before refactoring architecture."""
+    if pattern not in VALID_PATTERNS:
+        typer.echo(f"Invalid pattern. Choose from: {', '.join(VALID_PATTERNS)}")
+        raise typer.Exit(1)
+
+    try:
+        report = run_probe(
+            host,
+            expected_pages=expected_pages,
+            requested_slots=slots,
+            pattern=pattern,
+            upload_pages=upload_pages,
+        )
+        typer.echo(format_report(report))
+
+        if output:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(json.dumps(report.to_dict(), indent=2))
+            typer.echo(f"\nSaved report: {output}")
+    except Exception as e:
+        logger.error(f"Failed to probe device: {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def capabilities(
+    host: Optional[str] = HostOption,
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
+):
+    """Show the verified host-side device capability contract."""
+    try:
+        caps = ReTerminalDevice(host).discover_capabilities(refresh=True)
+        if output == "json":
+            typer.echo(json.dumps(caps.to_dict(), indent=2))
+            return
+
+        typer.echo(f"{'─' * 48}")
+        typer.echo(f"  reTerminal Capabilities ({caps.host})")
+        typer.echo(f"{'─' * 48}")
+        typer.echo(f"  {'Resolution':20} {caps.width}x{caps.height}")
+        typer.echo(f"  {'Image Bytes':20} {caps.image_bytes}")
+        typer.echo(f"  {'Page Slots':20} {caps.page_slots}")
+        typer.echo(f"  {'Current Page':20} {caps.current_page}")
+        typer.echo(f"  {'Page Name':20} {caps.current_page_name}")
+        typer.echo(f"  {'WiFi SSID':20} {caps.ssid}")
+        typer.echo(f"  {'RSSI':20} {caps.rssi}")
+        typer.echo(f"  {'Uptime':20} {caps.uptime_ms} ms")
+        typer.echo(f"{'─' * 48}")
+    except Exception as e:
+        logger.error(f"Failed to get capabilities: {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def publish(
+    feed: Optional[Path] = typer.Option(None, "--feed", "-f", help="Path to scene feed JSON"),
+    paperclip_url: Optional[str] = typer.Option(None, "--paperclip-url", help="Remote Paperclip-compatible scene feed URL"),
+    host: Optional[str] = HostOption,
+    preview: Optional[Path] = typer.Option(None, "--preview", help="Directory for rendered previews"),
+    push: bool = typer.Option(False, "--push", help="Push rendered scenes to the device"),
+    include_system: bool = typer.Option(True, "--include-system/--no-include-system", help="Include a built-in ambient system scene"),
+    slot_count: Optional[int] = typer.Option(None, "--slots", min=1, help="Override physical slot count"),
+):
+    """Render logical scenes, schedule them into hardware slots, and preview/push them."""
+    providers = []
+    if feed is not None:
+        providers.append(FileSceneProvider(feed))
+    if paperclip_url is not None:
+        providers.append(PaperclipSceneProvider(paperclip_url))
+    if include_system:
+        providers.append(SystemSceneProvider())
+
+    if not providers:
+        typer.echo("Error: provide --feed, --paperclip-url, or enable --include-system")
+        raise typer.Exit(1)
+
+    device = ReTerminalDevice(host) if push or host else None
+    publisher = DisplayPublisher(
+        providers=providers,
+        renderer=MonoRenderer(),
+        scheduler=PriorityScheduler(),
+        device=device,
+    )
+
+    try:
+        result = publisher.publish(preview_dir=preview, push=push, slot_count=slot_count)
+        typer.echo(f"Selected {len(result.assignments)} scene(s) for {result.slot_count} slot(s):")
+        for slot, assignment in sorted(result.assignments.items()):
+            typer.echo(
+                f"  slot {slot}: {assignment.scene.id} "
+                f"[{assignment.scene.kind}] priority={assignment.scene.priority}"
+            )
+
+        if result.preview_paths:
+            typer.echo("\nPreview files:")
+            for path in result.preview_paths:
+                typer.echo(f"  {path}")
+
+        if push:
+            target_host = device.discover_capabilities().host if device else get_host(host)
+            typer.echo(f"\nPushed {len(result.assignments)} scene(s) to {target_host}")
+    except Exception as e:
+        logger.error(f"Failed to publish scenes: {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
 def watch(
     page_name: str = typer.Argument("clock", help="Page to watch"),
     host: Optional[str] = HostOption,
     interval: int = typer.Option(60, "--interval", "-i", help="Update interval in seconds"),
     page_num: Optional[int] = PageOption,
 ):
-    """Watch mode - continuously update a page."""
+    """Watch mode - continuously update a legacy page."""
     entry = get_page(page_name)
     if entry is None:
         typer.echo(f"Unknown page: {page_name}")

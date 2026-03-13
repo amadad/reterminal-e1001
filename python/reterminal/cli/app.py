@@ -1,7 +1,6 @@
 """Main Typer CLI application."""
 
 import sys
-from typing import Optional
 
 import typer
 from loguru import logger

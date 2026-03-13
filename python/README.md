@@ -1,144 +1,96 @@
-# Python Client
+# Python package
 
-Python library and page renderers for reTerminal E1001.
+The Python package is the active control plane for the reTerminal E1001.
+
+It now has two layers:
+
+- a **truthful device SDK** for the current 4-slot firmware contract
+- a **scene publishing pipeline** for provider-driven monochrome layouts
+
+## Verified contract
+
+The live device currently behaves as:
+
+- 800x480 monochrome
+- 48,000-byte raw upload payloads
+- 4 physical slots
+- invalid `page` requests wrap modulo 4
+- invalid `imageraw?page=N` uploads display immediately instead of storing
+
+Use `reterminal probe` and `reterminal capabilities` before assuming anything else.
 
 ## Install
 
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
-## Structure
-
-```
-python/
-├── reterminal.py      # Core client library
-├── refresh.py         # Page orchestrator
-├── requirements.txt
-└── pages/             # Page renderers
-    ├── market.py      # VIX, S&P, Dow
-    ├── clock.py       # Time and date
-    ├── github.py      # GitHub activity
-    └── status.py      # System status
-```
-
-## Usage
-
-### Client Library
-
-```python
-from reterminal import ReTerminal
-
-rt = ReTerminal("192.168.7.77")
-
-# Push text
-rt.push_text("Hello World", page=0, font_size=48)
-
-# Push image
-rt.push_image("photo.png", page=1)
-
-# Navigation
-rt.next_page()
-rt.prev_page()
-rt.set_page(2)
-
-# Status
-print(rt.status())
-rt.beep()
-```
-
-### CLI
+Or:
 
 ```bash
-python reterminal.py --host 192.168.7.77 --text "Hello" --page 0
-python reterminal.py --host 192.168.7.77 --image photo.png --page 1
-python reterminal.py --host 192.168.7.77 --status
-python reterminal.py --host 192.168.7.77 --beep
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
 ```
 
-### Page Orchestrator
+## Core commands
 
 ```bash
-# Refresh specific page
-python refresh.py --page market
-python refresh.py --page clock
-
-# Refresh multiple
-python refresh.py --page market,clock
-
-# Refresh all
-python refresh.py --page all
-
-# List available pages
-python refresh.py --list
+uv run reterminal status
+uv run reterminal capabilities
+uv run reterminal probe
+uv run reterminal publish --feed examples/agent-feed.json --preview ./previews
+uv run reterminal publish --feed examples/agent-feed.json --preview ./previews --push
 ```
 
-## Pages
+## Package layout
 
-| Name | Page # | Description |
-|------|--------|-------------|
-| market | 0 | VIX, S&P 500, Dow (from Schwab) |
-| clock | 1 | Time and date |
-| github | 2 | GitHub activity (via gh CLI) |
-| status | 3 | System/Clawdbot status |
-
-## Adding a Page
-
-1. Create `pages/mypage.py`:
-
-```python
-#!/usr/bin/env python3
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from reterminal import ReTerminal, WIDTH, HEIGHT, IMAGE_BYTES
-from PIL import Image, ImageDraw, ImageFont
-
-def get_data():
-    return {"value": 42}
-
-def render(data: dict) -> bytes:
-    img = Image.new("1", (WIDTH, HEIGHT), color=1)
-    draw = ImageDraw.Draw(img)
-    draw.text((50, 100), f"Value: {data['value']}", fill=0)
-
-    # Convert to raw bytes
-    raw = bytearray(IMAGE_BYTES)
-    pixels = img.load()
-    for y in range(HEIGHT):
-        for x in range(WIDTH):
-            byte_idx = (y * WIDTH + x) // 8
-            bit_idx = 7 - (x % 8)
-            if not pixels[x, y]:  # Black = set bit
-                raw[byte_idx] |= (1 << bit_idx)
-    return bytes(raw)
-
-def main():
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--host", required=True)
-    parser.add_argument("--page", type=int)
-    args = parser.parse_args()
-
-    data = get_data()
-    rt = ReTerminal(args.host)
-    rt.push_raw(render(data), page=args.page)
-
-if __name__ == "__main__":
-    main()
+```text
+reterminal/
+├── app/            # publish scenes -> previews/device slots
+├── cli/            # Typer commands
+├── device/         # device SDK and capability model
+├── providers/      # scene providers
+├── render/         # monochrome renderer + design tokens
+├── scheduler/      # slot assignment strategies
+├── scenes/         # structured scene model
+├── pages/          # legacy fixed page system
+└── probe.py        # hardware verification tooling
 ```
 
-2. Register in `refresh.py`:
+## Scene feed example
 
-```python
-PAGES = {
-    ...
-    "mypage": ("pages/mypage.py", 3),
-}
-```
+The feed file at `examples/agent-feed.json` demonstrates the new format:
 
-3. Test:
+- `hero`
+- `metrics`
+- `bulletin`
+- `poster`
+
+These are logical scenes. The scheduler maps them into the 4 physical slots the firmware actually supports.
+
+Current providers include:
+
+- `FileSceneProvider`
+- `SystemSceneProvider`
+- `PaperclipSceneProvider` (remote HTTP feed adapter)
+
+## Legacy code
+
+The following are still present but are no longer the architectural center:
+
+- `reterminal/pages/*`
+- `reterminal refresh`
+- `reterminal watch`
+- `python/reterminal.py`
+- `python/refresh.py`
+- `python/pages/*`
+
+They remain for compatibility while the repo transitions to the provider/scene/scheduler model.
+
+## Tests
 
 ```bash
-python refresh.py --page mypage
+uv run --extra dev pytest -q
+uv run --extra dev ruff check reterminal tests
 ```

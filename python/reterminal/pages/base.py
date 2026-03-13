@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw
 from loguru import logger
 
 from reterminal.client import ReTerminal
-from reterminal.config import WIDTH, HEIGHT, settings
+from reterminal.config import WIDTH, HEIGHT
 from reterminal.encoding import pil_to_raw
 from reterminal.fonts import load_font_family
 

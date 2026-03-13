@@ -1,242 +1,207 @@
 # reTerminal E1001
 
-HTTP API firmware and Python CLI for Seeed reTerminal E1001 ePaper display.
+A host-rendered publishing pipeline for the Seeed reTerminal E1001 ePaper display.
 
-![reTerminal E1001](https://files.seeedstudio.com/wiki/reterminal_e10xx/img/132.jpg)
+The repo now treats the device as a **4-slot monochrome display appliance**:
 
-## Features
+- the **host** fetches data, designs scenes, renders images, and schedules what should be live
+- the **firmware** stores bitmaps, shows slots, handles buttons, and exposes a small HTTP API
 
-- **7-Page Carousel** - Market, clock, GitHub, status, portfolio, dashboard, weather
-- **Modern CLI** - Typer-based with rich output, retry logic, preview mode
-- **Physical Buttons** - Navigate pages without network
-- **HTTP API** - Push images, control pages, trigger buzzer
-- **OTA Updates** - Flash firmware over WiFi
-- **QR Code Support** - Generate QR codes for WiFi, URLs, etc.
-- **Watch Mode** - Continuous page updates
+## Verified device contract
 
-## Hardware
+Live probe results from the current flashed firmware:
 
-- **Display:** 7.5" monochrome ePaper (800x480)
-- **MCU:** ESP32-S3 with PSRAM
-- **Buttons:** 3 tactile (prev/next/refresh)
-- **Buzzer:** Piezo feedback
+- **Resolution:** 800x480
+- **Color depth:** 1-bit monochrome
+- **Raw upload size:** 48,000 bytes
+- **Physical page slots:** 4 (`0..3`)
+- **Out-of-range `POST /page`:** wraps modulo 4
+- **Out-of-range `POST /imageraw?page=N`:** displays immediately instead of storing
 
-## Quick Start
+See:
 
-### 1. Flash Firmware
+- `docs/device-contract.md`
+- `docs/hardware-verification.md`
+- `artifacts/probe-report.json`
+
+## What this repo does now
+
+### Stable device layer
+
+- probe the live device
+- read status and capabilities
+- upload raw monochrome images
+- store/show slot `0..3`
+
+### Host-side scene pipeline
+
+- load scenes from providers
+- schedule logical scenes into 4 physical slots
+- render editorial monochrome layouts
+- preview locally or push to the device
+
+### Legacy page system
+
+The older fixed page modules still exist for compatibility, but they are now **legacy**. The new direction is provider-driven scenes, not a hardcoded 7-page carousel.
+
+## Quick start
+
+### 1. Install the Python package
 
 ```bash
-cd firmware
-pio run -e reterminal -t upload  # USB first time
-pio run -e ota -t upload         # WiFi after
+cd python
+uv sync
 ```
 
-### 2. Install Python Package
+Or with venv/pip:
 
 ```bash
 cd python
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
-
-# Optional: QR code support
-pip install segno
 ```
 
-### 3. Configure
+### 2. Configure the device host
 
 ```bash
-# Copy and edit environment
-cp .env.example .env
-
-# Or use environment variables
-export RETERMINAL_HOST=192.168.7.77
+export RETERMINAL_HOST=192.168.7.76
 ```
 
-### 4. Use CLI
+### 3. Probe the live device
 
 ```bash
-# Check device
-python -m reterminal status
-python -m reterminal config
-
-# Refresh pages
-python -m reterminal refresh market
-python -m reterminal refresh all
-
-# Push content
-python -m reterminal push --text "Hello World"
-python -m reterminal push --qr "https://example.com"
-
-# Preview without pushing (renders to PNG)
-python -m reterminal refresh market --preview ./previews/
+uv run reterminal status
+uv run reterminal capabilities
+uv run reterminal probe
 ```
 
-## CLI Commands
-
-```
-reterminal status      Get device status
-reterminal beep        Trigger buzzer (supports -n count)
-reterminal buttons     Get button states (supports --watch)
-reterminal page        Get/set current page (next, prev, 0-6)
-reterminal refresh     Refresh display pages
-reterminal push        Push text, image, QR code, or pattern
-reterminal watch       Continuous page updates
-reterminal config      Show current configuration
-```
-
-## Pages
-
-| Page | Name | Content | Data Source |
-|------|------|---------|-------------|
-| 0 | market | VIX, S&P 500, Dow | Schwab API |
-| 1 | clock | Time and date | Local |
-| 2 | github | Activity and stats | gh CLI |
-| 3 | status | System/Clawdbot | Local |
-| 4 | portfolio | Account summary | Schwab snapshots |
-| 5 | dashboard | System info | Local |
-| 6 | weather | Current conditions | Open-Meteo API |
-
-## Project Structure
-
-```
-reterminal-e1001/
-├── firmware/                  # ESP32 PlatformIO project
-│   ├── src/main.cpp
-│   └── platformio.ini
-├── python/
-│   ├── pyproject.toml         # Package config
-│   ├── .env.example           # Environment template
-│   └── reterminal/            # Python package
-│       ├── __init__.py
-│       ├── __main__.py        # CLI entry point
-│       ├── client.py          # HTTP client + retry
-│       ├── config.py          # Settings from env
-│       ├── encoding.py        # Pixel encoding
-│       ├── fonts.py           # Platform font detection
-│       ├── cli/               # Typer CLI
-│       │   ├── app.py
-│       │   └── commands.py
-│       └── pages/             # Display pages
-│           ├── base.py        # BasePage class
-│           ├── market.py
-│           ├── clock.py
-│           ├── github.py
-│           ├── status.py
-│           ├── portfolio.py
-│           ├── dashboard.py
-│           └── weather.py
-├── refresh.sh                 # Shell wrapper for cron
-├── CLAUDE.md                  # AI agent guidance
-└── AGENTS.md                  # Agent instructions
-```
-
-## API Reference
-
-### HTTP Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/status` | GET | Device status (IP, RSSI, uptime) |
-| `/buttons` | GET | Button states |
-| `/beep` | GET | Trigger buzzer |
-| `/page` | GET | Current page info |
-| `/page` | POST | Set page: `{"page": 0}` or `{"action": "next"}` |
-| `/imageraw` | POST | Upload image (multipart form) |
-
-### Python Client
-
-```python
-from reterminal import ReTerminal
-
-# Uses RETERMINAL_HOST env var or default
-rt = ReTerminal()
-
-# Or specify host
-rt = ReTerminal("192.168.7.77")
-
-# Push content
-rt.push_text("Hello World", page=0, font_size=48)
-rt.push_image("photo.png", page=1)
-
-# Navigation
-rt.next_page()
-rt.prev_page()
-rt.set_page(2)
-
-# Device
-rt.status()
-rt.beep()
-```
-
-## Configuration
-
-Environment variables (or `.env` file):
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RETERMINAL_HOST` | 192.168.7.77 | Device IP |
-| `RETERMINAL_TIMEOUT` | 30 | Request timeout (seconds) |
-| `RETERMINAL_LOG_LEVEL` | INFO | Logging level |
-| `RETERMINAL_RETRY_ATTEMPTS` | 3 | Retry count |
-| `RETERMINAL_RETRY_MIN_WAIT` | 1 | Min retry wait (seconds) |
-| `RETERMINAL_RETRY_MAX_WAIT` | 10 | Max retry wait (seconds) |
-
-## Adding Pages
-
-Create a new page by subclassing `BasePage`:
-
-```python
-# python/reterminal/pages/mypage.py
-from reterminal.pages.base import BasePage
-from reterminal.pages import register
-
-@register("mypage", page_number=7)
-class MyPage(BasePage):
-    name = "mypage"
-    description = "My custom page"
-
-    def get_data(self):
-        return {"value": 42}
-
-    def render(self, data):
-        img, draw = self.create_canvas()
-        fonts = self.load_fonts()
-        draw.text((50, 50), f"Value: {data['value']}", font=fonts["large"], fill=0)
-        return img
-```
-
-Then import in `pages/__init__.py`:
-
-```python
-from reterminal.pages import mypage
-```
-
-## Image Format
-
-- **Resolution:** 800x480 pixels
-- **Format:** 1-bit monochrome
-- **Size:** 48,000 bytes
-- **Encoding:** 1 = black, 0 = white (GxEPD2)
-
-## Cron Schedule
-
-Market data auto-refreshes at:
-- 6:30 AM PT (market open)
-- 1:00 PM PT (market close)
+Destructive slot verification:
 
 ```bash
-# Edit crontab
-crontab -e
-
-# Example entries
-30 6 * * 1-5 cd ~/base/projects/reterminal-e1001 && ./refresh.sh market
-0 13 * * 1-5 cd ~/base/projects/reterminal-e1001 && ./refresh.sh market
+uv run reterminal probe --upload-pages --slots 8 --output ../artifacts/probe-report.json
 ```
 
-## Credits
+### 4. Preview the new scene pipeline
 
-Hardware reference from [Handy4ndy/Handy-reTerminal-E1001](https://github.com/Handy4ndy/Handy-reTerminal-E1001)
+```bash
+uv run reterminal publish \
+  --feed examples/agent-feed.json \
+  --preview ./previews
+```
+
+### 5. Push the scheduled scenes to the device
+
+```bash
+uv run reterminal publish \
+  --feed examples/agent-feed.json \
+  --preview ./previews \
+  --push
+```
+
+## Feed-driven scene model
+
+The new pipeline consumes structured scene JSON and maps it into the 4 physical slots.
+
+Example file: `python/examples/agent-feed.json`
+
+Supported scene kinds today:
+
+- `hero`
+- `metrics`
+- `bulletin`
+- `poster`
+
+Current/ready provider adapters:
+
+- local JSON feeds via `FileSceneProvider`
+- ambient host scene via `SystemSceneProvider`
+- remote Paperclip-compatible HTTP feed via `PaperclipSceneProvider`
+
+This makes it easy to plug in:
+
+- Paperclip agent feeds
+- local status snapshots
+- generated poster/image scenes
+- weather/market/queue summaries
+
+## CLI
+
+```text
+reterminal status        Get raw device status
+reterminal capabilities  Show host-side device contract
+reterminal probe         Probe live device behavior
+reterminal publish       Render/schedule/preview/push scene feeds
+reterminal push          Push ad hoc text/image/QR/pattern
+reterminal refresh       Legacy fixed-page refresh flow
+reterminal watch         Legacy fixed-page watch flow
+reterminal config        Show current configuration
+reterminal buttons       Read button state
+reterminal page          Get/set the current device slot
+reterminal beep          Trigger the buzzer
+```
+
+## Architecture
+
+```text
+python/reterminal/
+├── app/            # high-level publishing pipeline
+├── device/         # truthful device SDK + capabilities
+├── providers/      # scene sources (file feed, system, future Paperclip)
+├── render/         # monochrome renderer + design tokens
+├── scheduler/      # logical scenes -> physical slots
+├── scenes/         # scene data model
+├── cli/            # Typer CLI
+├── pages/          # legacy fixed page modules
+└── probe.py        # hardware verification tooling
+```
+
+### Design direction
+
+The repo is moving toward:
+
+- **provider adapters** for external systems like Paperclip
+- **scene templates** for strong typography and layout
+- **scheduler strategies** for deciding which 4 scenes are currently live
+- **image/poster pipeline** for monochrome media generation
+
+## Firmware notes
+
+The current firmware is still a minimal HTTP server with buttons and OTA. The next firmware cleanup should:
+
+- remove hardcoded Wi-Fi credentials
+- add a `/capabilities` endpoint
+- reject invalid page indices instead of silently wrapping
+- explicitly expose slot names and loaded-state if useful
+
+## Legacy wrapper
+
+`refresh.sh` now points at the active CLI, but it remains a legacy wrapper for the old fixed-page workflow.
+
+## Development
+
+Run tests:
+
+```bash
+cd python
+uv run --extra dev pytest -q
+```
+
+Lint changed modules:
+
+```bash
+cd python
+uv run --extra dev ruff check reterminal tests
+```
+
+## Next integrations
+
+Planned adapters and pipelines:
+
+- Paperclip feed provider
+- generated monochrome poster/image provider
+- slot rotation policies
+- stronger type hierarchy for scene templates
 
 ## License
 
