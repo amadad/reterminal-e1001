@@ -36,12 +36,18 @@ pip install -e .
 ## Core commands
 
 ```bash
+uv run reterminal discover
+export RETERMINAL_HOST=<device-ip>
+uv run reterminal doctor
 uv run reterminal status
 uv run reterminal capabilities
 uv run reterminal probe
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews --push
+uv run reterminal publish --feed path/to/live-feed.json --push --interval 60
 ```
+
+The CLI no longer falls back to a baked-in host IP. Set `RETERMINAL_HOST` or pass `--host` explicitly after discovery. Use `reterminal discover` and `reterminal doctor` when DHCP or network behavior is unclear; earlier `.76/.77/.78` guesses are not stable identity.
 
 ## Package layout
 
@@ -60,14 +66,14 @@ reterminal/
 
 ## Scene feed example
 
-The feed file at `examples/agent-feed.json` demonstrates the new format:
+The feed file at `examples/agent-feed.json` demonstrates the new format and is intentionally static demo content:
 
 - `hero`
 - `metrics`
 - `bulletin`
 - `poster`
 
-These are logical scenes. The scheduler maps them into the 4 physical slots the firmware actually supports.
+These are logical scenes. The scheduler maps them into the 4 physical slots the firmware actually supports. Use a real feed or provider when you want the device to keep changing over time. Repeated publish loops skip unchanged slot uploads within the same device uptime for better throughput, and `--show-slot <n>` lets you pin the visible slot after each push.
 
 Current providers include:
 
@@ -86,7 +92,7 @@ The following are still present but are no longer the architectural center:
 - `python/refresh.py`
 - `python/pages/*`
 
-They remain for compatibility while the repo transitions to the provider/scene/scheduler model.
+They remain for compatibility while the repo transitions to the provider/scene/scheduler model. Legacy fixed pages are now guarded against pushing to slots beyond the live device capacity.
 
 ## Tests
 

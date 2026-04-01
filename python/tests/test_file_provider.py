@@ -17,9 +17,9 @@ def test_file_provider_loads_scene_specs(tmp_path):
                         "body": ["orb", "kara"],
                     },
                     {
-                        "id": "ops-metrics",
+                        "id": "demo-metrics",
                         "kind": "metrics",
-                        "title": "Ops",
+                        "title": "Demo",
                         "metrics": [
                             {"label": "Runs", "value": "12"},
                             {"label": "Cost", "value": "$4.10"},
@@ -32,5 +32,5 @@ def test_file_provider_loads_scene_specs(tmp_path):
 
     scenes = FileSceneProvider(feed_path).fetch()
 
-    assert [scene.id for scene in scenes] == ["agent-overview", "ops-metrics"]
+    assert [scene.id for scene in scenes] == ["agent-overview", "demo-metrics"]
     assert scenes[1].metrics[0].label == "Runs"

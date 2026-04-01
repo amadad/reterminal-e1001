@@ -45,6 +45,7 @@ class ReTerminal:
         self.host = get_host(host)
         self.base_url = f"http://{self.host}"
         self.timeout = timeout or settings.timeout
+        self._session = requests.Session()
         logger.debug(f"ReTerminal client initialized for {self.host}")
 
     def _request(
@@ -58,7 +59,7 @@ class ReTerminal:
         kwargs.setdefault("timeout", self.timeout)
 
         try:
-            response = requests.request(method, url, **kwargs)
+            response = self._session.request(method, url, **kwargs)
             response.raise_for_status()
             return response
         except requests.Timeout as e:
@@ -127,7 +128,7 @@ class ReTerminal:
 
         Args:
             data: Raw bitmap data (48000 bytes, 1-bit per pixel)
-            page: Page to store (0-3), or None to display immediately
+            page: Device slot to store, or None to display immediately
         """
         if len(data) != IMAGE_BYTES:
             raise ImageError(f"Image must be {IMAGE_BYTES} bytes, got {len(data)}")
@@ -154,7 +155,7 @@ class ReTerminal:
 
         Args:
             image_path: Path to image file (PNG, JPG, etc.)
-            page: Page to store (0-3), or None to display immediately
+            page: Device slot to store, or None to display immediately
             invert: Invert black/white
             dither: Use Floyd-Steinberg dithering for grayscale
         """
@@ -176,7 +177,7 @@ class ReTerminal:
 
         Args:
             text: Text to display (supports newlines)
-            page: Page to store (0-3), or None to display immediately
+            page: Device slot to store, or None to display immediately
             font_size: Font size in pixels
             align: Text alignment ("left", "center", "right")
         """

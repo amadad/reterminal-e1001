@@ -24,15 +24,26 @@ class StubProvider:
 class StubDevice:
     def __init__(self):
         self.pushed = []
+        self.shown = []
+        self.prepare_calls = 0
 
     def discover_capabilities(self):
         class Capabilities:
             page_slots = 4
+            current_page = 1
 
         return Capabilities()
 
+    def prepare_push_cycle(self):
+        self.prepare_calls += 1
+        return self.discover_capabilities()
+
     def push_pil(self, image, slot):
         self.pushed.append((slot, image.size, image.mode))
+        return {"success": True, "page": slot}
+
+    def show_slot(self, slot):
+        self.shown.append(slot)
 
 
 def test_publisher_renders_preview_and_pushes_to_slots(tmp_path: Path):
@@ -49,5 +60,25 @@ def test_publisher_renders_preview_and_pushes_to_slots(tmp_path: Path):
 
     assert result.slot_count == 4
     assert result.assignments[0].scene.id == "hero"
+    assert result.shown_slot == 0
+    assert result.push_results == {0: {"success": True, "page": 0}}
+    assert device.prepare_calls == 1
     assert device.pushed == [(0, (800, 480), "1")]
+    assert device.shown == [0]
     assert (preview_dir / "slot-0-hero.png").exists()
+
+
+
+def test_publisher_can_activate_an_explicit_slot(tmp_path: Path):
+    device = StubDevice()
+    publisher = DisplayPublisher(
+        providers=[StubProvider()],
+        renderer=MonoRenderer(),
+        scheduler=PriorityScheduler(),
+        device=device,
+    )
+
+    result = publisher.publish(preview_dir=tmp_path / "previews", push=True, show_slot=3)
+
+    assert result.shown_slot == 3
+    assert device.shown == [3]

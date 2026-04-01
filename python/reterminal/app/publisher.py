@@ -22,6 +22,8 @@ class PublishResult:
     scenes: list[SceneSpec]
     assignments: dict[int, SlotAssignment]
     preview_paths: list[Path] = field(default_factory=list)
+    push_results: dict[int, dict] = field(default_factory=dict)
+    shown_slot: Optional[int] = None
 
 
 class DisplayPublisher:
@@ -46,12 +48,16 @@ class DisplayPublisher:
         preview_dir: Optional[Path] = None,
         push: bool = False,
         slot_count: Optional[int] = None,
+        show_slot: Optional[int] = None,
     ) -> PublishResult:
         scenes = self._collect_scenes()
+        if push and self.device is not None:
+            self.device.prepare_push_cycle()
         resolved_slot_count = slot_count or self._resolve_slot_count()
         assignments = self.scheduler.assign(scenes, resolved_slot_count)
 
         preview_paths: list[Path] = []
+        push_results: dict[int, dict] = {}
         if preview_dir:
             preview_dir.mkdir(parents=True, exist_ok=True)
 
@@ -64,13 +70,22 @@ class DisplayPublisher:
             if push:
                 if self.device is None:
                     raise ValueError("A device adapter is required when push=True")
-                self.device.push_pil(image, slot)
+                push_results[slot] = self.device.push_pil(image, slot)
+
+        shown_slot: Optional[int] = None
+        if push and assignments:
+            if self.device is None:
+                raise ValueError("A device adapter is required when push=True")
+            shown_slot = self._resolve_show_slot(assignments, show_slot)
+            self.device.show_slot(shown_slot)
 
         return PublishResult(
             slot_count=resolved_slot_count,
             scenes=scenes,
             assignments=assignments,
             preview_paths=preview_paths,
+            push_results=push_results,
+            shown_slot=shown_slot,
         )
 
     def _collect_scenes(self) -> list[SceneSpec]:
@@ -86,6 +101,17 @@ class DisplayPublisher:
         if self.device is not None:
             return self.device.discover_capabilities().page_slots
         return 4
+
+    @staticmethod
+    def _resolve_show_slot(
+        assignments: dict[int, SlotAssignment],
+        requested_slot: Optional[int],
+    ) -> int:
+        if requested_slot is not None:
+            return requested_slot
+        if 0 in assignments:
+            return 0
+        return min(assignments)
 
     @staticmethod
     def _slugify(value: str) -> str:

@@ -38,7 +38,7 @@ class Settings:
     def from_env(cls) -> "Settings":
         """Load settings from environment variables."""
         return cls(
-            host=os.getenv("RETERMINAL_HOST", "192.168.7.77"),
+            host=os.getenv("RETERMINAL_HOST", "").strip(),
             timeout=int(os.getenv("RETERMINAL_TIMEOUT", "30")),
             log_level=os.getenv("RETERMINAL_LOG_LEVEL", "INFO"),
             retry_attempts=int(os.getenv("RETERMINAL_RETRY_ATTEMPTS", "3")),
@@ -53,4 +53,7 @@ settings = Settings.from_env()
 
 def get_host(override: Optional[str] = None) -> str:
     """Get device host, with optional override."""
-    return override or settings.host
+    host = (override or settings.host).strip()
+    if not host:
+        raise ValueError("Set RETERMINAL_HOST or pass --host with the device IP")
+    return host

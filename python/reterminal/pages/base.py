@@ -76,7 +76,7 @@ class BasePage(ABC):
         Full refresh cycle: fetch data, render, push to device.
 
         Args:
-            page: Page number to store (0-3), or None for immediate display
+            page: Device slot to store, or None for immediate display
 
         Returns:
             Response from device

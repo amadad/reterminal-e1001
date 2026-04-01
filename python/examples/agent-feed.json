@@ -3,8 +3,8 @@
     {
       "id": "agents-live",
       "kind": "hero",
-      "title": "Agents are live",
-      "subtitle": "Paperclip-ready display pipeline",
+      "title": "Demo scenes are live",
+      "subtitle": "Static example feed for previews and smoke tests",
       "priority": 100,
       "preferred_slot": 0,
       "metric": {
@@ -17,13 +17,13 @@
         "Paperclip can plug in later through a provider adapter",
         "typography-first layouts tuned for monochrome ePaper"
       ],
-      "footer": "hero / operations"
+      "footer": "demo hero / example only"
     },
     {
-      "id": "ops-metrics",
+      "id": "demo-metrics",
       "kind": "metrics",
-      "title": "Ops board",
-      "subtitle": "snapshot",
+      "title": "Demo metrics",
+      "subtitle": "static example",
       "priority": 90,
       "preferred_slot": 1,
       "metrics": [
@@ -32,22 +32,22 @@
         {"label": "Tokens", "value": "182k", "detail": "session"},
         {"label": "Cost", "value": "$1.92", "detail": "tracked"}
       ],
-      "footer": "metrics / queue / spend"
+      "footer": "demo metrics / example only"
     },
     {
       "id": "agent-feed",
       "kind": "bulletin",
-      "title": "Recent feed",
-      "subtitle": "what the agents are doing",
+      "title": "Demo bulletin",
+      "subtitle": "static sample copy",
       "priority": 80,
       "preferred_slot": 2,
       "items": [
-        "orb finished the repo probe and confirmed the live firmware is 4-slot only",
-        "kara is drafting the new capability-driven SDK boundary",
-        "min wants stronger poster-like layouts and black-white art scenes",
-        "paperclip integration should arrive as a provider, not a firmware dependency"
+        "this example feed is static and is meant for previews, smoke tests, and demos",
+        "swap in a real JSON feed or remote provider when you want live operational content",
+        "slot zero is the front page, not a rotating carousel controller",
+        "use `reterminal publish --push --interval 60` to keep a real feed refreshed"
       ],
-      "footer": "bulletin / rotating feed"
+      "footer": "demo bulletin / example only"
     },
     {
       "id": "poster-scene",

@@ -22,24 +22,37 @@ pio --version
 
 ## Configuration
 
-### WiFi Credentials
+### Local secrets and host overrides
 
-Edit `src/main.cpp` and update:
+Do **not** edit `src/main.cpp` with real credentials.
 
-```cpp
-const char* WIFI_SSID = "YourNetwork";
-const char* WIFI_PASS = "YourPassword";
-const char* HOSTNAME = "reterminal";  // optional: change hostname
+Instead, copy the example local config and keep the real file untracked:
+
+```bash
+cd firmware
+cp platformio.local.example.ini platformio.local.ini
 ```
 
-### OTA IP Address
-
-Edit `platformio.ini` and set your device's IP for OTA updates:
+Then edit `platformio.local.ini`:
 
 ```ini
+[env:reterminal]
+build_flags =
+    ${env:reterminal.build_flags}
+    -DRETERMINAL_WIFI_SSID=\"YourNetwork\"
+    -DRETERMINAL_WIFI_PASS=\"YourPassword\"
+    -DRETERMINAL_HOSTNAME=\"reterminal\"
+    -DRETERMINAL_OTA_PASSWORD=\"set-a-real-password\"
+
 [env:ota]
-upload_port = 192.168.x.x  # Your device IP
+upload_port = 192.168.x.x
 ```
+
+Notes:
+
+- Wi-Fi is now configured via build flags, not hardcoded in source.
+- OTA is **disabled by default** and only starts when `RETERMINAL_OTA_PASSWORD` is set.
+- `platformio.local.ini` is gitignored.
 
 ## Flashing
 
@@ -60,7 +73,7 @@ pio run -e reterminal -t upload
 pio device monitor
 ```
 
-You should see:
+You should see something like:
 ```
 reTerminal E1001 Starting...
 Allocating page storage...
@@ -72,12 +85,22 @@ OTA ready
 Setup complete!
 ```
 
-### Subsequent Updates (OTA)
+If Wi-Fi is not configured, the device now stops on a configuration screen instead of silently using baked-in credentials.
 
-Once the device is on WiFi, flash wirelessly:
+After a successful Wi-Fi boot, rediscover the current DHCP lease from the host side instead of assuming an old IP:
 
 ```bash
-# Update platformio.ini with your device IP first
+cd ../python
+uv run reterminal discover
+uv run reterminal doctor --host <device-ip>
+```
+
+### Subsequent Updates (OTA)
+
+Once the device is on Wi-Fi, flash wirelessly:
+
+```bash
+# Set upload_port in platformio.local.ini first
 pio run -e ota -t upload
 ```
 
@@ -116,13 +139,14 @@ Managed automatically by PlatformIO:
 
 ### WiFi not connecting
 
-- Check credentials in `main.cpp`
+- Check `platformio.local.ini` exists and defines `RETERMINAL_WIFI_SSID` / `RETERMINAL_WIFI_PASS`
 - Ensure 2.4GHz network (ESP32 doesn't support 5GHz)
 - Check serial monitor for connection status
 
 ### OTA upload fails
 
-- Verify device IP is correct in `platformio.ini`
+- Verify `upload_port` is correct in `platformio.local.ini`
+- Ensure `RETERMINAL_OTA_PASSWORD` is set in `platformio.local.ini`
 - Ensure device is powered and on network
 - Check firewall isn't blocking port 3232
 

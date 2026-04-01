@@ -1,6 +1,12 @@
 # PlatformIO
 firmware/.pio/
 firmware/.vscode/
+firmware/platformio.local.ini
+
+# Secrets
+.env
+*.env
+python/.env
 
 # Python
 __pycache__/

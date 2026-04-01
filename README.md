@@ -62,15 +62,19 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-### 2. Configure the device host
+### 2. Discover and configure the device host
 
 ```bash
-export RETERMINAL_HOST=192.168.7.76
+uv run reterminal discover
+export RETERMINAL_HOST=<device-ip>
 ```
+
+The CLI no longer falls back to a baked-in IP. Set `RETERMINAL_HOST` or pass `--host` explicitly after discovery. Do not assume an old DHCP lease; during recovery the device moved from earlier `.76/.77/.78` guesses to `.97`.
 
 ### 3. Probe the live device
 
 ```bash
+uv run reterminal doctor
 uv run reterminal status
 uv run reterminal capabilities
 uv run reterminal probe
@@ -90,6 +94,8 @@ uv run reterminal publish \
   --preview ./previews
 ```
 
+`python/examples/agent-feed.json` is static demo content. Use it for previews and smoke tests, not as a live ops feed.
+
 ### 5. Push the scheduled scenes to the device
 
 ```bash
@@ -99,11 +105,22 @@ uv run reterminal publish \
   --push
 ```
 
+To keep a real feed fresh and rotate the visible slot over time:
+
+```bash
+uv run reterminal publish \
+  --feed path/to/live-feed.json \
+  --push \
+  --interval 60
+```
+
+Repeated publish runs now skip unchanged slot uploads within the same device uptime, so a steady feed loop does less unnecessary work. Use `--show-slot <n>` when you want to keep a specific slot visible instead of rotating across assigned slots.
+
 ## Feed-driven scene model
 
 The new pipeline consumes structured scene JSON and maps it into the 4 physical slots.
 
-Example file: `python/examples/agent-feed.json`
+Example file: `python/examples/agent-feed.json` (static demo content)
 
 Supported scene kinds today:
 
@@ -128,6 +145,8 @@ This makes it easy to plug in:
 ## CLI
 
 ```text
+reterminal discover      Probe common names/IPs to find reachable devices
+reterminal doctor        Check connectivity, slot truth, and publish readiness
 reterminal status        Get raw device status
 reterminal capabilities  Show host-side device contract
 reterminal probe         Probe live device behavior
@@ -167,16 +186,21 @@ The repo is moving toward:
 
 ## Firmware notes
 
-The current firmware is still a minimal HTTP server with buttons and OTA. The next firmware cleanup should:
+The latest **verified live device** still reflects the older flashed firmware contract above.
 
-- remove hardcoded Wi-Fi credentials
-- add a `/capabilities` endpoint
+The tracked firmware source has now been tightened to:
+
+- remove hardcoded Wi-Fi credentials from source
+- require local build-time config via `platformio.local.ini`
+- disable OTA unless a password is configured
 - reject invalid page indices instead of silently wrapping
-- explicitly expose slot names and loaded-state if useful
+- reject invalid `imageraw?page=N` targets instead of displaying them immediately
+
+Reflash and re-probe before treating those newer behaviors as live truth.
 
 ## Legacy wrapper
 
-`refresh.sh` now points at the active CLI, but it remains a legacy wrapper for the old fixed-page workflow.
+`refresh.sh` now points at the active CLI, but it remains a legacy wrapper for the old fixed-page workflow and now requires `RETERMINAL_HOST` to be set explicitly.
 
 ## Development
 

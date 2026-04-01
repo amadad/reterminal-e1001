@@ -59,11 +59,14 @@ reterminal-e1001/
 
 ```bash
 cd python
+uv run reterminal discover
+uv run reterminal doctor
 uv run reterminal status
 uv run reterminal capabilities
 uv run reterminal probe
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews --push
+uv run reterminal publish --feed path/to/live-feed.json --push --interval 60
 ```
 
 ## Commands considered legacy
@@ -107,6 +110,10 @@ For live device work:
 
 ```bash
 cd python
+uv run reterminal discover
+uv run reterminal doctor
 uv run reterminal capabilities
 uv run reterminal probe
 ```
+
+Do not assume a prior DHCP lease is still valid. The recovered device later appeared at `.97` after earlier `.76/.77/.78` guesses failed.

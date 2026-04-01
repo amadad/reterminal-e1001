@@ -17,11 +17,28 @@
 #include <ArduinoJson.h>
 #include <GxEPD2_BW.h>
 #include <Fonts/FreeMonoBold18pt7b.h>
+#include <stdlib.h>
 
-// WiFi credentials
-const char* WIFI_SSID = "HORUS";
-const char* WIFI_PASS = "homesweethome";
-const char* HOSTNAME = "reterminal";
+#ifndef RETERMINAL_WIFI_SSID
+#define RETERMINAL_WIFI_SSID ""
+#endif
+
+#ifndef RETERMINAL_WIFI_PASS
+#define RETERMINAL_WIFI_PASS ""
+#endif
+
+#ifndef RETERMINAL_HOSTNAME
+#define RETERMINAL_HOSTNAME "reterminal"
+#endif
+
+#ifndef RETERMINAL_OTA_PASSWORD
+#define RETERMINAL_OTA_PASSWORD ""
+#endif
+
+const char* WIFI_SSID = RETERMINAL_WIFI_SSID;
+const char* WIFI_PASS = RETERMINAL_WIFI_PASS;
+const char* HOSTNAME = RETERMINAL_HOSTNAME;
+const char* OTA_PASSWORD = RETERMINAL_OTA_PASSWORD;
 
 // Display pins (SPI)
 #define EPD_SCK_PIN 7
@@ -139,6 +156,42 @@ void showReadyScreen(String ip) {
   } while (display.nextPage());
 }
 
+void showConfigRequiredScreen(const char* title, const char* detail) {
+  display.setFullWindow();
+  display.firstPage();
+  do {
+    display.fillScreen(GxEPD_WHITE);
+    display.setFont(&FreeMonoBold18pt7b);
+    display.setTextColor(GxEPD_BLACK);
+    printCentered("reTerminal E1001", 140);
+    printCentered(title, 220);
+    printCentered(detail, 300);
+  } while (display.nextPage());
+}
+
+bool isValidPageIndex(int page) {
+  return page >= 0 && page < NUM_PAGES;
+}
+
+bool parseIntegerStrict(const String& raw, int* value) {
+  if (raw.length() == 0 || value == nullptr) {
+    return false;
+  }
+
+  char* end = nullptr;
+  long parsed = strtol(raw.c_str(), &end, 10);
+  if (end == raw.c_str() || *end != '\0') {
+    return false;
+  }
+
+  *value = static_cast<int>(parsed);
+  return true;
+}
+
+void sendJsonError(int status, const String& message) {
+  server.send(status, "application/json", "{\"error\": \"" + message + "\"}");
+}
+
 // === HTTP Handlers ===
 
 void handleRoot() {
@@ -192,52 +245,84 @@ void handlePage() {
     String response;
     serializeJson(doc, response);
     server.send(200, "application/json", response);
-  } else if (server.method() == HTTP_POST) {
-    String body = server.arg("plain");
-    JsonDocument doc;
-    if (deserializeJson(doc, body) == DeserializationError::Ok) {
-      if (doc["page"].is<int>()) {
-        currentPage = doc["page"].as<int>() % NUM_PAGES;
-        beep(100);
-        showPage(currentPage);
-      } else if (doc["action"].is<const char*>()) {
-        const char* action = doc["action"];
-        if (strcmp(action, "next") == 0) {
-          currentPage = (currentPage + 1) % NUM_PAGES;
-        } else if (strcmp(action, "prev") == 0) {
-          currentPage = (currentPage - 1 + NUM_PAGES) % NUM_PAGES;
-        }
-        beep(100);
-        showPage(currentPage);
-      }
-    }
-    JsonDocument resp;
-    resp["page"] = currentPage;
-    resp["name"] = PAGE_NAMES[currentPage];
-    String response;
-    serializeJson(resp, response);
-    server.send(200, "application/json", response);
+    return;
   }
+
+  if (server.method() != HTTP_POST) {
+    sendJsonError(405, "Method Not Allowed");
+    return;
+  }
+
+  String body = server.arg("plain");
+  JsonDocument doc;
+  if (deserializeJson(doc, body) != DeserializationError::Ok) {
+    sendJsonError(400, "Invalid JSON");
+    return;
+  }
+
+  if (doc["page"].is<int>()) {
+    int requestedPage = doc["page"].as<int>();
+    if (!isValidPageIndex(requestedPage)) {
+      sendJsonError(400, "Page out of range");
+      return;
+    }
+    currentPage = requestedPage;
+  } else if (doc["action"].is<const char*>()) {
+    const char* action = doc["action"];
+    if (strcmp(action, "next") == 0) {
+      currentPage = (currentPage + 1) % NUM_PAGES;
+    } else if (strcmp(action, "prev") == 0) {
+      currentPage = (currentPage - 1 + NUM_PAGES) % NUM_PAGES;
+    } else {
+      sendJsonError(400, "Unsupported action");
+      return;
+    }
+  } else {
+    sendJsonError(400, "Expected 'page' or 'action'");
+    return;
+  }
+
+  beep(100);
+  showPage(currentPage);
+
+  JsonDocument resp;
+  resp["page"] = currentPage;
+  resp["name"] = PAGE_NAMES[currentPage];
+  String response;
+  serializeJson(resp, response);
+  server.send(200, "application/json", response);
 }
 
 // Upload state for chunked image uploads
 size_t uploadBytesReceived = 0;
 int uploadTargetPage = -1;
+bool uploadTargetSpecified = false;
+bool uploadTargetInvalid = false;
+
+void resetUploadState() {
+  uploadBytesReceived = 0;
+  uploadTargetPage = -1;
+  uploadTargetSpecified = false;
+  uploadTargetInvalid = false;
+}
 
 void handleImageUpload() {
   HTTPUpload& upload = server.upload();
 
   if (upload.status == UPLOAD_FILE_START) {
-    uploadBytesReceived = 0;
-    uploadTargetPage = -1;
+    resetUploadState();
 
     String pageArg = server.arg("page");
     if (pageArg.length() > 0) {
-      uploadTargetPage = pageArg.toInt();
-      if (uploadTargetPage < 0 || uploadTargetPage >= NUM_PAGES) uploadTargetPage = -1;
+      uploadTargetSpecified = true;
+      int requestedPage = -1;
+      if (parseIntegerStrict(pageArg, &requestedPage) && isValidPageIndex(requestedPage)) {
+        uploadTargetPage = requestedPage;
+      } else {
+        uploadTargetInvalid = true;
+      }
     }
 
-    // Allocate buffer
     if (imageBuffer == nullptr) {
       imageBuffer = (uint8_t*)ps_malloc(IMAGE_BYTES);
       if (imageBuffer == nullptr) imageBuffer = (uint8_t*)malloc(IMAGE_BYTES);
@@ -258,25 +343,37 @@ void handleImageUpload() {
 
 void handleImageRaw() {
   if (server.method() != HTTP_POST) {
-    server.send(405, "text/plain", "Method Not Allowed");
+    sendJsonError(405, "Method Not Allowed");
     return;
   }
 
-  // Check if we got the right amount of data
+  if (uploadTargetInvalid) {
+    resetUploadState();
+    sendJsonError(400, "Page out of range");
+    return;
+  }
+
   if (uploadBytesReceived != IMAGE_BYTES) {
     server.send(400, "application/json",
       "{\"error\": \"Invalid size\", \"expected\": " + String(IMAGE_BYTES) +
       ", \"received\": " + String(uploadBytesReceived) + "}");
+    resetUploadState();
     return;
   }
 
   if (imageBuffer == nullptr) {
-    server.send(500, "application/json", "{\"error\": \"No buffer\"}");
+    resetUploadState();
+    sendJsonError(500, "No buffer");
     return;
   }
 
-  // Store to page or display immediately
-  if (uploadTargetPage >= 0 && pageStorage[uploadTargetPage] != nullptr) {
+  if (uploadTargetSpecified) {
+    if (pageStorage[uploadTargetPage] == nullptr) {
+      resetUploadState();
+      sendJsonError(500, "Target page storage unavailable");
+      return;
+    }
+
     memcpy(pageStorage[uploadTargetPage], imageBuffer, IMAGE_BYTES);
     pageLoaded[uploadTargetPage] = true;
 
@@ -286,19 +383,19 @@ void handleImageRaw() {
 
     server.send(200, "application/json",
       "{\"success\": true, \"page\": " + String(uploadTargetPage) + "}");
-  } else {
-    // Display immediately
-    display.setFullWindow();
-    display.firstPage();
-    do {
-      display.fillScreen(GxEPD_WHITE);
-      display.drawBitmap(0, 0, imageBuffer, DISPLAY_WIDTH, DISPLAY_HEIGHT, GxEPD_BLACK);
-    } while (display.nextPage());
-
-    server.send(200, "application/json", "{\"success\": true, \"displayed\": true}");
+    resetUploadState();
+    return;
   }
 
-  uploadBytesReceived = 0;
+  display.setFullWindow();
+  display.firstPage();
+  do {
+    display.fillScreen(GxEPD_WHITE);
+    display.drawBitmap(0, 0, imageBuffer, DISPLAY_WIDTH, DISPLAY_HEIGHT, GxEPD_BLACK);
+  } while (display.nextPage());
+
+  server.send(200, "application/json", "{\"success\": true, \"displayed\": true}");
+  resetUploadState();
 }
 
 void handleNotFound() {
@@ -350,24 +447,30 @@ void setup() {
   showBootScreen();
 
   // Connect WiFi
-  WiFi.setHostname(HOSTNAME);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  usbSerial.print("Connecting to WiFi");
+  if (strlen(WIFI_SSID) > 0) {
+    WiFi.setHostname(HOSTNAME);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    usbSerial.print("Connecting to WiFi");
 
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
-    delay(500);
-    usbSerial.print(".");
-    attempts++;
-  }
-  usbSerial.println();
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+      delay(500);
+      usbSerial.print(".");
+      attempts++;
+    }
+    usbSerial.println();
 
-  if (WiFi.status() == WL_CONNECTED) {
-    usbSerial.println("Connected! IP: " + WiFi.localIP().toString());
-    showReadyScreen(WiFi.localIP().toString());
-    beep(100);
+    if (WiFi.status() == WL_CONNECTED) {
+      usbSerial.println("Connected! IP: " + WiFi.localIP().toString());
+      showReadyScreen(WiFi.localIP().toString());
+      beep(100);
+    } else {
+      usbSerial.println("WiFi failed!");
+      showConfigRequiredScreen("WiFi connect failed", "Check platformio.local.ini");
+    }
   } else {
-    usbSerial.println("WiFi failed!");
+    usbSerial.println("WiFi credentials not configured");
+    showConfigRequiredScreen("WiFi not configured", "Set platformio.local.ini");
   }
 
   // HTTP routes
@@ -382,11 +485,16 @@ void setup() {
   usbSerial.println("HTTP server started");
 
   // OTA
-  ArduinoOTA.setHostname(HOSTNAME);
-  ArduinoOTA.onStart([]() { usbSerial.println("OTA starting..."); });
-  ArduinoOTA.onEnd([]() { usbSerial.println("OTA done!"); });
-  ArduinoOTA.begin();
-  usbSerial.println("OTA ready");
+  if (WiFi.status() == WL_CONNECTED && strlen(OTA_PASSWORD) > 0) {
+    ArduinoOTA.setHostname(HOSTNAME);
+    ArduinoOTA.setPassword(OTA_PASSWORD);
+    ArduinoOTA.onStart([]() { usbSerial.println("OTA starting..."); });
+    ArduinoOTA.onEnd([]() { usbSerial.println("OTA done!"); });
+    ArduinoOTA.begin();
+    usbSerial.println("OTA ready");
+  } else {
+    usbSerial.println("OTA disabled (set RETERMINAL_OTA_PASSWORD to enable)");
+  }
 
   usbSerial.println("Setup complete!");
 }

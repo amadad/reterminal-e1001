@@ -18,7 +18,7 @@ The refactor should converge those three into one contract.
 
 Automated probe was run successfully against the live device over Wi-Fi after USB serial revealed the current DHCP lease.
 
-- **Live IP:** `192.168.7.76`
+- **Observed IP during that probe:** `192.168.7.76`
 - **Live SSID:** `HORUS`
 - **Firmware-reported page total:** `4`
 - **Verified contiguous storable/selectable slots:** `0..3`
@@ -33,6 +33,10 @@ Evidence artifact:
 
 - `artifacts/probe-report.json`
 
+Note: the tracked repo firmware has since been tightened to reject invalid page indices, reject invalid upload targets, and remove hardcoded Wi-Fi credentials from source. Those newer behaviors are **not live truth yet** until the device is reflashed and re-probed.
+
+Operational note: DHCP lease is not a stable identity signal for this device. During a later recovery/publish session on `2026-04-01`, the same device was rediscovered at `192.168.7.97` and accepted live scene uploads. Treat observed IPs as session evidence, not as part of the device contract, and prefer `reterminal discover` / `reterminal doctor` before making network assumptions.
+
 ## Current evidence from code inspection
 
 These are facts supported by the current codebase, not yet by live hardware measurement.
@@ -43,10 +47,10 @@ These are facts supported by the current codebase, not yet by live hardware meas
 | Firmware page storage | Firmware allocates `NUM_PAGES = 4` page buffers | `firmware/src/main.cpp` | High |
 | Host page model | Python package registers 7 pages: market, clock, github, status, portfolio, dashboard, weather | `python/reterminal/pages/__init__.py` | High |
 | Control API | `/status`, `/buttons`, `/beep`, `/page`, `/imageraw` | `firmware/src/main.cpp` | High |
-| Upload semantics | Invalid or out-of-range `page` uploads appear to fall back to "display immediately" instead of rejecting | `firmware/src/main.cpp` | Medium |
-| Page set semantics | `POST /page` uses modulo arithmetic and may wrap invalid page numbers | `firmware/src/main.cpp` | High |
-| Security posture | WiFi creds are hardcoded, HTTP endpoints are unauthenticated, OTA has no password in code | `firmware/src/main.cpp` | High |
-| Shell wrapper | `refresh.sh` is not currently authoritative; its argument passing does not match `python/refresh.py` | `refresh.sh`, `python/refresh.py` | High |
+| Upload semantics | Tracked firmware now rejects invalid or out-of-range `page` uploads with `400` instead of falling back to display-immediately mode | `firmware/src/main.cpp` | High |
+| Page set semantics | Tracked firmware now rejects invalid page numbers explicitly instead of wrapping them | `firmware/src/main.cpp` | High |
+| Security posture | WiFi creds are no longer hardcoded in source; OTA is disabled unless a password is configured; HTTP endpoints are still unauthenticated | `firmware/src/main.cpp`, `firmware/platformio.local.example.ini` | Medium |
+| Shell wrapper | `refresh.sh` now requires `RETERMINAL_HOST` explicitly and points at the active CLI; legacy fixed pages are fenced to the live slot count in the CLI | `refresh.sh`, `python/reterminal/cli/commands.py` | High |
 
 ## Provisional architecture assumption
 

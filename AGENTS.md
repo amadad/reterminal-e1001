@@ -52,11 +52,14 @@ python/reterminal/
 ```bash
 cd ~/projects/reterminal-e1001/python
 
+uv run reterminal discover
+uv run reterminal doctor
 uv run reterminal status
 uv run reterminal capabilities
 uv run reterminal probe
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews --push
+uv run reterminal publish --feed path/to/live-feed.json --push --interval 60
 ```
 
 ## Legacy commands
@@ -100,6 +103,10 @@ uv run --extra dev ruff check reterminal tests
 For live-device work, probe first:
 
 ```bash
+uv run reterminal discover
+uv run reterminal doctor
 uv run reterminal capabilities
 uv run reterminal probe
 ```
+
+DHCP leases are not stable identity. Do not hardcode earlier `.76/.77/.78` guesses; a later recovery session rediscovered the device at `.97`.

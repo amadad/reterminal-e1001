@@ -10,7 +10,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/python"
 
-HOST="${RETERMINAL_HOST:-192.168.7.77}"
+: "${RETERMINAL_HOST:?Set RETERMINAL_HOST to the device IP before running refresh.sh}"
+HOST="$RETERMINAL_HOST"
 PAGE="${1:-market}"
 
 if command -v uv >/dev/null 2>&1; then
