@@ -3,7 +3,7 @@
 Display GitHub activity on reTerminal.
 
 Usage:
-    python github.py --host 192.168.7.77 --page 2
+    python github.py --host "$RETERMINAL_HOST" --page 2
 """
 
 import subprocess
@@ -113,7 +113,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Display GitHub on reTerminal")
     parser.add_argument("--host", required=True, help="Device IP")
-    parser.add_argument("--page", type=int, help="Page to store (0-3)")
+    parser.add_argument("--page", type=int, help="Device slot to store")
     args = parser.parse_args()
 
     print("Fetching GitHub data...")

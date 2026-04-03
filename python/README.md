@@ -17,7 +17,7 @@ The live device currently behaves as:
 - invalid `page` requests wrap modulo 4
 - invalid `imageraw?page=N` uploads display immediately instead of storing
 
-Use `reterminal probe` and `reterminal capabilities` before assuming anything else.
+Use `reterminal probe` and `reterminal capabilities` before assuming anything else. On newer firmware builds, `reterminal capabilities` reads the firmware-reported contract from `/capabilities` and `reterminal clear --all` can blank the volatile cache for ghosting/recovery workflows.
 
 ## Install
 
@@ -41,6 +41,7 @@ export RETERMINAL_HOST=<device-ip>
 uv run reterminal doctor
 uv run reterminal status
 uv run reterminal capabilities
+uv run reterminal clear --all
 uv run reterminal probe
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews --push
@@ -57,7 +58,7 @@ reterminal/
 ├── cli/            # Typer commands
 ├── device/         # device SDK and capability model
 ├── providers/      # scene providers
-├── render/         # monochrome renderer + design tokens
+├── render/         # monochrome renderer, layout primitives, bitmap generators
 ├── scheduler/      # slot assignment strategies
 ├── scenes/         # structured scene model
 ├── pages/          # legacy fixed page system
@@ -73,13 +74,15 @@ The feed file at `examples/agent-feed.json` demonstrates the new format and is i
 - `bulletin`
 - `poster`
 
-These are logical scenes. The scheduler maps them into the 4 physical slots the firmware actually supports. Use a real feed or provider when you want the device to keep changing over time. Repeated publish loops skip unchanged slot uploads within the same device uptime for better throughput, and `--show-slot <n>` lets you pin the visible slot after each push.
+These are logical scenes. The scheduler maps them into the 4 physical slots the firmware actually supports. Use a real feed or provider when you want the device to keep changing over time. Repeated publish loops skip unchanged slot uploads within the same device uptime for better throughput, and `--show-slot <n>` lets you pin the visible slot after each push. `poster` scenes can now render either a source image (`image_path`) or deterministic generated bitmap art via `meta.bitmap`.
 
 Current providers include:
 
 - `FileSceneProvider`
 - `SystemSceneProvider`
 - `PaperclipSceneProvider` (remote HTTP feed adapter)
+
+For the measured typography/layout approach behind these scenes, see `../docs/layout-system.md`.
 
 ## Legacy code
 

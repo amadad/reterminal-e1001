@@ -98,7 +98,7 @@ class ReTerminal:
 
         Args:
             data: Raw bitmap data (48000 bytes, 1-bit per pixel)
-            page: Page to store (0-3), or None to display immediately
+            page: Device slot to store, or None to display immediately
         """
         if len(data) != IMAGE_BYTES:
             raise ValueError(f"Image must be {IMAGE_BYTES} bytes, got {len(data)}")
@@ -119,7 +119,7 @@ class ReTerminal:
 
         Args:
             image_path: Path to image file (PNG, JPG, etc.)
-            page: Page to store (0-3), or None to display immediately
+            page: Device slot to store, or None to display immediately
             invert: Invert black/white
             dither: Use Floyd-Steinberg dithering for grayscale
         """
@@ -133,7 +133,7 @@ class ReTerminal:
 
         Args:
             text: Text to display (supports newlines)
-            page: Page to store (0-3), or None to display immediately
+            page: Device slot to store, or None to display immediately
             font_size: Font size in pixels
             align: Text alignment ("left", "center", "right")
         """
@@ -293,7 +293,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="reTerminal E1001 Client")
     parser.add_argument("--host", required=True, help="Device IP address")
-    parser.add_argument("--page", type=int, help="Page to store (0-3)")
+    parser.add_argument("--page", type=int, help="Device slot to store")
 
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--text", help="Text to display")

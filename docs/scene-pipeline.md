@@ -22,7 +22,7 @@ Truthful SDK for the current firmware contract.
 
 Responsibilities:
 
-- discover capabilities
+- discover capabilities (prefer `/capabilities`, fall back to `/status` + `/page`)
 - validate slot operations against the live slot count
 - push PIL images safely
 - keep firmware quirks away from the rest of the app
@@ -77,9 +77,11 @@ Behavior:
 
 Turns logical scenes into actual monochrome compositions.
 
-Current renderer:
+Current renderer stack:
 
 - `MonoRenderer`
+- `layout.py` for measured regions and text fitting
+- `bitmap.py` for deterministic generated poster art
 
 Supported scene kinds:
 
@@ -88,7 +90,7 @@ Supported scene kinds:
 - `bulletin`
 - `poster`
 
-This is the right place to evolve typography, image treatment, and layout systems.
+This is the right place to evolve typography, image treatment, layout systems, and generated bitmap art.
 
 ### `reterminal/app`
 
@@ -142,6 +144,6 @@ Bad extension points for now:
 
 1. `PaperclipProvider`
 2. scheduler policy for pinned vs rotating scenes
-3. richer poster/image composition templates
-4. firmware `/capabilities` endpoint
+3. preview regression corpus for layout stress cases
+4. richer poster/image composition templates
 5. device capability caching/versioning

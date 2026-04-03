@@ -2,6 +2,14 @@
 
 ESP32-S3 firmware for reTerminal E1001 with HTTP API and OTA support.
 
+Current tracked source is designed to stay small and truthful:
+
+- host-rendered 1-bit bitmaps
+- 4 volatile slot buffers in PSRAM
+- buttons + HTTP control only
+- no firmware overlay chrome on stored pages
+- neutral slot names (`slot-0..slot-3`) instead of semantic app page names
+
 ## Requirements
 
 - [PlatformIO](https://platformio.org/install) (CLI or VS Code extension)
@@ -38,11 +46,16 @@ Then edit `platformio.local.ini`:
 ```ini
 [env:reterminal]
 build_flags =
-    ${env:reterminal.build_flags}
+    -DBOARD_HAS_PSRAM
+    -DARDUINO_USB_CDC_ON_BOOT=1
+    -DEPAPER_ENABLE
+    -Iinclude
     -DRETERMINAL_WIFI_SSID=\"YourNetwork\"
     -DRETERMINAL_WIFI_PASS=\"YourPassword\"
     -DRETERMINAL_HOSTNAME=\"reterminal\"
     -DRETERMINAL_OTA_PASSWORD=\"set-a-real-password\"
+    -DRETERMINAL_FIRMWARE_VERSION=\"local-dev\"
+    -DRETERMINAL_BUILD_SHA=\"unknown\"
 
 [env:ota]
 upload_port = 192.168.x.x
@@ -53,6 +66,7 @@ Notes:
 - Wi-Fi is now configured via build flags, not hardcoded in source.
 - OTA is **disabled by default** and only starts when `RETERMINAL_OTA_PASSWORD` is set.
 - `platformio.local.ini` is gitignored.
+- If PlatformIO reports recursive `build_flags` when using a copied local config, inline the base flags in `platformio.local.ini` instead of referencing `${env:reterminal.build_flags}`.
 
 ## Flashing
 
@@ -104,6 +118,25 @@ Once the device is on Wi-Fi, flash wirelessly:
 pio run -e ota -t upload
 ```
 
+## HTTP API
+
+The tracked firmware source exposes:
+
+- `GET /status`
+- `GET /capabilities`
+- `GET /buttons`
+- `GET /beep`
+- `GET/POST /page`
+- `POST /imageraw`
+- `POST /clear`
+
+Notes:
+
+- `/capabilities` is the richer machine-readable contract for host software.
+- `/clear` clears one slot or the full volatile cache.
+- Stored pages should be treated as volatile cache, not durable persistence across power cycles, until re-probed after flashing.
+- If the live device still returns `404` for `/capabilities` or `/clear`, you are still talking to the older flashed firmware and need a reflash before expecting the newer source contract.
+
 ## Pin Mapping
 
 | Function | GPIO |
@@ -135,7 +168,8 @@ Managed automatically by PlatformIO:
 
 - Try a different USB-C cable (some are charge-only)
 - Check port: `ls /dev/cu.usb*`
-- Hold BOOT button while connecting to enter bootloader mode
+- Hold the ESP32 module's BOOT button while connecting, or hold BOOT and tap RESET, to enter bootloader mode
+- If the normal page UI is still rendering and `esptool` says `No serial data received`, the app firmware is still running and the board likely did not enter bootloader mode
 
 ### WiFi not connecting
 
@@ -155,6 +189,7 @@ Managed automatically by PlatformIO:
 - ePaper takes 2-3 seconds for full refresh
 - Check serial monitor for errors
 - Verify image is exactly 48000 bytes
+- If a power cycle returns with `loaded: false`, republish from the host; the volatile cache should not yet be treated as durable across reboot
 
 ## Memory
 

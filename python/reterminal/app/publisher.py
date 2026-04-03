@@ -62,7 +62,11 @@ class DisplayPublisher:
             preview_dir.mkdir(parents=True, exist_ok=True)
 
         for slot, assignment in sorted(assignments.items()):
-            image = self.renderer.render(assignment.scene)
+            image = self.renderer.render(
+                assignment.scene,
+                slot=slot,
+                total_slots=resolved_slot_count,
+            )
             if preview_dir:
                 path = preview_dir / f"slot-{slot}-{self._slugify(assignment.scene.id)}.png"
                 image.save(path)

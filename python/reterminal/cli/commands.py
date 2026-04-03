@@ -188,6 +188,25 @@ def page(
 
 
 @app.command()
+def clear(
+    host: Optional[str] = HostOption,
+    page_num: Optional[int] = PageOption,
+    clear_all: bool = typer.Option(False, "--all", help="Clear all cached slots and blank the display"),
+):
+    """Clear one cached slot or the full volatile device cache."""
+    if clear_all and page_num is not None:
+        typer.echo("Error: --all cannot be combined with --page")
+        raise typer.Exit(1)
+
+    try:
+        result = ReTerminalDevice(host).clear(page_num, all=clear_all)
+        typer.echo(json.dumps(result, indent=2))
+    except Exception as e:
+        logger.error(f"Failed to clear device cache: {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
 def refresh(
     pages: Optional[str] = typer.Argument(None, help="Page(s) to refresh (comma-separated, or 'all')"),
     host: Optional[str] = HostOption,
@@ -579,6 +598,15 @@ def capabilities(
         typer.echo(f"  {'Page Slots':20} {caps.page_slots}")
         typer.echo(f"  {'Current Page':20} {caps.current_page}")
         typer.echo(f"  {'Page Name':20} {caps.current_page_name}")
+        if caps.hostname is not None:
+            typer.echo(f"  {'Hostname':20} {caps.hostname}")
+        if caps.firmware_version is not None:
+            typer.echo(f"  {'Firmware':20} {caps.firmware_version}")
+        if caps.build_time is not None:
+            typer.echo(f"  {'Build Time':20} {caps.build_time}")
+        if caps.loaded_pages:
+            loaded = ", ".join(str(index) for index, value in enumerate(caps.loaded_pages) if value) or "none"
+            typer.echo(f"  {'Loaded Slots':20} {loaded}")
         typer.echo(f"  {'WiFi SSID':20} {caps.ssid}")
         typer.echo(f"  {'RSSI':20} {caps.rssi}")
         typer.echo(f"  {'Uptime':20} {caps.uptime_ms} ms")

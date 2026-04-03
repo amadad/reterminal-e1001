@@ -80,6 +80,13 @@ class ReTerminal:
         return response.json()
 
     @_get_retry_decorator()
+    def capabilities(self) -> dict:
+        """Get firmware-reported capabilities when available."""
+        logger.debug("Getting firmware capabilities")
+        response = self._request("GET", "/capabilities")
+        return response.json()
+
+    @_get_retry_decorator()
     def buttons(self) -> dict:
         """Get button states."""
         logger.debug("Getting button states")
@@ -119,6 +126,17 @@ class ReTerminal:
         """Navigate to previous page."""
         logger.debug("Navigating to previous page")
         response = self._request("POST", "/page", json={"action": "prev"})
+        return response.json()
+
+    @_get_retry_decorator()
+    def clear(self, *, page: Optional[int] = None, all: bool = False) -> dict:
+        """Clear one stored slot or the full volatile cache."""
+        payload = {"all": True} if all else ({"page": page} if page is not None else {})
+        logger.info(
+            f"Clearing device cache on {self.host}"
+            + (" (all slots)" if all else (f" page {page}" if page is not None else " current page"))
+        )
+        response = self._request("POST", "/clear", json=payload)
         return response.json()
 
     @_get_retry_decorator()

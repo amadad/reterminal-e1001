@@ -31,6 +31,9 @@ Do not center new work around the legacy fixed-page system unless explicitly ask
 - Physical slots: `0..3`
 - `POST /page` wraps modulo 4 for out-of-range values
 - `POST /imageraw?page=N` displays immediately instead of storing for out-of-range slots
+- reboot clears usable cached pages enough that the host must republish
+
+Tracked source is ahead of the flashed device: source now includes `/capabilities`, `/clear`, neutral slot naming, and no firmware page-number overlay, but treat those as source truth until the device is reflashed.
 
 ## Active Python modules
 
@@ -40,7 +43,7 @@ python/reterminal/
 ├── cli/            # active CLI
 ├── device/         # device SDK + capabilities
 ├── providers/      # scene adapters
-├── render/         # monochrome layouts and art handling
+├── render/         # monochrome layouts, bitmap generators, and art handling
 ├── scheduler/      # logical scenes -> 4 slots
 ├── scenes/         # scene schema
 ├── pages/          # legacy fixed page flow
@@ -56,6 +59,7 @@ uv run reterminal discover
 uv run reterminal doctor
 uv run reterminal status
 uv run reterminal capabilities
+uv run reterminal clear --all
 uv run reterminal probe
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews --push
@@ -106,6 +110,7 @@ For live-device work, probe first:
 uv run reterminal discover
 uv run reterminal doctor
 uv run reterminal capabilities
+uv run reterminal clear --all
 uv run reterminal probe
 ```
 

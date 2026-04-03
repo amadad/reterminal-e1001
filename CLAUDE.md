@@ -26,6 +26,9 @@ Based on live probing:
 - current firmware exposes **4** physical slots
 - out-of-range `POST /page` wraps modulo 4
 - out-of-range `POST /imageraw?page=N` displays immediately instead of storing
+- reboot currently clears usable cached pages enough that the host must republish
+
+Tracked source has moved ahead of the flashed device: it adds `/capabilities`, `/clear`, neutral slot names, and removes the firmware `Page X/4` overlay, but those are not live truth until the device is reflashed.
 
 See:
 
@@ -46,7 +49,7 @@ reterminal-e1001/
 │       ├── cli/
 │       ├── device/
 │       ├── providers/
-│       ├── render/
+│       ├── render/              # mono renderer + layout/bitmap primitives
 │       ├── scheduler/
 │       ├── scenes/
 │       ├── pages/               # legacy fixed-page modules
@@ -63,6 +66,7 @@ uv run reterminal discover
 uv run reterminal doctor
 uv run reterminal status
 uv run reterminal capabilities
+uv run reterminal clear --all
 uv run reterminal probe
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews --push
@@ -113,6 +117,7 @@ cd python
 uv run reterminal discover
 uv run reterminal doctor
 uv run reterminal capabilities
+uv run reterminal clear --all
 uv run reterminal probe
 ```
 

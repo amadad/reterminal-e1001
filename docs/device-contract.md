@@ -37,6 +37,8 @@ Note: the tracked repo firmware has since been tightened to reject invalid page 
 
 Operational note: DHCP lease is not a stable identity signal for this device. During a later recovery/publish session on `2026-04-01`, the same device was rediscovered at `192.168.7.97` and accepted live scene uploads. Treat observed IPs as session evidence, not as part of the device contract, and prefer `reterminal discover` / `reterminal doctor` before making network assumptions.
 
+Later live operation also confirmed two more truths about the currently flashed device: power-cycling can return with `loaded: false` on the active slot, and the flashed firmware still showed the old `Page X/4` overlay plus no `/capabilities` or `/clear` endpoints until reflashed. Those are live observations of the older flashed build, not the newer tracked source.
+
 ## Current evidence from code inspection
 
 These are facts supported by the current codebase, not yet by live hardware measurement.
@@ -46,9 +48,11 @@ These are facts supported by the current codebase, not yet by live hardware meas
 | Display format | 800x480, 1-bit monochrome, 48,000-byte raw payloads | `firmware/src/main.cpp`, `python/reterminal/config.py`, `python/reterminal/encoding.py` | High |
 | Firmware page storage | Firmware allocates `NUM_PAGES = 4` page buffers | `firmware/src/main.cpp` | High |
 | Host page model | Python package registers 7 pages: market, clock, github, status, portfolio, dashboard, weather | `python/reterminal/pages/__init__.py` | High |
-| Control API | `/status`, `/buttons`, `/beep`, `/page`, `/imageraw` | `firmware/src/main.cpp` | High |
+| Control API | `/status`, `/capabilities`, `/buttons`, `/beep`, `/page`, `/imageraw`, `/clear` | `firmware/src/main.cpp` | High |
 | Upload semantics | Tracked firmware now rejects invalid or out-of-range `page` uploads with `400` instead of falling back to display-immediately mode | `firmware/src/main.cpp` | High |
 | Page set semantics | Tracked firmware now rejects invalid page numbers explicitly instead of wrapping them | `firmware/src/main.cpp` | High |
+| Slot naming | Tracked firmware source now uses neutral slot names (`slot-0..slot-3`) instead of legacy semantic page labels | `firmware/src/main.cpp` | High |
+| Display chrome | Tracked firmware source no longer overlays `Page X/4` on top of host-rendered bitmaps | `firmware/src/main.cpp` | High |
 | Security posture | WiFi creds are no longer hardcoded in source; OTA is disabled unless a password is configured; HTTP endpoints are still unauthenticated | `firmware/src/main.cpp`, `firmware/platformio.local.example.ini` | Medium |
 | Shell wrapper | `refresh.sh` now requires `RETERMINAL_HOST` explicitly and points at the active CLI; legacy fixed pages are fenced to the live slot count in the CLI | `refresh.sh`, `python/reterminal/cli/commands.py` | High |
 
@@ -122,11 +126,13 @@ The device should eventually expose enough information for the host to adapt wit
 
 | Endpoint | Requirement |
 |---|---|
-| `GET /status` | Returns stable capability and health fields |
+| `GET /status` | Returns stable health fields and basic capability fields |
+| `GET /capabilities` | Returns firmware version, geometry, slot count, loaded slot map, and current slot info |
 | `GET /buttons` | Returns current button state |
 | `GET /page` | Returns current page and total slot count |
 | `POST /page` | Rejects invalid input explicitly, no unsafe wraparound |
 | `POST /imageraw?page=N` | Either stores slot `N` or returns a clear error |
+| `POST /clear` | Clears one slot or the full volatile cache without inventing host-side content |
 
 ### Required host behavior
 

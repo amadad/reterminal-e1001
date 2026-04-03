@@ -8,14 +8,21 @@ class FakeClient:
         self.host = "192.168.7.76"
         self.status_payload = {"uptime_ms": 1000, "page_name": "dashboard"}
         self.page_payload = {"total": 4, "page": 0, "name": "dashboard"}
+        self.capabilities_payload = None
         self.pushes = []
         self.shown = []
+        self.clears = []
 
     def status(self):
         return dict(self.status_payload)
 
     def get_page(self):
         return dict(self.page_payload)
+
+    def capabilities(self):
+        if self.capabilities_payload is None:
+            raise RuntimeError("/capabilities unavailable")
+        return dict(self.capabilities_payload)
 
     def push_raw(self, data, page=None):
         self.pushes.append((page, len(data)))
@@ -24,6 +31,10 @@ class FakeClient:
     def set_page(self, page):
         self.shown.append(page)
         return {"page": page, "name": f"slot-{page}"}
+
+    def clear(self, *, page=None, all=False):
+        self.clears.append({"page": page, "all": all})
+        return {"success": True, "page": page, "all": all}
 
 
 
@@ -54,4 +65,54 @@ def test_device_clears_upload_cache_when_uptime_resets():
     result = device.push_pil(image, 0)
 
     assert result == {"success": True, "page": 0}
+    assert client.pushes == [(0, 48000), (0, 48000)]
+
+
+
+def test_device_prefers_firmware_capabilities_endpoint_when_available():
+    client = FakeClient()
+    client.capabilities_payload = {
+        "width": 800,
+        "height": 480,
+        "image_bytes": 48000,
+        "page_slots": 4,
+        "current_page": 2,
+        "current_page_name": "slot-2",
+        "ssid": "HORUS",
+        "rssi": -55,
+        "uptime_ms": 4321,
+        "firmware_version": "test-fw",
+        "hostname": "reterminal",
+        "build_time": "Apr 01 2026 14:30:00",
+        "loaded_pages": [True, False, True, True],
+        "slot_names": ["slot-0", "slot-1", "slot-2", "slot-3"],
+    }
+
+    caps = ReTerminalDevice(client=client).discover_capabilities(refresh=True)
+
+    assert caps.width == 800
+    assert caps.height == 480
+    assert caps.image_bytes == 48000
+    assert caps.page_slots == 4
+    assert caps.current_page == 2
+    assert caps.current_page_name == "slot-2"
+    assert caps.hostname == "reterminal"
+    assert caps.build_time == "Apr 01 2026 14:30:00"
+    assert caps.loaded_pages == [True, False, True, True]
+    assert caps.slot_names == ["slot-0", "slot-1", "slot-2", "slot-3"]
+
+
+
+def test_device_clear_invalidates_slot_hashes():
+    client = FakeClient()
+    device = ReTerminalDevice(client=client)
+    image = Image.new("1", (800, 480), color=1)
+
+    device.push_pil(image, 0)
+    cleared = device.clear(slot=0)
+    reuploaded = device.push_pil(image, 0)
+
+    assert cleared == {"success": True, "page": 0, "all": False}
+    assert reuploaded == {"success": True, "page": 0}
+    assert client.clears == [{"page": 0, "all": False}]
     assert client.pushes == [(0, 48000), (0, 48000)]

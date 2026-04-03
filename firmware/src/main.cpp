@@ -3,11 +3,13 @@
  * Based on Handy4ndy's working GxEPD2 examples
  *
  * Endpoints:
- *   GET  /status     - Device status
- *   GET  /buttons    - Button states
- *   GET  /beep       - Test buzzer
- *   POST /page       - Set/get current page
- *   POST /imageraw   - Upload raw 1-bit image (800x480, 48000 bytes)
+ *   GET  /status        - Device status + health fields
+ *   GET  /capabilities  - Firmware-reported device contract
+ *   GET  /buttons       - Button states
+ *   GET  /beep          - Test buzzer
+ *   GET/POST /page      - Get/set current page
+ *   POST /imageraw      - Upload raw 1-bit image (800x480, 48000 bytes)
+ *   POST /clear         - Clear one slot or the full volatile cache
  */
 
 #include <Arduino.h>
@@ -35,10 +37,21 @@
 #define RETERMINAL_OTA_PASSWORD ""
 #endif
 
+#ifndef RETERMINAL_FIRMWARE_VERSION
+#define RETERMINAL_FIRMWARE_VERSION "dev"
+#endif
+
+#ifndef RETERMINAL_BUILD_SHA
+#define RETERMINAL_BUILD_SHA "unknown"
+#endif
+
 const char* WIFI_SSID = RETERMINAL_WIFI_SSID;
 const char* WIFI_PASS = RETERMINAL_WIFI_PASS;
 const char* HOSTNAME = RETERMINAL_HOSTNAME;
 const char* OTA_PASSWORD = RETERMINAL_OTA_PASSWORD;
+const char* FIRMWARE_VERSION = RETERMINAL_FIRMWARE_VERSION;
+const char* BUILD_SHA = RETERMINAL_BUILD_SHA;
+const char* BUILD_TIME = __DATE__ " " __TIME__;
 
 // Display pins (SPI)
 #define EPD_SCK_PIN 7
@@ -63,7 +76,7 @@ const char* OTA_PASSWORD = RETERMINAL_OTA_PASSWORD;
 // Page system
 int currentPage = 0;
 const int NUM_PAGES = 4;
-const char* PAGE_NAMES[] = {"dashboard", "clock", "github", "quote"};
+const char* PAGE_NAMES[] = {"slot-0", "slot-1", "slot-2", "slot-3"};
 uint8_t* pageStorage[NUM_PAGES] = {nullptr};
 bool pageLoaded[NUM_PAGES] = {false};
 
@@ -118,11 +131,7 @@ void showPage(int page) {
       printCentered("No image loaded", 260);
     }
 
-    // Page indicator at bottom
-    display.setFont(&FreeMonoBold18pt7b);
-    display.setTextColor(GxEPD_BLACK);
-    String pageText = "Page " + String(page + 1) + "/" + String(NUM_PAGES);
-    printCentered(pageText.c_str(), 440);
+    // Render the stored bitmap truthfully with no firmware overlay chrome.
 
   } while (display.nextPage());
 
@@ -188,6 +197,45 @@ bool parseIntegerStrict(const String& raw, int* value) {
   return true;
 }
 
+void showBlankScreen() {
+  display.setFullWindow();
+  display.firstPage();
+  do {
+    display.fillScreen(GxEPD_WHITE);
+  } while (display.nextPage());
+}
+
+void clearStoredPage(int page) {
+  if (!isValidPageIndex(page)) {
+    return;
+  }
+  if (pageStorage[page] != nullptr) {
+    memset(pageStorage[page], 0xFF, IMAGE_BYTES);
+  }
+  pageLoaded[page] = false;
+}
+
+void appendCapabilityFields(JsonDocument& doc) {
+  doc["hostname"] = HOSTNAME;
+  doc["firmware_version"] = FIRMWARE_VERSION;
+  doc["build_sha"] = BUILD_SHA;
+  doc["build_time"] = BUILD_TIME;
+  doc["width"] = DISPLAY_WIDTH;
+  doc["height"] = DISPLAY_HEIGHT;
+  doc["image_bytes"] = IMAGE_BYTES;
+  doc["page_slots"] = NUM_PAGES;
+  doc["current_page"] = currentPage;
+  doc["current_page_name"] = PAGE_NAMES[currentPage];
+  doc["current_page_loaded"] = pageLoaded[currentPage];
+
+  JsonArray loadedPages = doc["loaded_pages"].to<JsonArray>();
+  JsonArray slotNames = doc["slot_names"].to<JsonArray>();
+  for (int i = 0; i < NUM_PAGES; i++) {
+    loadedPages.add(pageLoaded[i]);
+    slotNames.add(PAGE_NAMES[i]);
+  }
+}
+
 void sendJsonError(int status, const String& message) {
   server.send(status, "application/json", "{\"error\": \"" + message + "\"}");
 }
@@ -197,7 +245,7 @@ void sendJsonError(int status, const String& message) {
 void handleRoot() {
   String html = "<h1>reTerminal E1001</h1>";
   html += "<p>IP: " + WiFi.localIP().toString() + "</p>";
-  html += "<p>Endpoints: /status, /buttons, /beep, /page, /imageraw</p>";
+  html += "<p>Endpoints: /status, /capabilities, /buttons, /beep, /page, /imageraw, /clear</p>";
   server.send(200, "text/html", html);
 }
 
@@ -208,8 +256,21 @@ void handleStatus() {
   doc["ssid"] = WiFi.SSID();
   doc["uptime_ms"] = millis();
   doc["free_heap"] = ESP.getFreeHeap();
-  doc["current_page"] = currentPage;
-  doc["page_name"] = PAGE_NAMES[currentPage];
+  appendCapabilityFields(doc);
+
+  String response;
+  serializeJson(doc, response);
+  server.send(200, "application/json", response);
+}
+
+void handleCapabilities() {
+  JsonDocument doc;
+  doc["ip"] = WiFi.localIP().toString();
+  doc["ssid"] = WiFi.SSID();
+  doc["rssi"] = WiFi.RSSI();
+  doc["uptime_ms"] = millis();
+  doc["free_heap"] = ESP.getFreeHeap();
+  appendCapabilityFields(doc);
 
   String response;
   serializeJson(doc, response);
@@ -398,6 +459,60 @@ void handleImageRaw() {
   resetUploadState();
 }
 
+void handleClear() {
+  if (server.method() != HTTP_POST) {
+    sendJsonError(405, "Method Not Allowed");
+    return;
+  }
+
+  bool clearAll = false;
+  int targetPage = currentPage;
+  String body = server.arg("plain");
+
+  if (body.length() > 0) {
+    JsonDocument doc;
+    if (deserializeJson(doc, body) != DeserializationError::Ok) {
+      sendJsonError(400, "Invalid JSON");
+      return;
+    }
+
+    if (doc["all"].is<bool>() && doc["all"].as<bool>()) {
+      clearAll = true;
+    } else if (doc["page"].is<int>()) {
+      targetPage = doc["page"].as<int>();
+      if (!isValidPageIndex(targetPage)) {
+        sendJsonError(400, "Page out of range");
+        return;
+      }
+    } else {
+      sendJsonError(400, "Expected 'all' or 'page'");
+      return;
+    }
+  }
+
+  if (clearAll) {
+    for (int i = 0; i < NUM_PAGES; i++) {
+      clearStoredPage(i);
+    }
+    showBlankScreen();
+  } else {
+    clearStoredPage(targetPage);
+    if (targetPage == currentPage) {
+      showBlankScreen();
+    }
+  }
+
+  JsonDocument resp;
+  resp["success"] = true;
+  resp["all"] = clearAll;
+  resp["page"] = clearAll ? currentPage : targetPage;
+  resp["loaded"] = false;
+  appendCapabilityFields(resp);
+  String response;
+  serializeJson(resp, response);
+  server.send(200, "application/json", response);
+}
+
 void handleNotFound() {
   server.send(404, "application/json", "{\"error\": \"Not Found\"}");
 }
@@ -476,10 +591,12 @@ void setup() {
   // HTTP routes
   server.on("/", handleRoot);
   server.on("/status", HTTP_GET, handleStatus);
+  server.on("/capabilities", HTTP_GET, handleCapabilities);
   server.on("/buttons", HTTP_GET, handleButtons);
   server.on("/beep", HTTP_GET, handleBeep);
   server.on("/page", handlePage);
   server.on("/imageraw", HTTP_POST, handleImageRaw, handleImageUpload);
+  server.on("/clear", HTTP_POST, handleClear);
   server.onNotFound(handleNotFound);
   server.begin();
   usbSerial.println("HTTP server started");

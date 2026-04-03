@@ -5,7 +5,7 @@ Display market pulse on reTerminal.
 Shows VIX, S&P 500, Dow Jones from Schwab API.
 
 Usage:
-    python market.py --host 192.168.7.77 --page 0
+    python market.py --host "$RETERMINAL_HOST" --page 0
 """
 
 import subprocess
@@ -135,7 +135,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Display market pulse on reTerminal")
     parser.add_argument("--host", required=True, help="Device IP")
-    parser.add_argument("--page", type=int, help="Page to store (0-3)")
+    parser.add_argument("--page", type=int, help="Device slot to store")
     args = parser.parse_args()
 
     print("Fetching market data...")

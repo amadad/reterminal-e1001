@@ -7,6 +7,10 @@
       "subtitle": "Static example feed for previews and smoke tests",
       "priority": 100,
       "preferred_slot": 0,
+      "meta": {
+        "kicker": "Front page",
+        "stamp": "demo feed"
+      },
       "metric": {
         "label": "Active",
         "value": "3",
@@ -26,6 +30,10 @@
       "subtitle": "static example",
       "priority": 90,
       "preferred_slot": 1,
+      "meta": {
+        "kicker": "Dense metrics",
+        "stamp": "6 cards max"
+      },
       "metrics": [
         {"label": "Runs", "value": "12", "detail": "today"},
         {"label": "Queued", "value": "4", "detail": "waiting"},
@@ -41,6 +49,10 @@
       "subtitle": "static sample copy",
       "priority": 80,
       "preferred_slot": 2,
+      "meta": {
+        "kicker": "Briefing",
+        "stamp": "two-column bulletin"
+      },
       "items": [
         "this example feed is static and is meant for previews, smoke tests, and demos",
         "swap in a real JSON feed or remote provider when you want live operational content",
@@ -56,6 +68,14 @@
       "subtitle": "Providers fetch signals. Renderers make scenes. The scheduler owns the four slots.",
       "priority": 70,
       "preferred_slot": 3,
+      "meta": {
+        "kicker": "Generated bitmap",
+        "stamp": "bars demo",
+        "bitmap": {
+          "kind": "bars",
+          "values": [12, 7, 15, 10, 18, 13, 9]
+        }
+      },
       "footer": "poster / monochrome editorial"
     }
   ]

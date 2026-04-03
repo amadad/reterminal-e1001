@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from PIL import Image
+
 from reterminal.app import DisplayPublisher
 from reterminal.render import MonoRenderer
 from reterminal.scenes import Metric, SceneSpec
@@ -19,6 +21,15 @@ class StubProvider:
                 body=["orb shipping", "kara researching"],
             )
         ]
+
+
+class RecordingRenderer:
+    def __init__(self):
+        self.calls = []
+
+    def render(self, scene, *, slot=None, total_slots=None):
+        self.calls.append((scene.id, slot, total_slots))
+        return Image.new("1", (800, 480), color=1)
 
 
 class StubDevice:
@@ -82,3 +93,18 @@ def test_publisher_can_activate_an_explicit_slot(tmp_path: Path):
 
     assert result.shown_slot == 3
     assert device.shown == [3]
+
+
+def test_publisher_passes_slot_context_to_renderer(tmp_path: Path):
+    device = StubDevice()
+    renderer = RecordingRenderer()
+    publisher = DisplayPublisher(
+        providers=[StubProvider()],
+        renderer=renderer,
+        scheduler=PriorityScheduler(),
+        device=device,
+    )
+
+    publisher.publish(preview_dir=tmp_path / "previews", push=False)
+
+    assert renderer.calls == [("hero", 0, 4)]

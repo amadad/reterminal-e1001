@@ -129,6 +129,8 @@ Supported scene kinds today:
 - `bulletin`
 - `poster`
 
+See `docs/layout-system.md` for the measured layout model behind those templates.
+
 Current/ready provider adapters:
 
 - local JSON feeds via `FileSceneProvider`
@@ -140,6 +142,7 @@ This makes it easy to plug in:
 - Paperclip agent feeds
 - local status snapshots
 - generated poster/image scenes
+- deterministic bitmap posters via `meta.bitmap` (sparklines, bars, grids)
 - weather/market/queue summaries
 
 ## CLI
@@ -148,10 +151,11 @@ This makes it easy to plug in:
 reterminal discover      Probe common names/IPs to find reachable devices
 reterminal doctor        Check connectivity, slot truth, and publish readiness
 reterminal status        Get raw device status
-reterminal capabilities  Show host-side device contract
+reterminal capabilities  Show firmware/host device contract
 reterminal probe         Probe live device behavior
 reterminal publish       Render/schedule/preview/push scene feeds
 reterminal push          Push ad hoc text/image/QR/pattern
+reterminal clear         Clear one slot or the full volatile cache
 reterminal refresh       Legacy fixed-page refresh flow
 reterminal watch         Legacy fixed-page watch flow
 reterminal config        Show current configuration
@@ -167,7 +171,7 @@ python/reterminal/
 ├── app/            # high-level publishing pipeline
 ├── device/         # truthful device SDK + capabilities
 ├── providers/      # scene sources (file feed, system, future Paperclip)
-├── render/         # monochrome renderer + design tokens
+├── render/         # monochrome renderer, layout primitives, bitmap generators
 ├── scheduler/      # logical scenes -> physical slots
 ├── scenes/         # scene data model
 ├── cli/            # Typer CLI
@@ -195,8 +199,11 @@ The tracked firmware source has now been tightened to:
 - disable OTA unless a password is configured
 - reject invalid page indices instead of silently wrapping
 - reject invalid `imageraw?page=N` targets instead of displaying them immediately
+- expose `/capabilities` and `/clear` for a more truthful host contract
+- use neutral slot names (`slot-0..slot-3`) instead of semantic app labels
+- stop drawing firmware overlay chrome on top of uploaded bitmaps
 
-Reflash and re-probe before treating those newer behaviors as live truth.
+Reflash and re-probe before treating those newer behaviors as live truth. The current flashed device has still shown the older `Page X/4` overlay and older endpoint set until reflashed.
 
 ## Legacy wrapper
 

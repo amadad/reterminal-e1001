@@ -21,7 +21,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Display clock on reTerminal")
     parser.add_argument("--host", required=True, help="Device IP")
-    parser.add_argument("--page", type=int, help="Page to store (0-3)")
+    parser.add_argument("--page", type=int, help="Device slot to store")
     parser.add_argument("--loop", action="store_true", help="Update continuously")
     args = parser.parse_args()
 
