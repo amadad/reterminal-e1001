@@ -43,7 +43,7 @@ Current providers:
 - `SystemSceneProvider`
 - `PaperclipSceneProvider` (remote HTTP feed adapter)
 
-Planned providers:
+Additional providers worth adding:
 
 - generated media provider
 - local queue/status provider
@@ -142,8 +142,8 @@ Bad extension points for now:
 
 ## Recommended next additions
 
-1. `PaperclipProvider`
-2. scheduler policy for pinned vs rotating scenes
-3. preview regression corpus for layout stress cases
-4. richer poster/image composition templates
+1. scheduler policy for pinned vs rotating scenes
+2. preview regression corpus for layout stress cases
+3. richer poster/image composition templates
+4. provider composition / multi-feed merge policy
 5. device capability caching/versioning
