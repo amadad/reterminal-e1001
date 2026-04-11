@@ -53,6 +53,24 @@ cd python
 uv sync
 ```
 
+### Install for agents
+
+Install the CLI so it works from any folder:
+
+```bash
+cd python
+uv tool install -e .
+# or: pipx install .
+```
+
+Verify the installed command from outside the repo:
+
+```bash
+command -v reterminal
+reterminal --help
+python ../scripts/verify_agent_cli.py
+```
+
 Or with venv/pip:
 
 ```bash
@@ -98,11 +116,14 @@ uv run reterminal publish \
 
 ### 5. Push the scheduled scenes to the device
 
+Live device mutations now require explicit approval via `--live`:
+
 ```bash
 uv run reterminal publish \
   --feed examples/agent-feed.json \
   --preview ./previews \
-  --push
+  --push \
+  --live
 ```
 
 To keep a real feed fresh and rotate the visible slot over time:
@@ -115,6 +136,26 @@ uv run reterminal publish \
 ```
 
 Repeated publish runs now skip unchanged slot uploads within the same device uptime, so a steady feed loop does less unnecessary work. Use `--show-slot <n>` when you want to keep a specific slot visible instead of rotating across assigned slots.
+
+## Agent-friendly CLI workflow
+
+Use the CLI the same way a later coding agent will use it:
+
+```bash
+command -v reterminal
+reterminal --help
+reterminal config --output json
+reterminal discover --output json
+reterminal doctor --output json
+reterminal push --text "hello" --preview ./preview.png --output json
+reterminal publish --feed ./python/examples/agent-feed.json --preview ./previews --output json
+```
+
+Rules:
+- use `--preview` or other read-only commands by default
+- use `--output json` for machine-readable results
+- use `--live` only after explicit user approval
+- if a full artifact is large, write it to a file and return the path
 
 ## Feed-driven scene model
 

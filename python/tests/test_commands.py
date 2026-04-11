@@ -1,3 +1,5 @@
+import json
+
 from typer.testing import CliRunner
 
 from reterminal.cli.app import app
@@ -33,12 +35,24 @@ def test_clear_command_rejects_conflicting_target_options():
 
 
 
+def test_clear_command_requires_live_flag():
+    result = runner.invoke(app, ["clear", "--page", "2"])
+
+    assert result.exit_code == 1
+    assert "Use --live to confirm" in result.stdout
+
+
+
 def test_clear_command_invokes_device_clear(monkeypatch):
     captured = {}
+
+    class StubClient:
+        host = "192.168.7.97"
 
     class StubDevice:
         def __init__(self, host=None):
             captured["host"] = host
+            self.client = StubClient()
 
         def clear(self, slot=None, all=False):
             captured["slot"] = slot
@@ -47,8 +61,54 @@ def test_clear_command_invokes_device_clear(monkeypatch):
 
     monkeypatch.setattr("reterminal.cli.commands.ReTerminalDevice", StubDevice)
 
-    result = runner.invoke(app, ["clear", "--host", "192.168.7.97", "--page", "2"])
+    result = runner.invoke(
+        app,
+        ["clear", "--host", "192.168.7.97", "--page", "2", "--live", "--output", "json"],
+    )
 
     assert result.exit_code == 0
-    assert '"page": 2' in result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["result"]["page"] == 2
     assert captured == {"host": "192.168.7.97", "slot": 2, "all": False}
+
+
+
+def test_push_preview_supports_json_output(tmp_path):
+    preview_path = tmp_path / "preview.png"
+
+    result = runner.invoke(
+        app,
+        ["push", "--text", "hello", "--preview", str(preview_path), "--output", "json"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["mode"] == "preview"
+    assert payload["preview_path"] == str(preview_path)
+    assert preview_path.exists()
+
+
+
+def test_publish_push_requires_live_flag(tmp_path):
+    result = runner.invoke(
+        app,
+        [
+            "publish",
+            "--feed",
+            "examples/agent-feed.json",
+            "--preview",
+            str(tmp_path / "previews"),
+            "--push",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Use --live to confirm" in result.stdout
+
+
+
+def test_page_set_requires_live_flag():
+    result = runner.invoke(app, ["page", "next"])
+
+    assert result.exit_code == 1
+    assert "Use --live to confirm" in result.stdout

@@ -6,7 +6,7 @@ HTTP client and CLI for Seeed reTerminal E1001 ePaper display.
 Usage:
     from reterminal import ReTerminal
 
-    rt = ReTerminal("192.168.7.76")  # Or set RETERMINAL_HOST explicitly
+    rt = ReTerminal()  # Or pass a host explicitly / set RETERMINAL_HOST
     rt.status()
     rt.push_text("Hello World")
 """

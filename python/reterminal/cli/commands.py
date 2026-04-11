@@ -28,6 +28,52 @@ HostOption = typer.Option(None, "--host", "-h", help="Device IP address")
 PageOption = typer.Option(None, "--page", help="Device slot to store/show")
 
 
+def emit_output(payload: dict, output: str = "table") -> bool:
+    """Emit a JSON payload when requested and report whether we handled output."""
+    if output == "json":
+        typer.echo(json.dumps(payload, indent=2, default=str))
+        return True
+    return False
+
+
+def require_live_action(action: str, *, live: bool, non_interactive: bool) -> None:
+    """Require an explicit opt-in before mutating the live device."""
+    if not live:
+        typer.echo(
+            f"Error: {action} mutates the live device. "
+            "Use --live to confirm or choose a preview/read-only command instead."
+        )
+        raise typer.Exit(1)
+    if non_interactive:
+        typer.echo(f"Error: --non-interactive cannot be combined with live action '{action}'.")
+        raise typer.Exit(1)
+
+
+def build_publish_payload(result, target_host: Optional[str] = None) -> dict:
+    """Build a machine-readable publish summary."""
+    assignments = []
+    for slot, assignment in sorted(result.assignments.items()):
+        entry = {
+            "slot": slot,
+            "scene_id": assignment.scene.id,
+            "scene_kind": assignment.scene.kind,
+            "priority": assignment.scene.priority,
+        }
+        push_result = result.push_results.get(slot)
+        if push_result is not None:
+            entry["push_result"] = push_result
+        assignments.append(entry)
+
+    return {
+        "slot_count": result.slot_count,
+        "scene_count": len(result.scenes),
+        "assignments": assignments,
+        "preview_paths": [str(path) for path in result.preview_paths],
+        "shown_slot": result.shown_slot,
+        "target_host": target_host,
+    }
+
+
 def find_unsupported_legacy_pages(page_names: list[str], page_slots: int) -> list[tuple[str, int]]:
     """Return legacy pages whose fixed slot index exceeds the live device capacity."""
     unsupported: list[tuple[str, int]] = []
@@ -116,15 +162,21 @@ def beep(
     host: Optional[str] = HostOption,
     count: int = typer.Option(1, "--count", "-n", help="Number of beeps"),
     delay: float = typer.Option(0.3, "--delay", "-d", help="Delay between beeps"),
+    live: bool = typer.Option(False, "--live", help="Confirm a live device mutation"),
+    non_interactive: bool = typer.Option(False, "--non-interactive", help="Fail instead of mutating the live device"),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
 ):
     """Trigger the buzzer."""
+    require_live_action("beep", live=live, non_interactive=non_interactive)
     try:
         client = ReTerminal(host)
         for i in range(count):
             client.beep()
             if i < count - 1:
                 time.sleep(delay)
-        typer.echo(f"Beeped {count}x!")
+        payload = {"host": client.host, "count": count, "delay": delay, "status": "ok"}
+        if not emit_output(payload, output):
+            typer.echo(f"Beeped {count}x!")
     except Exception as e:
         logger.error(f"Failed to beep: {e}")
         raise typer.Exit(1)
@@ -134,11 +186,15 @@ def beep(
 def buttons(
     host: Optional[str] = HostOption,
     watch: bool = typer.Option(False, "--watch", "-w", help="Watch button states continuously"),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
 ):
     """Get button states."""
     try:
         client = ReTerminal(host)
         if watch:
+            if output == "json":
+                typer.echo("Error: --watch does not support JSON output.")
+                raise typer.Exit(1)
             typer.echo("Watching buttons (Ctrl+C to stop)...")
             last_state = None
             while True:
@@ -149,7 +205,8 @@ def buttons(
                 time.sleep(0.1)
         else:
             result = client.buttons()
-            typer.echo(json.dumps(result, indent=2))
+            if not emit_output({"host": client.host, "buttons": result}, output):
+                typer.echo(json.dumps(result, indent=2))
     except KeyboardInterrupt:
         typer.echo("\nStopped watching.")
     except Exception as e:
@@ -161,25 +218,35 @@ def buttons(
 def page(
     action: Optional[str] = typer.Argument(None, help="Action: next, prev, or page number"),
     host: Optional[str] = HostOption,
+    live: bool = typer.Option(False, "--live", help="Confirm a live device mutation"),
+    non_interactive: bool = typer.Option(False, "--non-interactive", help="Fail instead of mutating the live device"),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
 ):
     """Get or set current page. Use 'next', 'prev', or a page number."""
     try:
-        client = ReTerminal(host)
         if action is None:
+            client = ReTerminal(host)
             result = client.get_page()
         elif action == "next":
+            require_live_action("page next", live=live, non_interactive=non_interactive)
+            client = ReTerminal(host)
             result = client.next_page()
         elif action == "prev":
+            require_live_action("page prev", live=live, non_interactive=non_interactive)
+            client = ReTerminal(host)
             result = client.prev_page()
         else:
             try:
                 page_num = int(action)
-                result = client.set_page(page_num)
             except ValueError:
                 typer.echo(f"Invalid action: {action}. Use 'next', 'prev', or a number.")
                 raise typer.Exit(1)
+            require_live_action("page set", live=live, non_interactive=non_interactive)
+            client = ReTerminal(host)
+            result = client.set_page(page_num)
 
-        typer.echo(f"Page: {result.get('page', '?')} ({result.get('name', 'unknown')})")
+        if not emit_output({"host": client.host, "page": result}, output):
+            typer.echo(f"Page: {result.get('page', '?')} ({result.get('name', 'unknown')})")
     except typer.Exit:
         raise
     except Exception as e:
@@ -192,15 +259,23 @@ def clear(
     host: Optional[str] = HostOption,
     page_num: Optional[int] = PageOption,
     clear_all: bool = typer.Option(False, "--all", help="Clear all cached slots and blank the display"),
+    live: bool = typer.Option(False, "--live", help="Confirm a live device mutation"),
+    non_interactive: bool = typer.Option(False, "--non-interactive", help="Fail instead of mutating the live device"),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
 ):
     """Clear one cached slot or the full volatile device cache."""
     if clear_all and page_num is not None:
         typer.echo("Error: --all cannot be combined with --page")
         raise typer.Exit(1)
 
+    require_live_action("clear", live=live, non_interactive=non_interactive)
+
     try:
-        result = ReTerminalDevice(host).clear(page_num, all=clear_all)
-        typer.echo(json.dumps(result, indent=2))
+        device = ReTerminalDevice(host)
+        result = device.clear(page_num, all=clear_all)
+        payload = {"host": device.client.host, "result": result}
+        if not emit_output(payload, output):
+            typer.echo(json.dumps(result, indent=2))
     except Exception as e:
         logger.error(f"Failed to clear device cache: {e}")
         raise typer.Exit(1)
@@ -212,19 +287,26 @@ def refresh(
     host: Optional[str] = HostOption,
     list_available: bool = typer.Option(False, "--list", "-l", help="List available pages"),
     preview: Optional[Path] = typer.Option(None, "--preview", help="Save preview PNG instead of pushing"),
+    live: bool = typer.Option(False, "--live", help="Confirm a live device mutation"),
+    non_interactive: bool = typer.Option(False, "--non-interactive", help="Fail instead of mutating the live device"),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
 ):
     """Refresh display page(s)."""
     if list_available:
-        typer.echo("Available pages:")
-        for name, page_num in list_pages().items():
-            typer.echo(f"  {name:12} -> page {page_num}")
-        typer.echo("\nAliases:")
-        for alias, page_list in ALIASES.items():
-            if page_list:
-                typer.echo(f"  {alias:12} -> {', '.join(page_list)}")
+        payload = {"pages": list_pages(), "aliases": {k: v for k, v in ALIASES.items() if v}}
+        if not emit_output(payload, output):
+            typer.echo("Available pages:")
+            for name, page_num in list_pages().items():
+                typer.echo(f"  {name:12} -> page {page_num}")
+            typer.echo("\nAliases:")
+            for alias, page_list in ALIASES.items():
+                if page_list:
+                    typer.echo(f"  {alias:12} -> {', '.join(page_list)}")
         return
 
-    # Determine which pages to refresh
+    if preview is None:
+        require_live_action("refresh", live=live, non_interactive=non_interactive)
+
     if pages is None:
         pages = "all"
 
@@ -236,13 +318,16 @@ def refresh(
         else:
             page_names.append(name)
 
+    target_host = None
     try:
         if preview:
-            typer.echo(f"Previewing: {', '.join(page_names)} -> {preview}/")
+            if output != "json":
+                typer.echo(f"Previewing: {', '.join(page_names)} -> {preview}/")
             preview.mkdir(parents=True, exist_ok=True)
         else:
             device = ReTerminalDevice(host)
             caps = device.discover_capabilities(refresh=True)
+            target_host = caps.host
             unsupported = find_unsupported_legacy_pages(page_names, caps.page_slots)
             if unsupported:
                 details = ", ".join(f"{name}->{slot}" for name, slot in unsupported)
@@ -253,8 +338,9 @@ def refresh(
                 typer.echo("Use --preview for those pages or switch to `reterminal publish`.")
                 raise typer.Exit(1)
 
-            typer.echo(f"Refreshing: {', '.join(page_names)}")
-            typer.echo(f"Device: {caps.host}")
+            if output != "json":
+                typer.echo(f"Refreshing: {', '.join(page_names)}")
+                typer.echo(f"Device: {caps.host}")
     except typer.Exit:
         raise
     except Exception as e:
@@ -262,34 +348,54 @@ def refresh(
         raise typer.Exit(1)
 
     success = 0
+    results = []
     for name in page_names:
         entry = get_page(name)
         if entry is None:
-            typer.echo(f"Unknown page: {name}")
+            results.append({"page": name, "success": False, "error": "Unknown page"})
+            if output != "json":
+                typer.echo(f"Unknown page: {name}")
             continue
 
         page_class, default_page_num = entry
-        typer.echo(f"\n--- {'Previewing' if preview else 'Refreshing'} {name} (page {default_page_num}) ---")
+        if output != "json":
+            typer.echo(f"\n--- {'Previewing' if preview else 'Refreshing'} {name} (page {default_page_num}) ---")
 
         try:
             page_instance = page_class(host=host)
             data = page_instance.get_data()
             img = page_instance.render(data)
 
+            entry_result = {"page": name, "slot": default_page_num, "success": True}
             if preview:
                 output_path = preview / f"{name}.png"
                 img.save(output_path)
-                typer.echo(f"Saved: {output_path}")
+                entry_result["preview_path"] = str(output_path)
+                if output != "json":
+                    typer.echo(f"Saved: {output_path}")
             else:
                 raw = pil_to_raw(img)
-                page_instance.client.push_raw(raw, page=default_page_num)
+                response = page_instance.client.push_raw(raw, page=default_page_num)
+                entry_result["push_result"] = response
 
+            results.append(entry_result)
             success += 1
         except Exception as e:
             logger.error(f"Failed to {'preview' if preview else 'refresh'} {name}: {e}")
-            typer.echo(f"Error: {e}")
+            results.append({"page": name, "slot": default_page_num, "success": False, "error": str(e)})
+            if output != "json":
+                typer.echo(f"Error: {e}")
 
-    typer.echo(f"\n=== Done: {success}/{len(page_names)} pages {'previewed' if preview else 'refreshed'} ===")
+    payload = {
+        "mode": "preview" if preview else "live",
+        "host": target_host,
+        "requested_pages": page_names,
+        "success_count": success,
+        "total": len(page_names),
+        "results": results,
+    }
+    if not emit_output(payload, output):
+        typer.echo(f"\n=== Done: {success}/{len(page_names)} pages {'previewed' if preview else 'refreshed'} ===")
 
 
 @app.command()
@@ -303,16 +409,23 @@ def push(
     font_size: int = typer.Option(48, "--font-size", "-s", help="Font size for text"),
     invert: bool = typer.Option(False, "--invert", help="Invert colors"),
     preview: Optional[Path] = typer.Option(None, "--preview", help="Save preview PNG instead of pushing"),
+    live: bool = typer.Option(False, "--live", help="Confirm a live device mutation"),
+    non_interactive: bool = typer.Option(False, "--non-interactive", help="Fail instead of mutating the live device"),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
 ):
     """Push content to the display."""
     if not any([text, image, pattern, qr]):
         typer.echo("Error: Specify --text, --image, --qr, or --pattern")
         raise typer.Exit(1)
 
+    if preview is None:
+        require_live_action("push", live=live, non_interactive=non_interactive)
+
     from PIL import Image, ImageDraw
 
     img = None
     raw = None
+    content_type = "text" if text else "image" if image else "qr" if qr else "pattern"
 
     try:
         if qr:
@@ -322,23 +435,18 @@ def push(
                 typer.echo("QR support requires: pip install segno")
                 raise typer.Exit(1)
 
-            # Generate QR code
             qr_code = segno.make(qr, error="L")
-            # Scale to fit display with padding
             scale = min(WIDTH, HEIGHT) // qr_code.symbol_size()[0] - 2
             scale = max(1, scale)
 
-            # Create white background
             img = Image.new("1", (WIDTH, HEIGHT), color=1)
 
-            # Generate QR as PNG bytes and paste
             import io
             buffer = io.BytesIO()
             qr_code.save(buffer, kind="png", scale=scale, border=2)
             buffer.seek(0)
             qr_img = Image.open(buffer).convert("1")
 
-            # Center QR code
             x = (WIDTH - qr_img.width) // 2
             y = (HEIGHT - qr_img.height) // 2
             img.paste(qr_img, (x, y))
@@ -347,7 +455,6 @@ def push(
 
         elif text:
             raw = text_to_raw(text, font_size=font_size)
-            # Recreate image for preview
             if preview:
                 from reterminal.fonts import load_font
                 img = Image.new("1", (WIDTH, HEIGHT), color=1)
@@ -376,17 +483,32 @@ def push(
                 raise typer.Exit(1)
             raw = create_pattern(pattern)
 
-        # Preview or push
         if preview:
             if img is None:
                 typer.echo("Preview not available for this content type")
                 raise typer.Exit(1)
+            preview.parent.mkdir(parents=True, exist_ok=True)
             img.save(preview)
-            typer.echo(f"Preview saved: {preview}")
+            payload = {
+                "mode": "preview",
+                "content_type": content_type,
+                "page": page_num,
+                "preview_path": str(preview),
+            }
+            if not emit_output(payload, output):
+                typer.echo(f"Preview saved: {preview}")
         else:
             client = ReTerminal(host)
             result = client.push_raw(raw, page=page_num)
-            typer.echo(f"Pushed: {result}")
+            payload = {
+                "mode": "live",
+                "content_type": content_type,
+                "host": client.host,
+                "page": page_num,
+                "result": result,
+            }
+            if not emit_output(payload, output):
+                typer.echo(f"Pushed: {result}")
 
     except typer.Exit:
         raise
@@ -396,8 +518,21 @@ def push(
 
 
 @app.command()
-def config():
+def config(
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
+):
     """Show current configuration."""
+    payload = {
+        "host": settings.host or None,
+        "timeout": settings.timeout,
+        "log_level": settings.log_level,
+        "retry_attempts": settings.retry_attempts,
+        "retry_min_wait": settings.retry_min_wait,
+        "retry_max_wait": settings.retry_max_wait,
+    }
+    if emit_output(payload, output):
+        return
+
     typer.echo(f"{'─' * 40}")
     typer.echo("  reTerminal Configuration")
     typer.echo(f"{'─' * 40}")
@@ -627,6 +762,9 @@ def publish(
     slot_count: Optional[int] = typer.Option(None, "--slots", min=1, help="Override physical slot count"),
     show_slot: Optional[int] = typer.Option(None, "--show-slot", min=0, help="Select which slot is visible after a push"),
     interval: Optional[int] = typer.Option(None, "--interval", min=1, help="Repeat publish every N seconds"),
+    live: bool = typer.Option(False, "--live", help="Confirm a live device mutation"),
+    non_interactive: bool = typer.Option(False, "--non-interactive", help="Fail instead of mutating the live device"),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
 ):
     """Render logical scenes, schedule them into hardware slots, and preview/push them."""
     providers = []
@@ -643,8 +781,14 @@ def publish(
     if show_slot is not None and not push:
         typer.echo("Error: --show-slot requires --push")
         raise typer.Exit(1)
+    if push:
+        require_live_action("publish --push", live=live, non_interactive=non_interactive)
 
-    warn_if_example_feed(feed)
+    example_feed_warning = None
+    if feed is not None and "examples" in feed.resolve().parts:
+        example_feed_warning = "example feeds are static demo content and will not update on their own"
+        if output != "json":
+            typer.echo("Note: example feeds are static demo content and will not update on their own.")
 
     try:
         device = ReTerminalDevice(host) if push or host else None
@@ -659,7 +803,7 @@ def publish(
         cycle = 0
         while True:
             cycle += 1
-            if interval is not None:
+            if interval is not None and output != "json":
                 typer.echo(f"\n[{datetime.now().strftime('%H:%M:%S')}] Publish cycle {cycle}")
 
             result = publisher.publish(
@@ -669,7 +813,14 @@ def publish(
                 show_slot=current_show_slot,
             )
             target_host = device.discover_capabilities().host if push and device else None
-            print_publish_result(result, target_host=target_host)
+            payload = build_publish_payload(result, target_host=target_host)
+            payload.update({
+                "mode": "live" if push else "preview",
+                "cycle": cycle,
+                "example_feed_warning": example_feed_warning,
+            })
+            if not emit_output(payload, output):
+                print_publish_result(result, target_host=target_host)
 
             if interval is None:
                 break
@@ -691,8 +842,11 @@ def watch(
     host: Optional[str] = HostOption,
     interval: int = typer.Option(60, "--interval", "-i", help="Update interval in seconds"),
     page_num: Optional[int] = PageOption,
+    live: bool = typer.Option(False, "--live", help="Confirm a live device mutation"),
+    non_interactive: bool = typer.Option(False, "--non-interactive", help="Fail instead of mutating the live device"),
 ):
     """Watch mode - continuously update a legacy page."""
+    require_live_action("watch", live=live, non_interactive=non_interactive)
     entry = get_page(page_name)
     if entry is None:
         typer.echo(f"Unknown page: {page_name}")

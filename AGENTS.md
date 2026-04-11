@@ -62,8 +62,8 @@ uv run reterminal capabilities
 uv run reterminal clear --all
 uv run reterminal probe
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews
-uv run reterminal publish --feed examples/agent-feed.json --preview ./previews --push
-uv run reterminal publish --feed path/to/live-feed.json --push --interval 60
+uv run reterminal publish --feed examples/agent-feed.json --preview ./previews --push --live
+uv run reterminal publish --feed path/to/live-feed.json --push --live --interval 60
 ```
 
 ## Legacy commands
@@ -86,6 +86,10 @@ Prefer these extension points:
 - **device capabilities** for hardware-aware behavior
 
 Avoid baking external integrations directly into firmware or into slot-specific host code.
+
+## Safety rule
+
+Preview first. Live device mutations should require explicit `--live` approval and should refuse `--non-interactive` mutation attempts.
 
 ## When adding features
 
