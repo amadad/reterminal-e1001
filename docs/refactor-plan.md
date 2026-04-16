@@ -29,7 +29,7 @@ Goal: establish what the hardware/firmware actually supports.
 
 Exit criteria:
 
-- `docs/device-contract.md` contains verified values, not just code-inspection guesses
+- `docs/device-profile.md` contains verified values, not just code-inspection guesses
 - actual supported slot count is known
 - page navigation behavior is understood
 

@@ -5,14 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import textwrap
-from typing import Optional
 
 from PIL import Image, ImageDraw, ImageEnhance, ImageOps
 
 from reterminal.config import HEIGHT, WIDTH
 from reterminal.fonts import load_mono_font
 from reterminal.render.bitmap import generate_bitmap
-from reterminal.render.layout import Rect, draw_text_block, fit_text_block
+from reterminal.payloads import JSONValue
+from reterminal.render.layout import Rect, TextAlign, VerticalAlign, draw_text_block, fit_text_block
 from reterminal.render.theme import DEFAULT_THEME, MonoTheme
 from reterminal.scenes import SceneSpec
 
@@ -42,8 +42,8 @@ class MonoRenderer:
         self,
         scene: SceneSpec,
         *,
-        slot: Optional[int] = None,
-        total_slots: Optional[int] = None,
+        slot: int | None = None,
+        total_slots: int | None = None,
     ) -> Image.Image:
         img = Image.new("L", (WIDTH, HEIGHT), color=255)
         draw = ImageDraw.Draw(img)
@@ -334,8 +334,8 @@ class MonoRenderer:
         scene: SceneSpec,
         rect: Rect,
         *,
-        slot: Optional[int],
-        total_slots: Optional[int],
+        slot: int | None,
+        total_slots: int | None,
     ) -> None:
         draw.line((rect.x, rect.y - self.theme.rule_inset, rect.right, rect.y - self.theme.rule_inset), fill=0, width=self.theme.line_width)
         left_rect, right_rect = rect.split_right(74, gap=self.theme.gutter)
@@ -380,8 +380,8 @@ class MonoRenderer:
         min_font_size: int,
         max_lines: int,
         line_spacing: int = 4,
-        align: str = "left",
-        valign: str = "top",
+        align: TextAlign = "left",
+        valign: VerticalAlign = "top",
     ) -> None:
         fitted = fit_text_block(
             draw,
@@ -423,7 +423,8 @@ class MonoRenderer:
             fill = 232 if idx % 2 == 0 else 196
             draw.rectangle((0, stripe_y, width, min(height, stripe_y + stripe_height)), fill=fill)
 
-        label = textwrap.shorten((self._meta(scene, "kicker") or scene.kind).upper(), width=16, placeholder="…")
+        label_source = str(self._meta(scene, "kicker") or scene.kind).upper()
+        label = textwrap.shorten(label_source, width=16, placeholder="…")
         mono_font = load_mono_font(size=16)
         draw.rectangle((18, 18, 18 + 84, 18 + 28), fill=255, outline=0, width=2)
         draw.text((28, 24), label, font=mono_font, fill=0)
@@ -433,8 +434,8 @@ class MonoRenderer:
         draw.line((rect.x, y, rect.right, y), fill=0, width=self.theme.line_width)
 
     @staticmethod
-    def _meta(scene: SceneSpec, key: str) -> object | None:
-        return scene.meta.get(key) if isinstance(scene.meta, dict) else None
+    def _meta(scene: SceneSpec, key: str) -> JSONValue:
+        return scene.meta.get(key)
 
     @staticmethod
     def _chunk(items: list, size: int) -> list[list]:

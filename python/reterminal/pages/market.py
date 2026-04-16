@@ -1,26 +1,40 @@
 """Market pulse page - VIX, S&P 500, Dow Jones from Schwab API."""
 
-import subprocess
+from __future__ import annotations
+
 import json
+import subprocess
 from pathlib import Path
-from typing import Any, Dict
+from typing import TypedDict
 
 from PIL import Image
 from loguru import logger
 
-from reterminal.pages.base import BasePage
 from reterminal.pages import register
+from reterminal.pages.base import BasePage
+
+
+class QuoteSummary(TypedDict):
+    price: float
+    change: float
+    pct: float
+
+
+MarketPageData = dict[str, QuoteSummary]
+
+
+def empty_quote() -> QuoteSummary:
+    return {"price": 0.0, "change": 0.0, "pct": 0.0}
 
 
 @register("market", page_number=0)
-class MarketPage(BasePage):
+class MarketPage(BasePage[MarketPageData]):
     """Display market pulse: VIX, S&P 500, Dow Jones."""
 
     name = "market"
     description = "Market pulse from Schwab API"
 
-    def get_data(self) -> Dict[str, Any]:
-        """Fetch market data from Schwab via schwab-cli-tools."""
+    def get_data(self) -> MarketPageData:
         script = '''
 from src.schwab_client import get_authenticated_client
 import json
@@ -49,28 +63,24 @@ if resp.status_code == 200:
                 timeout=30,
             )
             if result.returncode == 0:
-                data = json.loads(result.stdout.strip())
+                data = _parse_market_data(result.stdout.strip())
                 logger.debug(f"Market data: VIX={data['$VIX']['price']:.1f}")
                 return data
-        except Exception as e:
-            logger.error(f"Failed to fetch market data: {e}")
+        except (OSError, json.JSONDecodeError, subprocess.SubprocessError) as exc:
+            logger.error(f"Failed to fetch market data: {exc}")
 
-        return {"$VIX": {}, "$SPX": {}, "$DJI": {}}
+        return {symbol: empty_quote() for symbol in ("$VIX", "$SPX", "$DJI")}
 
-    def render(self, data: Dict[str, Any]) -> Image.Image:
-        """Render market data to image."""
+    def render(self, data: MarketPageData) -> Image.Image:
         img, draw = self.create_canvas()
         fonts = self.load_fonts()
 
-        # Title
         draw.text((50, 30), "MARKET PULSE", font=fonts["title"], fill=0)
 
-        # VIX
-        vix = data.get("$VIX", {})
-        vix_price = vix.get("price", 0)
-        vix_pct = vix.get("pct", 0)
+        vix = data.get("$VIX", empty_quote())
+        vix_price = vix["price"]
+        vix_pct = vix["pct"]
 
-        # VIX interpretation
         if vix_price < 15:
             vix_mood = "LOW FEAR"
         elif vix_price < 20:
@@ -86,17 +96,37 @@ if resp.status_code == 200:
 
         self.draw_divider(draw, 220)
 
-        # S&P 500
-        spx = data.get("$SPX", {})
+        spx = data.get("$SPX", empty_quote())
         draw.text((50, 250), "S&P 500", font=fonts["medium"], fill=0)
-        draw.text((300, 250), f"{spx.get('price', 0):,.0f}", font=fonts["medium"], fill=0)
-        draw.text((550, 250), f"{spx.get('pct', 0):+.2f}%", font=fonts["medium"], fill=0)
+        draw.text((300, 250), f"{spx['price']:,.0f}", font=fonts["medium"], fill=0)
+        draw.text((550, 250), f"{spx['pct']:+.2f}%", font=fonts["medium"], fill=0)
 
-        # Dow Jones
-        dji = data.get("$DJI", {})
+        dji = data.get("$DJI", empty_quote())
         draw.text((50, 310), "DOW", font=fonts["medium"], fill=0)
-        draw.text((300, 310), f"{dji.get('price', 0):,.0f}", font=fonts["medium"], fill=0)
-        draw.text((550, 310), f"{dji.get('pct', 0):+.2f}%", font=fonts["medium"], fill=0)
+        draw.text((300, 310), f"{dji['price']:,.0f}", font=fonts["medium"], fill=0)
+        draw.text((550, 310), f"{dji['pct']:+.2f}%", font=fonts["medium"], fill=0)
 
         self.add_timestamp(draw, fonts["small"])
         return img
+
+
+def _parse_market_data(raw: str) -> MarketPageData:
+    parsed = json.loads(raw)
+    data: MarketPageData = {}
+    if not isinstance(parsed, dict):
+        raise json.JSONDecodeError("expected object", raw, 0)
+
+    for symbol in ("$VIX", "$SPX", "$DJI"):
+        value = parsed.get(symbol)
+        if isinstance(value, dict):
+            price = value.get("price")
+            change = value.get("change")
+            pct = value.get("pct")
+            data[symbol] = {
+                "price": float(price) if isinstance(price, (int, float)) else 0.0,
+                "change": float(change) if isinstance(change, (int, float)) else 0.0,
+                "pct": float(pct) if isinstance(pct, (int, float)) else 0.0,
+            }
+        else:
+            data[symbol] = empty_quote()
+    return data

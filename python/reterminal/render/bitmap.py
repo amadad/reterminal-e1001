@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable, Mapping
 
 from PIL import Image, ImageDraw, ImageOps
 
+from reterminal.payloads import JSONValue
 
-def generate_bitmap(spec: dict, width: int, height: int) -> Image.Image:
+
+def generate_bitmap(spec: Mapping[str, JSONValue], width: int, height: int) -> Image.Image:
     """Generate a grayscale bitmap from a small declarative spec."""
     kind = str(spec.get("kind", "sparkline")).lower()
     image = Image.new("L", (width, height), color=255)
@@ -23,7 +25,12 @@ def generate_bitmap(spec: dict, width: int, height: int) -> Image.Image:
     return ImageOps.autocontrast(image)
 
 
-def _draw_sparkline(draw: ImageDraw.ImageDraw, spec: dict, width: int, height: int) -> None:
+def _draw_sparkline(
+    draw: ImageDraw.ImageDraw,
+    spec: Mapping[str, JSONValue],
+    width: int,
+    height: int,
+) -> None:
     values = _coerce_values(spec.get("values"))
     if len(values) < 2:
         values = [0.0, 1.0]
@@ -57,13 +64,18 @@ def _draw_sparkline(draw: ImageDraw.ImageDraw, spec: dict, width: int, height: i
     draw.ellipse((last_x - 6, last_y - 6, last_x + 6, last_y + 6), fill=0)
 
 
-def _draw_bars(draw: ImageDraw.ImageDraw, spec: dict, width: int, height: int) -> None:
+def _draw_bars(
+    draw: ImageDraw.ImageDraw,
+    spec: Mapping[str, JSONValue],
+    width: int,
+    height: int,
+) -> None:
     values = _coerce_values(spec.get("values"))
     if not values:
         values = [1.0, 2.0, 3.0, 2.0]
 
     margin = 18
-    gap = int(spec.get("gap", 8))
+    gap = _coerce_int(spec.get("gap"), default=8)
     baseline = height - 18
     top = 20
     available_width = width - margin * 2 - gap * (len(values) - 1)
@@ -81,16 +93,21 @@ def _draw_bars(draw: ImageDraw.ImageDraw, spec: dict, width: int, height: int) -
     draw.line((margin, baseline, width - margin, baseline), fill=0, width=2)
 
 
-def _draw_grid(draw: ImageDraw.ImageDraw, spec: dict, width: int, height: int) -> None:
-    values = spec.get("values") or []
-    cells = [bool(value) for value in values]
+def _draw_grid(
+    draw: ImageDraw.ImageDraw,
+    spec: Mapping[str, JSONValue],
+    width: int,
+    height: int,
+) -> None:
+    values = spec.get("values")
+    cells = [bool(value) for value in values] if isinstance(values, list) else []
     if not cells:
         cells = [True, False, True, True, False, True, False, True, True]
 
-    cols = int(spec.get("cols", max(1, round(len(cells) ** 0.5))))
-    rows = int(spec.get("rows", (len(cells) + cols - 1) // cols))
+    cols = _coerce_int(spec.get("cols"), default=max(1, round(len(cells) ** 0.5)))
+    rows = _coerce_int(spec.get("rows"), default=(len(cells) + cols - 1) // cols)
     margin = 18
-    gap = int(spec.get("gap", 8))
+    gap = _coerce_int(spec.get("gap"), default=8)
 
     cell_width = max(10, (width - margin * 2 - gap * (cols - 1)) // cols)
     cell_height = max(10, (height - margin * 2 - gap * (rows - 1)) // rows)
@@ -106,10 +123,21 @@ def _draw_grid(draw: ImageDraw.ImageDraw, spec: dict, width: int, height: int) -
             draw.rectangle((x, y, x + cell_width, y + cell_height), outline=0, width=2)
 
 
+def _coerce_int(raw: object, *, default: int) -> int:
+    if isinstance(raw, bool):
+        return int(raw)
+    if isinstance(raw, (int, float, str)):
+        try:
+            return int(raw)
+        except ValueError:
+            return default
+    return default
+
+
 def _coerce_values(raw: object) -> list[float]:
     if raw is None:
         return []
-    if isinstance(raw, Iterable) and not isinstance(raw, (str, bytes, dict)):
+    if isinstance(raw, Iterable) and not isinstance(raw, (str, bytes, Mapping)):
         values: list[float] = []
         for item in raw:
             try:

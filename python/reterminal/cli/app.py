@@ -5,8 +5,8 @@ import sys
 import typer
 from loguru import logger
 
-from reterminal import __version__
 from reterminal.config import settings
+from reterminal.version import __version__
 
 # Configure loguru
 logger.remove()  # Remove default handler
@@ -16,9 +16,25 @@ logger.add(
     format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
 )
 
+TOP_LEVEL_HELP = """CLI for Seeed reTerminal E1001 ePaper display.
+
+Use when you need to discover a device, inspect capabilities, preview scene feeds,
+or push content to the display with explicit `--live` approval.
+"""
+
+TOP_LEVEL_EPILOG = """Examples:
+  reterminal discover --output json
+  reterminal doctor --output json
+  reterminal snapshot --png ./current.png --output json
+  reterminal push --text \"hello\" --preview ./preview.png --output json
+  reterminal publish --feed ./feed.json --preview ./previews --output json
+  reterminal publish --feed ./feed.json --push --live
+"""
+
 app = typer.Typer(
     name="reterminal",
-    help="CLI for Seeed reTerminal E1001 ePaper display",
+    help=TOP_LEVEL_HELP,
+    epilog=TOP_LEVEL_EPILOG,
     no_args_is_help=True,
     rich_markup_mode="rich",
 )
@@ -33,7 +49,7 @@ def version_callback(value: bool):
 @app.callback()
 def main(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging"),
-    version: bool = typer.Option(False, "--version", "-V", callback=version_callback, is_eager=True, help="Show version"),
+    _show_version: bool = typer.Option(False, "--version", "-V", callback=version_callback, is_eager=True, help="Show version"),
 ):
     """reTerminal E1001 CLI - control your ePaper display."""
     if verbose:

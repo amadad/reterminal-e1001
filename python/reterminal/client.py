@@ -1,20 +1,29 @@
 """HTTP client for reTerminal E1001 with retry logic."""
 
+from __future__ import annotations
+
 import io
-from typing import Optional
 
 import requests
 from loguru import logger
 from tenacity import (
+    before_sleep_log,
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
-    before_sleep_log,
 )
 
-from reterminal.config import settings, get_host, IMAGE_BYTES
+from reterminal.config import IMAGE_BYTES, get_host, settings
 from reterminal.exceptions import ConnectionError, ImageError
+from reterminal.payloads import (
+    CapabilitiesPayload,
+    ClearResultPayload,
+    JSONObject,
+    PageInfoPayload,
+    PushResultPayload,
+    StatusPayload,
+)
 
 
 def _get_retry_decorator():
@@ -34,14 +43,7 @@ def _get_retry_decorator():
 class ReTerminal:
     """HTTP client for reTerminal E1001 ePaper display."""
 
-    def __init__(self, host: Optional[str] = None, timeout: Optional[int] = None):
-        """
-        Initialize client.
-
-        Args:
-            host: Device IP address (uses RETERMINAL_HOST env var if not set)
-            timeout: Request timeout in seconds (uses RETERMINAL_TIMEOUT if not set)
-        """
+    def __init__(self, host: str | None = None, timeout: int | None = None):
         self.host = get_host(host)
         self.base_url = f"http://{self.host}"
         self.timeout = timeout or settings.timeout
@@ -52,9 +54,9 @@ class ReTerminal:
         self,
         method: str,
         endpoint: str,
-        **kwargs,
+        **kwargs: object,
     ) -> requests.Response:
-        """Make HTTP request with timeout."""
+        """Make an HTTP request with the configured timeout."""
         url = f"{self.base_url}{endpoint}"
         kwargs.setdefault("timeout", self.timeout)
 
@@ -62,75 +64,66 @@ class ReTerminal:
             response = self._session.request(method, url, **kwargs)
             response.raise_for_status()
             return response
-        except requests.Timeout as e:
+        except requests.Timeout as exc:
             logger.error(f"Request timeout: {url}")
-            raise ConnectionError(f"Timeout connecting to {self.host}") from e
-        except requests.ConnectionError as e:
+            raise ConnectionError(f"Timeout connecting to {self.host}") from exc
+        except requests.ConnectionError as exc:
             logger.error(f"Connection failed: {url}")
-            raise ConnectionError(f"Cannot connect to {self.host}") from e
-        except requests.HTTPError as e:
-            logger.error(f"HTTP error {e.response.status_code}: {url}")
+            raise ConnectionError(f"Cannot connect to {self.host}") from exc
+        except requests.HTTPError as exc:
+            logger.error(f"HTTP error {exc.response.status_code}: {url}")
             raise
 
     @_get_retry_decorator()
-    def status(self) -> dict:
-        """Get device status."""
+    def status(self) -> StatusPayload:
         logger.debug("Getting device status")
         response = self._request("GET", "/status")
         return response.json()
 
     @_get_retry_decorator()
-    def capabilities(self) -> dict:
-        """Get firmware-reported capabilities when available."""
+    def capabilities(self) -> CapabilitiesPayload:
         logger.debug("Getting firmware capabilities")
         response = self._request("GET", "/capabilities")
         return response.json()
 
     @_get_retry_decorator()
-    def buttons(self) -> dict:
-        """Get button states."""
+    def buttons(self) -> JSONObject:
         logger.debug("Getting button states")
         response = self._request("GET", "/buttons")
         return response.json()
 
     @_get_retry_decorator()
     def beep(self) -> bool:
-        """Trigger buzzer."""
         logger.debug("Triggering buzzer")
         response = self._request("GET", "/beep")
-        return response.json().get("beeped", False)
+        return bool(response.json().get("beeped", False))
 
     @_get_retry_decorator()
-    def get_page(self) -> dict:
-        """Get current page info."""
+    def get_page(self) -> PageInfoPayload:
         logger.debug("Getting current page")
         response = self._request("GET", "/page")
         return response.json()
 
     @_get_retry_decorator()
-    def set_page(self, page: int) -> dict:
-        """Set current page."""
+    def set_page(self, page: int) -> JSONObject:
         logger.debug(f"Setting page to {page}")
         response = self._request("POST", "/page", json={"page": page})
         return response.json()
 
     @_get_retry_decorator()
-    def next_page(self) -> dict:
-        """Navigate to next page."""
+    def next_page(self) -> JSONObject:
         logger.debug("Navigating to next page")
         response = self._request("POST", "/page", json={"action": "next"})
         return response.json()
 
     @_get_retry_decorator()
-    def prev_page(self) -> dict:
-        """Navigate to previous page."""
+    def prev_page(self) -> JSONObject:
         logger.debug("Navigating to previous page")
         response = self._request("POST", "/page", json={"action": "prev"})
         return response.json()
 
     @_get_retry_decorator()
-    def clear(self, *, page: Optional[int] = None, all: bool = False) -> dict:
-        """Clear one stored slot or the full volatile cache."""
+    def clear(self, *, page: int | None = None, all: bool = False) -> ClearResultPayload:
         payload = {"all": True} if all else ({"page": page} if page is not None else {})
         logger.info(
             f"Clearing device cache on {self.host}"
@@ -140,14 +133,16 @@ class ReTerminal:
         return response.json()
 
     @_get_retry_decorator()
-    def push_raw(self, data: bytes, page: Optional[int] = None) -> dict:
-        """
-        Push raw 1-bit image data.
+    def snapshot_raw(self, page: int | None = None) -> bytes:
+        endpoint = "/snapshot"
+        if page is not None:
+            endpoint += f"?page={page}"
+        logger.debug(f"Fetching snapshot from {self.host}" + (f" page {page}" if page is not None else ""))
+        response = self._request("GET", endpoint)
+        return response.content
 
-        Args:
-            data: Raw bitmap data (48000 bytes, 1-bit per pixel)
-            page: Device slot to store, or None to display immediately
-        """
+    @_get_retry_decorator()
+    def push_raw(self, data: bytes, page: int | None = None) -> PushResultPayload:
         if len(data) != IMAGE_BYTES:
             raise ImageError(f"Image must be {IMAGE_BYTES} bytes, got {len(data)}")
 
@@ -164,19 +159,10 @@ class ReTerminal:
     def push_image(
         self,
         image_path: str,
-        page: Optional[int] = None,
+        page: int | None = None,
         invert: bool = False,
         dither: bool = True,
-    ) -> dict:
-        """
-        Convert and push an image file.
-
-        Args:
-            image_path: Path to image file (PNG, JPG, etc.)
-            page: Device slot to store, or None to display immediately
-            invert: Invert black/white
-            dither: Use Floyd-Steinberg dithering for grayscale
-        """
+    ) -> PushResultPayload:
         from reterminal.encoding import image_to_raw
 
         logger.info(f"Converting image: {image_path}")
@@ -186,19 +172,10 @@ class ReTerminal:
     def push_text(
         self,
         text: str,
-        page: Optional[int] = None,
+        page: int | None = None,
         font_size: int = 48,
         align: str = "center",
-    ) -> dict:
-        """
-        Render and push text.
-
-        Args:
-            text: Text to display (supports newlines)
-            page: Device slot to store, or None to display immediately
-            font_size: Font size in pixels
-            align: Text alignment ("left", "center", "right")
-        """
+    ) -> PushResultPayload:
         from reterminal.encoding import text_to_raw
 
         logger.info(f"Rendering text: {text[:50]}...")

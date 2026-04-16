@@ -127,15 +127,17 @@ The tracked firmware source exposes:
 - `GET /buttons`
 - `GET /beep`
 - `GET/POST /page`
+- `GET /snapshot`
 - `POST /imageraw`
 - `POST /clear`
 
 Notes:
 
 - `/capabilities` is the richer machine-readable contract for host software.
+- `/snapshot` returns the exact stored raw bitmap for a loaded slot so host tooling can verify what the device has cached.
 - `/clear` clears one slot or the full volatile cache.
 - Stored pages should be treated as volatile cache, not durable persistence across power cycles, until re-probed after flashing.
-- If the live device still returns `404` for `/capabilities` or `/clear`, you are still talking to the older flashed firmware and need a reflash before expecting the newer source contract.
+- If the live device still returns `404` for `/capabilities`, `/snapshot`, or `/clear`, you are still talking to the older flashed firmware and need a reflash before expecting the newer source contract.
 
 ## Pin Mapping
 

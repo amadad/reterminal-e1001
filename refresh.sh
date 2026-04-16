@@ -15,7 +15,7 @@ HOST="$RETERMINAL_HOST"
 PAGE="${1:-market}"
 
 if command -v uv >/dev/null 2>&1; then
-    uv run reterminal refresh --host "$HOST" "$PAGE"
+    uv run reterminal refresh --host "$HOST" "$PAGE" --live
 else
-    python3 -m reterminal refresh --host "$HOST" "$PAGE"
+    python3 -m reterminal refresh --host "$HOST" "$PAGE" --live
 fi

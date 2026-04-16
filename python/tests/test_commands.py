@@ -9,6 +9,17 @@ from reterminal.cli.commands import find_unsupported_legacy_pages, next_assigned
 runner = CliRunner()
 
 
+def test_top_level_help_includes_agent_examples():
+    result = runner.invoke(app, ["--help"])
+    normalized = " ".join(result.stdout.split())
+
+    assert result.exit_code == 0
+    assert "Use when you need to discover a device" in result.stdout
+    assert "reterminal discover --output json" in normalized
+    assert "reterminal publish --feed ./feed.json --push --live" in normalized
+
+
+
 def test_find_unsupported_legacy_pages_flags_targets_above_device_slot_count():
     unsupported = find_unsupported_legacy_pages(["market", "portfolio", "weather"], page_slots=4)
 
@@ -86,6 +97,70 @@ def test_push_preview_supports_json_output(tmp_path):
     assert payload["mode"] == "preview"
     assert payload["preview_path"] == str(preview_path)
     assert preview_path.exists()
+
+
+
+def test_snapshot_command_writes_png_and_raw(monkeypatch, tmp_path):
+    raw_path = tmp_path / "slot-0.raw"
+    png_path = tmp_path / "slot-0.png"
+
+    class StubClient:
+        host = "192.168.7.32"
+
+    class StubSnapshot:
+        host = "192.168.7.32"
+        page = 0
+        page_name = "slot-0"
+        width = 800
+        height = 480
+        image_bytes = 48000
+        sha256 = "abc123"
+        raw = b"\x00" * 48000
+
+        def to_dict(self):
+            return {
+                "host": self.host,
+                "page": self.page,
+                "page_name": self.page_name,
+                "width": self.width,
+                "height": self.height,
+                "image_bytes": self.image_bytes,
+                "sha256": self.sha256,
+            }
+
+    class StubDevice:
+        def __init__(self, host=None):
+            self.client = StubClient()
+
+        def snapshot(self, slot=None):
+            assert slot == 0
+            return StubSnapshot()
+
+    monkeypatch.setattr("reterminal.cli.commands.ReTerminalDevice", StubDevice)
+
+    result = runner.invoke(
+        app,
+        [
+            "snapshot",
+            "--page",
+            "0",
+            "--raw",
+            str(raw_path),
+            "--png",
+            str(png_path),
+            "--output",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["host"] == "192.168.7.32"
+    assert payload["page"] == 0
+    assert payload["raw_path"] == str(raw_path)
+    assert payload["png_path"] == str(png_path)
+    assert raw_path.read_bytes() == b"\x00" * 48000
+    assert png_path.exists()
 
 
 

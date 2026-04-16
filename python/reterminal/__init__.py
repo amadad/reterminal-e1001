@@ -14,7 +14,7 @@ Usage:
 from reterminal.app import DisplayPublisher, PublishResult
 from reterminal.client import ReTerminal
 from reterminal.config import settings, WIDTH, HEIGHT, IMAGE_BYTES
-from reterminal.device import DeviceCapabilities, ReTerminalDevice
+from reterminal.device import DeviceCapabilities, ReTerminalDevice, SlotSnapshot
 from reterminal.diagnostics import (
     DoctorReport,
     DiscoveryResult,
@@ -22,18 +22,19 @@ from reterminal.diagnostics import (
     discover_hosts,
     run_doctor,
 )
-from reterminal.encoding import image_to_raw, pil_to_raw
+from reterminal.encoding import image_to_raw, pil_to_raw, raw_to_pil
 from reterminal.exceptions import ReTerminalError, ConnectionError, ImageError
 from reterminal.providers import FileSceneProvider, PaperclipSceneProvider, SystemSceneProvider
 from reterminal.render import MonoRenderer
 from reterminal.scheduler import PriorityScheduler, SlotAssignment
 from reterminal.scenes import Metric, SceneSpec
-
-__version__ = "2.0.0"
+from reterminal.version import __version__
 
 __all__ = [
+    "__version__",
     "ReTerminal",
     "ReTerminalDevice",
+    "SlotSnapshot",
     "DeviceCapabilities",
     "DisplayPublisher",
     "PublishResult",
@@ -56,6 +57,7 @@ __all__ = [
     "IMAGE_BYTES",
     "image_to_raw",
     "pil_to_raw",
+    "raw_to_pil",
     "ReTerminalError",
     "ConnectionError",
     "ImageError",

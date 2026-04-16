@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from time import perf_counter
 from pathlib import Path
-from typing import Any, Optional
+from time import perf_counter
 
 import requests
 
@@ -14,7 +13,8 @@ from reterminal.app import DisplayPublisher
 from reterminal.config import settings
 from reterminal.device import DeviceCapabilities, ReTerminalDevice
 from reterminal.pages import list_pages
-from reterminal.providers import FileSceneProvider, PaperclipSceneProvider, SystemSceneProvider
+from reterminal.payloads import PageInfoPayload, StatusPayload
+from reterminal.providers import build_scene_providers
 from reterminal.render import MonoRenderer
 from reterminal.scheduler import PriorityScheduler
 
@@ -25,20 +25,20 @@ class DiscoveryResult:
 
     target: str
     reachable: bool
-    status: Optional[dict[str, Any]] = None
-    page_info: Optional[dict[str, Any]] = None
-    error: Optional[str] = None
-    latency_ms: Optional[int] = None
+    status: StatusPayload | None = None
+    page_info: PageInfoPayload | None = None
+    error: str | None = None
+    latency_ms: int | None = None
 
 
 @dataclass(slots=True)
 class DoctorReport:
     """Structured operational health report for one device target."""
 
-    configured_host: Optional[str]
-    resolved_host: Optional[str] = None
+    configured_host: str | None
+    resolved_host: str | None = None
     reachable: bool = False
-    capabilities: Optional[DeviceCapabilities] = None
+    capabilities: DeviceCapabilities | None = None
     legacy_page_issues: list[tuple[str, int]] = field(default_factory=list)
     scene_count: int = 0
     assignment_count: int = 0
@@ -50,18 +50,18 @@ DEFAULT_DISCOVERY_HOSTNAMES = ("reterminal.local", "reterminal")
 
 
 def build_discovery_candidates(
-    configured_host: Optional[str] = None,
+    configured_host: str | None = None,
     *,
-    candidates: Optional[list[str]] = None,
-    hostnames: Optional[list[str]] = None,
-    subnet: Optional[str] = None,
+    candidates: list[str] | None = None,
+    hostnames: list[str] | None = None,
+    subnet: str | None = None,
     start: int = 1,
     end: int = 254,
 ) -> list[str]:
     """Build a deduplicated discovery candidate list."""
     ordered: list[str] = []
 
-    def add(value: Optional[str]) -> None:
+    def add(value: str | None) -> None:
         if value is None:
             return
         normalized = value.strip()
@@ -99,7 +99,7 @@ def probe_candidate(target: str, timeout: float = 1.5) -> DiscoveryResult:
             page_info=page_response.json(),
             latency_ms=latency_ms,
         )
-    except Exception as exc:
+    except (requests.RequestException, ValueError) as exc:
         latency_ms = int((perf_counter() - started) * 1000)
         return DiscoveryResult(
             target=target,
@@ -135,18 +135,14 @@ def discover_hosts(
 
 def find_legacy_page_issues(page_slots: int) -> list[tuple[str, int]]:
     """Return legacy fixed pages that point past the live device slot count."""
-    return [
-        (name, slot)
-        for name, slot in list_pages().items()
-        if slot >= page_slots
-    ]
+    return [(name, slot) for name, slot in list_pages().items() if slot >= page_slots]
 
 
 def run_doctor(
-    host: Optional[str] = None,
+    host: str | None = None,
     *,
-    feed: Optional[Path] = None,
-    paperclip_url: Optional[str] = None,
+    feed: Path | None = None,
+    paperclip_url: str | None = None,
     include_system: bool = True,
 ) -> DoctorReport:
     """Run operational checks against a device and optional publish inputs."""
@@ -178,14 +174,11 @@ def run_doctor(
     if feed is not None and "examples" in feed.resolve().parts:
         report.warnings.append("The selected feed is static demo content and will not update on its own.")
 
-    providers = []
-    if feed is not None:
-        providers.append(FileSceneProvider(feed))
-    if paperclip_url is not None:
-        providers.append(PaperclipSceneProvider(paperclip_url))
-    if include_system:
-        providers.append(SystemSceneProvider())
-
+    providers = build_scene_providers(
+        feed=feed,
+        paperclip_url=paperclip_url,
+        include_system=include_system,
+    )
     if not providers:
         report.warnings.append("No publish providers selected; skipped pipeline dry run.")
         return report

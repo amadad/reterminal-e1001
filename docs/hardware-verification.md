@@ -89,6 +89,6 @@ After the automated and manual checks, write down these answers:
 
 Once you have results:
 
-1. update `docs/device-contract.md` with verified values
+1. update `docs/device-profile.md` with verified values
 2. update `docs/refactor-plan.md` with the chosen page model
 3. remove or rewrite any docs that still claim unverified capability

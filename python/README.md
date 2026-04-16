@@ -17,7 +17,7 @@ The live device currently behaves as:
 - invalid `page` requests wrap modulo 4
 - invalid `imageraw?page=N` uploads display immediately instead of storing
 
-Use `reterminal probe` and `reterminal capabilities` before assuming anything else. On newer firmware builds, `reterminal capabilities` reads the firmware-reported contract from `/capabilities` and `reterminal clear --all` can blank the volatile cache for ghosting/recovery workflows.
+Use `reterminal probe` and `reterminal capabilities` before assuming anything else. On newer firmware builds, `reterminal capabilities` reads the firmware-reported contract from `/capabilities`, `reterminal snapshot` can read back the exact stored slot bitmap, and `reterminal clear --all` can blank the volatile cache for ghosting/recovery workflows.
 
 ## Install
 
@@ -41,11 +41,12 @@ export RETERMINAL_HOST=<device-ip>
 uv run reterminal doctor
 uv run reterminal status
 uv run reterminal capabilities
+uv run reterminal snapshot --png ./current.png
 uv run reterminal clear --all
 uv run reterminal probe
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews
-uv run reterminal publish --feed examples/agent-feed.json --preview ./previews --push
-uv run reterminal publish --feed path/to/live-feed.json --push --interval 60
+uv run reterminal publish --feed examples/agent-feed.json --preview ./previews --push --live
+uv run reterminal publish --feed path/to/live-feed.json --push --live --interval 60
 ```
 
 The CLI no longer falls back to a baked-in host IP. Set `RETERMINAL_HOST` or pass `--host` explicitly after discovery. Use `reterminal discover` and `reterminal doctor` when DHCP or network behavior is unclear; earlier `.76/.77/.78` guesses are not stable identity.
@@ -57,6 +58,8 @@ reterminal/
 ├── app/            # publish scenes -> previews/device slots
 ├── cli/            # Typer commands
 ├── device/         # device SDK and capability model
+├── payloads.py     # shared device/JSON payload types
+├── protocols.py    # shared structural interfaces
 ├── providers/      # scene providers
 ├── render/         # monochrome renderer, layout primitives, bitmap generators
 ├── scheduler/      # slot assignment strategies
@@ -91,11 +94,8 @@ The following are still present but are no longer the architectural center:
 - `reterminal/pages/*`
 - `reterminal refresh`
 - `reterminal watch`
-- `python/reterminal.py`
-- `python/refresh.py`
-- `python/pages/*`
 
-They remain for compatibility while the repo transitions to the provider/scene/scheduler model. Legacy fixed pages are now guarded against pushing to slots beyond the live device capacity.
+The old direct-script entrypoints (`python/reterminal.py`, `python/refresh.py`, and `python/pages/*`) have been removed so the repo only documents the package CLI and in-package legacy pages. Legacy fixed pages are still guarded against pushing to slots beyond the live device capacity.
 
 ## Tests
 

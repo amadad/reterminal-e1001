@@ -15,10 +15,10 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Optional
 
 from reterminal.client import ReTerminal
 from reterminal.encoding import create_pattern
+from reterminal.payloads import JSONObject, PageInfoPayload, StatusPayload
 
 EXPECTED_STATUS_FIELDS = (
     "ip",
@@ -49,8 +49,8 @@ class SlotProbeResult:
     push_stored: bool
     push_displayed: bool
     selected_page_matches: bool
-    push_response: dict[str, Any] = field(default_factory=dict)
-    set_response: dict[str, Any] = field(default_factory=dict)
+    push_response: JSONObject = field(default_factory=dict)
+    set_response: JSONObject = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
 
 
@@ -63,29 +63,29 @@ class ProbeReport:
     expected_pages: int
     requested_slots: int
     upload_pages: bool
-    status: dict[str, Any]
+    status: StatusPayload
     status_missing_fields: list[str]
-    page_info: dict[str, Any]
-    original_page: Optional[int]
-    inferred_slot_count: Optional[int] = None
+    page_info: PageInfoPayload
+    original_page: int | None
+    inferred_slot_count: int | None = None
     slot_results: list[SlotProbeResult] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     manual_checks: list[str] = field(default_factory=lambda: list(MANUAL_CHECKS))
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """Return a JSON-serializable representation."""
         return asdict(self)
 
 
-def missing_status_fields(status: dict[str, Any]) -> list[str]:
+def missing_status_fields(status: StatusPayload) -> list[str]:
     """Return expected status fields missing from the device response."""
     return [field for field in EXPECTED_STATUS_FIELDS if field not in status]
 
 
 def analyze_slot_result(
     slot: int,
-    push_response: dict[str, Any],
-    set_response: dict[str, Any],
+    push_response: JSONObject,
+    set_response: JSONObject,
 ) -> SlotProbeResult:
     """Interpret push/set responses for a requested page slot."""
     push_stored = push_response.get("page") == slot
@@ -131,7 +131,7 @@ def infer_contiguous_slot_count(slot_results: list[SlotProbeResult]) -> int:
 
 
 def run_probe(
-    host: Optional[str] = None,
+    host: str | None = None,
     *,
     expected_pages: int = 7,
     requested_slots: int = 8,
@@ -148,7 +148,8 @@ def run_probe(
     client = ReTerminal(host)
     status = client.status()
     page_info = client.get_page()
-    original_page = page_info.get("page") if isinstance(page_info.get("page"), int) else None
+    current_page = page_info.get("page")
+    original_page = current_page if isinstance(current_page, int) else None
 
     report = ProbeReport(
         generated_at=datetime.now(timezone.utc).isoformat(),
@@ -225,10 +226,7 @@ def format_report(report: ProbeReport) -> str:
     ]
 
     if report.upload_pages:
-        lines.extend([
-            "",
-            "Slot probe (destructive)",
-        ])
+        lines.extend(["", "Slot probe (destructive)"])
         for result in report.slot_results:
             lines.append(
                 "  "
@@ -238,11 +236,7 @@ def format_report(report: ProbeReport) -> str:
             )
         lines.append(f"  inferred contiguous slot count: {report.inferred_slot_count}")
     else:
-        lines.extend([
-            "",
-            "Slot probe (destructive)",
-            "  skipped",
-        ])
+        lines.extend(["", "Slot probe (destructive)", "  skipped"])
 
     if report.warnings:
         lines.extend(["", "Warnings"])

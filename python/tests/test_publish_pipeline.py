@@ -9,6 +9,8 @@ from reterminal.scheduler import PriorityScheduler
 
 
 class StubProvider:
+    name = "stub"
+
     def fetch(self):
         return [
             SceneSpec(
@@ -38,8 +40,9 @@ class StubDevice:
         self.shown = []
         self.prepare_calls = 0
 
-    def discover_capabilities(self):
+    def discover_capabilities(self, refresh=False):
         class Capabilities:
+            host = "192.168.7.76"
             page_slots = 4
             current_page = 1
 
@@ -55,6 +58,7 @@ class StubDevice:
 
     def show_slot(self, slot):
         self.shown.append(slot)
+        return {"page": slot}
 
 
 def test_publisher_renders_preview_and_pushes_to_slots(tmp_path: Path):

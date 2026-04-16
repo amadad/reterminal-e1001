@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
 
 from reterminal.scenes import SceneSpec
 
@@ -41,9 +41,11 @@ class FileSceneProvider:
         return [SceneSpec.from_dict(item, base_dir=self.path.parent) for item in scenes_data]
 
     @staticmethod
-    def _extract_scenes(data: Any) -> list[dict[str, Any]]:
-        if isinstance(data, dict) and isinstance(data.get("scenes"), list):
-            return data["scenes"]
+    def _extract_scenes(data: object) -> list[Mapping[str, object]]:
+        if isinstance(data, Mapping):
+            scenes = data.get("scenes")
+            if isinstance(scenes, list):
+                return [item for item in scenes if isinstance(item, Mapping)]
         if isinstance(data, list):
-            return data
+            return [item for item in data if isinstance(item, Mapping)]
         raise ValueError("Feed JSON must be a list of scenes or an object with a 'scenes' list")

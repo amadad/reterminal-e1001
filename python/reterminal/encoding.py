@@ -11,7 +11,6 @@ Display specs:
 """
 
 from pathlib import Path
-from typing import Union
 
 from PIL import Image
 
@@ -55,8 +54,26 @@ def pil_to_raw(img: Image.Image) -> bytes:
     return bytes(raw)
 
 
+def raw_to_pil(data: bytes) -> Image.Image:
+    """Decode raw 1-bit device bitmap data into a PIL image."""
+    if len(data) != IMAGE_BYTES:
+        raise ImageError(f"Image must be {IMAGE_BYTES} bytes, got {len(data)}")
+
+    img = Image.new("1", (WIDTH, HEIGHT), color=1)
+    pixels = img.load()
+
+    for y in range(HEIGHT):
+        for x in range(WIDTH):
+            byte_idx = (y * WIDTH + x) // 8
+            bit_idx = 7 - (x % 8)
+            if data[byte_idx] & (1 << bit_idx):
+                pixels[x, y] = 0
+
+    return img
+
+
 def image_to_raw(
-    image_path: Union[str, Path],
+    image_path: str | Path,
     invert: bool = False,
     dither: bool = True,
 ) -> bytes:
@@ -77,8 +94,8 @@ def image_to_raw(
 
     try:
         img = Image.open(path)
-    except Exception as e:
-        raise ImageError(f"Failed to open image: {e}")
+    except OSError as exc:
+        raise ImageError(f"Failed to open image: {exc}") from exc
 
     # Resize to display dimensions
     img = img.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
@@ -103,7 +120,7 @@ def text_to_raw(
     text: str,
     font_size: int = 48,
     align: str = "center",
-    font_path: str = None,
+    font_path: str | None = None,
 ) -> bytes:
     """
     Render text to raw 1-bit bitmap.

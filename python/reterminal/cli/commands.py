@@ -15,10 +15,10 @@ from reterminal.client import ReTerminal
 from reterminal.config import settings, WIDTH, HEIGHT
 from reterminal.device import ReTerminalDevice
 from reterminal.diagnostics import build_discovery_candidates, discover_hosts, run_doctor
-from reterminal.encoding import text_to_raw, image_to_raw, create_pattern, pil_to_raw
+from reterminal.encoding import text_to_raw, image_to_raw, create_pattern, pil_to_raw, raw_to_pil
 from reterminal.pages import get_page, list_pages, ALIASES
 from reterminal.probe import VALID_PATTERNS, format_report, run_probe
-from reterminal.providers import FileSceneProvider, PaperclipSceneProvider, SystemSceneProvider
+from reterminal.providers import build_scene_providers
 from reterminal.render import MonoRenderer
 from reterminal.scheduler import PriorityScheduler
 
@@ -28,7 +28,7 @@ HostOption = typer.Option(None, "--host", "-h", help="Device IP address")
 PageOption = typer.Option(None, "--page", help="Device slot to store/show")
 
 
-def emit_output(payload: dict, output: str = "table") -> bool:
+def emit_output(payload: object, output: str = "table") -> bool:
     """Emit a JSON payload when requested and report whether we handled output."""
     if output == "json":
         typer.echo(json.dumps(payload, indent=2, default=str))
@@ -49,7 +49,7 @@ def require_live_action(action: str, *, live: bool, non_interactive: bool) -> No
         raise typer.Exit(1)
 
 
-def build_publish_payload(result, target_host: Optional[str] = None) -> dict:
+def build_publish_payload(result, target_host: str | None = None) -> dict[str, object]:
     """Build a machine-readable publish summary."""
     assignments = []
     for slot, assignment in sorted(result.assignments.items()):
@@ -88,7 +88,7 @@ def find_unsupported_legacy_pages(page_names: list[str], page_slots: int) -> lis
 
 
 
-def next_assigned_slot(current_slot: Optional[int], assigned_slots: list[int]) -> Optional[int]:
+def next_assigned_slot(current_slot: int | None, assigned_slots: list[int]) -> int | None:
     """Rotate to the next assigned slot, wrapping back to the first slot."""
     if not assigned_slots:
         return None
@@ -99,17 +99,7 @@ def next_assigned_slot(current_slot: Optional[int], assigned_slots: list[int]) -
 
 
 
-def warn_if_example_feed(feed: Optional[Path]) -> None:
-    """Call out static example feeds so they are not mistaken for live data."""
-    if feed is None:
-        return
-    resolved = feed.resolve()
-    if "examples" in resolved.parts:
-        typer.echo("Note: example feeds are static demo content and will not update on their own.")
-
-
-
-def print_publish_result(result, target_host: Optional[str] = None) -> None:
+def print_publish_result(result, target_host: str | None = None) -> None:
     """Render a consistent publish summary for one run."""
     typer.echo(f"Selected {len(result.assignments)} scene(s) for {result.slot_count} slot(s):")
     for slot, assignment in sorted(result.assignments.items()):
@@ -310,11 +300,12 @@ def refresh(
     if pages is None:
         pages = "all"
 
-    page_names = []
+    page_names: list[str] = []
     for name in pages.split(","):
         name = name.strip().lower()
-        if name in ALIASES and ALIASES[name]:
-            page_names.extend(ALIASES[name])
+        alias_targets = ALIASES.get(name)
+        if alias_targets:
+            page_names.extend(alias_targets)
         else:
             page_names.append(name)
 
@@ -739,6 +730,8 @@ def capabilities(
             typer.echo(f"  {'Firmware':20} {caps.firmware_version}")
         if caps.build_time is not None:
             typer.echo(f"  {'Build Time':20} {caps.build_time}")
+        if caps.snapshot_readback is not None:
+            typer.echo(f"  {'Snapshot Readback':20} {'yes' if caps.snapshot_readback else 'no'}")
         if caps.loaded_pages:
             loaded = ", ".join(str(index) for index, value in enumerate(caps.loaded_pages) if value) or "none"
             typer.echo(f"  {'Loaded Slots':20} {loaded}")
@@ -748,6 +741,48 @@ def capabilities(
         typer.echo(f"{'─' * 48}")
     except Exception as e:
         logger.error(f"Failed to get capabilities: {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def snapshot(
+    host: Optional[str] = HostOption,
+    page_num: Optional[int] = PageOption,
+    raw_path: Optional[Path] = typer.Option(None, "--raw", help="Write raw 1-bit bitmap bytes to a file"),
+    png_path: Optional[Path] = typer.Option(None, "--png", help="Write a decoded PNG preview to a file"),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
+):
+    """Fetch a stored slot bitmap back from the device."""
+    try:
+        device = ReTerminalDevice(host)
+        result = device.snapshot(page_num)
+        payload = result.to_dict()
+
+        if raw_path is not None:
+            raw_path.parent.mkdir(parents=True, exist_ok=True)
+            raw_path.write_bytes(result.raw)
+            payload["raw_path"] = str(raw_path)
+
+        if png_path is not None:
+            png_path.parent.mkdir(parents=True, exist_ok=True)
+            raw_to_pil(result.raw).save(png_path)
+            payload["png_path"] = str(png_path)
+
+        if emit_output(payload, output):
+            return
+
+        typer.echo(f"Snapshot host: {result.host}")
+        typer.echo(f"Slot: {result.page}")
+        typer.echo(f"Name: {result.page_name or 'unknown'}")
+        typer.echo(f"Dimensions: {result.width}x{result.height}")
+        typer.echo(f"Image bytes: {result.image_bytes}")
+        typer.echo(f"SHA256: {result.sha256}")
+        if raw_path is not None:
+            typer.echo(f"Raw saved: {raw_path}")
+        if png_path is not None:
+            typer.echo(f"PNG saved: {png_path}")
+    except Exception as e:
+        logger.error(f"Failed to fetch snapshot: {e}")
         raise typer.Exit(1)
 
 
@@ -767,13 +802,11 @@ def publish(
     output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
 ):
     """Render logical scenes, schedule them into hardware slots, and preview/push them."""
-    providers = []
-    if feed is not None:
-        providers.append(FileSceneProvider(feed))
-    if paperclip_url is not None:
-        providers.append(PaperclipSceneProvider(paperclip_url))
-    if include_system:
-        providers.append(SystemSceneProvider())
+    providers = build_scene_providers(
+        feed=feed,
+        paperclip_url=paperclip_url,
+        include_system=include_system,
+    )
 
     if not providers:
         typer.echo("Error: provide --feed, --paperclip-url, or enable --include-system")
@@ -891,3 +924,5 @@ def watch(
             time.sleep(interval)
     except KeyboardInterrupt:
         typer.echo("\nStopped watching.")
+
+

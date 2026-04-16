@@ -110,7 +110,7 @@ Pipeline:
 
 ## Why this model
 
-It matches the verified device contract:
+It matches the verified device profile:
 
 - there are only 4 physical slots today
 - semantic page names are unstable between host docs and firmware

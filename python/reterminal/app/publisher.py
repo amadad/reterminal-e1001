@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
-from typing import Optional
 
-from reterminal.device import ReTerminalDevice
+from reterminal.payloads import PushResultPayload
+from reterminal.protocols import DisplayDevice, SceneRenderer
 from reterminal.providers import SceneProvider
 from reterminal.render import MonoRenderer
 from reterminal.scheduler import PriorityScheduler, SlotAssignment
@@ -22,8 +23,8 @@ class PublishResult:
     scenes: list[SceneSpec]
     assignments: dict[int, SlotAssignment]
     preview_paths: list[Path] = field(default_factory=list)
-    push_results: dict[int, dict] = field(default_factory=dict)
-    shown_slot: Optional[int] = None
+    push_results: dict[int, PushResultPayload] = field(default_factory=dict)
+    shown_slot: int | None = None
 
 
 class DisplayPublisher:
@@ -32,12 +33,12 @@ class DisplayPublisher:
     def __init__(
         self,
         *,
-        providers: list[SceneProvider],
-        renderer: Optional[MonoRenderer] = None,
-        scheduler: Optional[PriorityScheduler] = None,
-        device: Optional[ReTerminalDevice] = None,
+        providers: Sequence[SceneProvider],
+        renderer: SceneRenderer | None = None,
+        scheduler: PriorityScheduler | None = None,
+        device: DisplayDevice | None = None,
     ):
-        self.providers = providers
+        self.providers = list(providers)
         self.renderer = renderer or MonoRenderer()
         self.scheduler = scheduler or PriorityScheduler()
         self.device = device
@@ -45,10 +46,10 @@ class DisplayPublisher:
     def publish(
         self,
         *,
-        preview_dir: Optional[Path] = None,
+        preview_dir: Path | None = None,
         push: bool = False,
-        slot_count: Optional[int] = None,
-        show_slot: Optional[int] = None,
+        slot_count: int | None = None,
+        show_slot: int | None = None,
     ) -> PublishResult:
         scenes = self._collect_scenes()
         if push and self.device is not None:
@@ -57,7 +58,7 @@ class DisplayPublisher:
         assignments = self.scheduler.assign(scenes, resolved_slot_count)
 
         preview_paths: list[Path] = []
-        push_results: dict[int, dict] = {}
+        push_results: dict[int, PushResultPayload] = {}
         if preview_dir:
             preview_dir.mkdir(parents=True, exist_ok=True)
 
@@ -76,7 +77,7 @@ class DisplayPublisher:
                     raise ValueError("A device adapter is required when push=True")
                 push_results[slot] = self.device.push_pil(image, slot)
 
-        shown_slot: Optional[int] = None
+        shown_slot: int | None = None
         if push and assignments:
             if self.device is None:
                 raise ValueError("A device adapter is required when push=True")
@@ -109,7 +110,7 @@ class DisplayPublisher:
     @staticmethod
     def _resolve_show_slot(
         assignments: dict[int, SlotAssignment],
-        requested_slot: Optional[int],
+        requested_slot: int | None,
     ) -> int:
         if requested_slot is not None:
             return requested_slot

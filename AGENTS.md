@@ -6,7 +6,7 @@ Instructions for AI agents working in this repository.
 
 Before making architecture claims, use these files:
 
-- `docs/device-contract.md`
+- `docs/device-profile.md`
 - `docs/hardware-verification.md`
 - `docs/refactor-plan.md`
 - `artifacts/probe-report.json`
@@ -29,11 +29,13 @@ Do not center new work around the legacy fixed-page system unless explicitly ask
 - Format: `1-bit`
 - Raw image bytes: `48000`
 - Physical slots: `0..3`
-- `POST /page` wraps modulo 4 for out-of-range values
-- `POST /imageraw?page=N` displays immediately instead of storing for out-of-range slots
-- reboot clears usable cached pages enough that the host must republish
+- Live firmware now exposes `/capabilities`, `/clear`, and `/snapshot`
+- Live slot names are neutral: `slot-0..slot-3`
+- `snapshot_readback` is live and can return the exact stored raw bitmap for a loaded slot
+- reboot/reflash can still leave cached pages effectively empty until the host republishes
+- on `kunst`, curl-based transport remains more reliable than Python `requests` for live device mutations
 
-Tracked source is ahead of the flashed device: source now includes `/capabilities`, `/clear`, neutral slot naming, and no firmware page-number overlay, but treat those as source truth until the device is reflashed.
+The checked-in `artifacts/probe-report.json` describes the older pre-reflash firmware. Do not assume its old invalid-input wraparound behavior is still the current live contract until the reflashed device is probed again.
 
 ## Active Python modules
 
@@ -42,6 +44,8 @@ python/reterminal/
 ├── app/            # publish scenes to previews/device slots
 ├── cli/            # active CLI
 ├── device/         # device SDK + capabilities
+├── payloads.py     # shared device/JSON payload types
+├── protocols.py    # shared structural interfaces
 ├── providers/      # scene adapters
 ├── render/         # monochrome layouts, bitmap generators, and art handling
 ├── scheduler/      # logical scenes -> 4 slots
@@ -59,6 +63,7 @@ uv run reterminal discover
 uv run reterminal doctor
 uv run reterminal status
 uv run reterminal capabilities
+uv run reterminal snapshot --png ./current.png
 uv run reterminal clear --all
 uv run reterminal probe
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews

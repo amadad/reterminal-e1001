@@ -7,7 +7,7 @@ The repo now treats the device as a **4-slot monochrome display appliance**:
 - the **host** fetches data, designs scenes, renders images, and schedules what should be live
 - the **firmware** stores bitmaps, shows slots, handles buttons, and exposes a small HTTP API
 
-## Verified device contract
+## Verified device profile
 
 Live probe results from the current flashed firmware:
 
@@ -20,7 +20,7 @@ Live probe results from the current flashed firmware:
 
 See:
 
-- `docs/device-contract.md`
+- `docs/device-profile.md`
 - `docs/hardware-verification.md`
 - `artifacts/probe-report.json`
 
@@ -95,6 +95,7 @@ The CLI no longer falls back to a baked-in IP. Set `RETERMINAL_HOST` or pass `--
 uv run reterminal doctor
 uv run reterminal status
 uv run reterminal capabilities
+uv run reterminal snapshot --png ./current.png
 uv run reterminal probe
 ```
 
@@ -132,6 +133,7 @@ To keep a real feed fresh and rotate the visible slot over time:
 uv run reterminal publish \
   --feed path/to/live-feed.json \
   --push \
+  --live \
   --interval 60
 ```
 
@@ -147,6 +149,7 @@ reterminal --help
 reterminal config --output json
 reterminal discover --output json
 reterminal doctor --output json
+reterminal snapshot --png ./current.png --output json
 reterminal push --text "hello" --preview ./preview.png --output json
 reterminal publish --feed ./python/examples/agent-feed.json --preview ./previews --output json
 ```
@@ -193,6 +196,7 @@ reterminal discover      Probe common names/IPs to find reachable devices
 reterminal doctor        Check connectivity, slot truth, and publish readiness
 reterminal status        Get raw device status
 reterminal capabilities  Show firmware/host device contract
+reterminal snapshot      Read back a stored slot bitmap
 reterminal probe         Probe live device behavior
 reterminal publish       Render/schedule/preview/push scene feeds
 reterminal push          Push ad hoc text/image/QR/pattern
@@ -210,12 +214,14 @@ reterminal beep          Trigger the buzzer
 ```text
 python/reterminal/
 ├── app/            # high-level publishing pipeline
+├── cli/            # Typer CLI
 ├── device/         # truthful device SDK + capabilities
+├── payloads.py     # shared device/JSON payload types
+├── protocols.py    # shared structural interfaces
 ├── providers/      # scene sources (file feed, system, future Paperclip)
 ├── render/         # monochrome renderer, layout primitives, bitmap generators
 ├── scheduler/      # logical scenes -> physical slots
 ├── scenes/         # scene data model
-├── cli/            # Typer CLI
 ├── pages/          # legacy fixed page modules
 └── probe.py        # hardware verification tooling
 ```
@@ -231,20 +237,17 @@ The repo is moving toward:
 
 ## Firmware notes
 
-The latest **verified live device** still reflects the older flashed firmware contract above.
+The latest **verified live device** was reflashed on `2026-04-16` and now exposes the newer tracked firmware contract over Wi-Fi.
 
-The tracked firmware source has now been tightened to:
+Current live truth includes:
 
-- remove hardcoded Wi-Fi credentials from source
-- require local build-time config via `platformio.local.ini`
-- disable OTA unless a password is configured
-- reject invalid page indices instead of silently wrapping
-- reject invalid `imageraw?page=N` targets instead of displaying them immediately
-- expose `/capabilities` and `/clear` for a more truthful host contract
-- use neutral slot names (`slot-0..slot-3`) instead of semantic app labels
-- stop drawing firmware overlay chrome on top of uploaded bitmaps
+- build-time Wi-Fi / OTA config via `platformio.local.ini`
+- `/capabilities`, `/clear`, and `/snapshot`
+- neutral slot names (`slot-0..slot-3`)
+- no firmware overlay chrome on stored pages
+- 4-slot volatile cache that still needs host republish after reboot/reflash
 
-Reflash and re-probe before treating those newer behaviors as live truth. The current flashed device has still shown the older `Page X/4` overlay and older endpoint set until reflashed.
+The checked-in `artifacts/probe-report.json` is historical evidence from the older pre-reflash firmware. Re-run destructive probing on the current live build before treating invalid-input behavior as freshly verified.
 
 ## Legacy wrapper
 

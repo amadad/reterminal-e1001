@@ -8,6 +8,7 @@
  *   GET  /buttons       - Button states
  *   GET  /beep          - Test buzzer
  *   GET/POST /page      - Get/set current page
+ *   GET  /snapshot      - Read back a stored raw bitmap (800x480, 48000 bytes)
  *   POST /imageraw      - Upload raw 1-bit image (800x480, 48000 bytes)
  *   POST /clear         - Clear one slot or the full volatile cache
  */
@@ -224,6 +225,7 @@ void appendCapabilityFields(JsonDocument& doc) {
   doc["height"] = DISPLAY_HEIGHT;
   doc["image_bytes"] = IMAGE_BYTES;
   doc["page_slots"] = NUM_PAGES;
+  doc["snapshot_readback"] = true;
   doc["current_page"] = currentPage;
   doc["current_page_name"] = PAGE_NAMES[currentPage];
   doc["current_page_loaded"] = pageLoaded[currentPage];
@@ -245,7 +247,7 @@ void sendJsonError(int status, const String& message) {
 void handleRoot() {
   String html = "<h1>reTerminal E1001</h1>";
   html += "<p>IP: " + WiFi.localIP().toString() + "</p>";
-  html += "<p>Endpoints: /status, /capabilities, /buttons, /beep, /page, /imageraw, /clear</p>";
+  html += "<p>Endpoints: /status, /capabilities, /buttons, /beep, /page, /snapshot, /imageraw, /clear</p>";
   server.send(200, "text/html", html);
 }
 
@@ -275,6 +277,38 @@ void handleCapabilities() {
   String response;
   serializeJson(doc, response);
   server.send(200, "application/json", response);
+}
+
+void handleSnapshot() {
+  if (server.method() != HTTP_GET) {
+    sendJsonError(405, "Method Not Allowed");
+    return;
+  }
+
+  int targetPage = currentPage;
+  String pageArg = server.arg("page");
+  if (pageArg.length() > 0) {
+    if (!parseIntegerStrict(pageArg, &targetPage) || !isValidPageIndex(targetPage)) {
+      sendJsonError(400, "Page out of range");
+      return;
+    }
+  }
+
+  if (!pageLoaded[targetPage] || pageStorage[targetPage] == nullptr) {
+    server.send(404, "application/json",
+      "{\"error\": \"No stored bitmap\", \"page\": " + String(targetPage) + ", \"loaded\": false}");
+    return;
+  }
+
+  server.sendHeader("Cache-Control", "no-store");
+  server.sendHeader("X-reTerminal-Page", String(targetPage));
+  server.sendHeader("X-reTerminal-Name", PAGE_NAMES[targetPage]);
+  server.sendHeader("X-reTerminal-Width", String(DISPLAY_WIDTH));
+  server.sendHeader("X-reTerminal-Height", String(DISPLAY_HEIGHT));
+  server.sendHeader("X-reTerminal-Image-Bytes", String(IMAGE_BYTES));
+  server.setContentLength(IMAGE_BYTES);
+  server.send(200, "application/octet-stream", "");
+  server.client().write(pageStorage[targetPage], IMAGE_BYTES);
 }
 
 void handleButtons() {
@@ -592,6 +626,7 @@ void setup() {
   server.on("/", handleRoot);
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/capabilities", HTTP_GET, handleCapabilities);
+  server.on("/snapshot", HTTP_GET, handleSnapshot);
   server.on("/buttons", HTTP_GET, handleButtons);
   server.on("/beep", HTTP_GET, handleBeep);
   server.on("/page", handlePage);

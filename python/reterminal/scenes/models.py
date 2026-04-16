@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+
+from reterminal.payloads import JSONObject, JSONValue
 
 
 @dataclass(slots=True)
@@ -13,14 +15,14 @@ class Metric:
 
     label: str
     value: str
-    detail: Optional[str] = None
+    detail: str | None = None
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Metric":
+    def from_dict(cls, data: Mapping[str, object]) -> "Metric":
         return cls(
             label=str(data["label"]),
             value=str(data["value"]),
-            detail=str(data["detail"]) if data.get("detail") is not None else None,
+            detail=_optional_str(data.get("detail")),
         )
 
 
@@ -31,42 +33,88 @@ class SceneSpec:
     id: str
     kind: str
     title: str
-    subtitle: Optional[str] = None
+    subtitle: str | None = None
     priority: int = 0
-    preferred_slot: Optional[int] = None
-    metric: Optional[Metric] = None
+    preferred_slot: int | None = None
+    metric: Metric | None = None
     metrics: list[Metric] = field(default_factory=list)
     body: list[str] = field(default_factory=list)
     items: list[str] = field(default_factory=list)
-    footer: Optional[str] = None
-    image_path: Optional[str] = None
-    meta: dict[str, Any] = field(default_factory=dict)
+    footer: str | None = None
+    image_path: str | None = None
+    meta: JSONObject = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any], *, base_dir: Optional[Path] = None) -> "SceneSpec":
-        metric = Metric.from_dict(data["metric"]) if data.get("metric") else None
-        metrics = [Metric.from_dict(item) for item in data.get("metrics", [])]
-        image_path = data.get("image_path")
+    def from_dict(cls, data: Mapping[str, object], *, base_dir: Path | None = None) -> "SceneSpec":
+        metric_data = data.get("metric")
+        metrics_data = data.get("metrics")
+        image_path = _optional_str(data.get("image_path"))
         if image_path and base_dir is not None:
             image_path = str((base_dir / image_path).resolve())
 
+        preferred_slot = data.get("preferred_slot")
         return cls(
             id=str(data["id"]),
             kind=str(data.get("kind", "hero")),
             title=str(data["title"]),
-            subtitle=str(data["subtitle"]) if data.get("subtitle") is not None else None,
-            priority=int(data.get("priority", 0)),
-            preferred_slot=data.get("preferred_slot"),
-            metric=metric,
-            metrics=metrics,
-            body=[str(item) for item in data.get("body", [])],
-            items=[str(item) for item in data.get("items", [])],
-            footer=str(data["footer"]) if data.get("footer") is not None else None,
+            subtitle=_optional_str(data.get("subtitle")),
+            priority=_coerce_int(data.get("priority"), default=0),
+            preferred_slot=preferred_slot if isinstance(preferred_slot, int) else None,
+            metric=Metric.from_dict(metric_data) if isinstance(metric_data, Mapping) else None,
+            metrics=[Metric.from_dict(item) for item in _mapping_list(metrics_data)],
+            body=_string_list(data.get("body")),
+            items=_string_list(data.get("items")),
+            footer=_optional_str(data.get("footer")),
             image_path=image_path,
-            meta=dict(data.get("meta", {})),
+            meta=_json_object(data.get("meta")),
         )
 
     def sort_key(self) -> tuple[int, int, str]:
         """Sort key for scheduler priority ordering."""
         pinned_bonus = 1 if self.preferred_slot is not None else 0
         return (-self.priority, -pinned_bonus, self.id)
+
+
+def _coerce_int(value: object, *, default: int) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float, str)):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
+
+
+def _optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]
+
+
+def _mapping_list(value: object) -> list[Mapping[str, object]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, Mapping)]
+
+
+def _json_object(value: object) -> JSONObject:
+    if not isinstance(value, Mapping):
+        return {}
+    return {str(key): _json_value(item) for key, item in value.items()}
+
+
+def _json_value(value: object) -> JSONValue:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Mapping):
+        return {str(key): _json_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_value(item) for item in value]
+    return str(value)

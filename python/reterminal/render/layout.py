@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, TypeAlias
 
-from PIL import ImageDraw
+from PIL import ImageDraw, ImageFont
 
 from reterminal.fonts import load_font
 
@@ -98,11 +98,15 @@ class Rect:
         return rows
 
 
+TextAlign: TypeAlias = Literal["left", "center", "right"]
+VerticalAlign: TypeAlias = Literal["top", "center", "bottom"]
+
+
 @dataclass(slots=True)
 class FittedText:
     lines: list[str]
     font_size: int
-    font: object
+    font: ImageFont.ImageFont
     line_height: int
     height: int
     overflowed: bool = False
@@ -156,8 +160,8 @@ def draw_text_block(
     rect: Rect,
     fitted: FittedText,
     *,
-    align: Literal["left", "center", "right"] = "left",
-    valign: Literal["top", "center", "bottom"] = "top",
+    align: TextAlign = "left",
+    valign: VerticalAlign = "top",
     fill: int = 0,
     line_spacing: int = 4,
 ) -> None:
@@ -181,7 +185,7 @@ def draw_text_block(
         y += fitted.line_height + line_spacing
 
 
-def wrap_text(draw: ImageDraw.ImageDraw, text: str, font, width: int) -> list[str]:
+def wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, width: int) -> list[str]:
     words = text.split()
     if not words:
         return [""]
@@ -202,7 +206,7 @@ def wrap_text(draw: ImageDraw.ImageDraw, text: str, font, width: int) -> list[st
 def clamp_lines(
     draw: ImageDraw.ImageDraw,
     lines: list[str],
-    font,
+    font: ImageFont.ImageFont,
     width: int,
     max_lines: int,
 ) -> list[str]:
@@ -214,7 +218,7 @@ def clamp_lines(
     return clamped
 
 
-def ellipsize(draw: ImageDraw.ImageDraw, text: str, font, width: int) -> str:
+def ellipsize(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, width: int) -> str:
     candidate = text.strip()
     if not candidate:
         return "…"
@@ -226,12 +230,12 @@ def ellipsize(draw: ImageDraw.ImageDraw, text: str, font, width: int) -> str:
     return (candidate + "…") if candidate else "…"
 
 
-def text_width(draw: ImageDraw.ImageDraw, text: str, font) -> int:
+def text_width(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont) -> int:
     bbox = draw.textbbox((0, 0), text, font=font)
     return bbox[2] - bbox[0]
 
 
-def _line_height(draw: ImageDraw.ImageDraw, font) -> int:
+def _line_height(draw: ImageDraw.ImageDraw, font: ImageFont.ImageFont) -> int:
     bbox = draw.textbbox((0, 0), "Ag", font=font)
     return bbox[3] - bbox[1]
 
