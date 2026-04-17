@@ -2,6 +2,21 @@
 
 Newest first. Keep entries short, dated, and evidence-oriented.
 
+## 2026-04-17 — Helvetica Neue degraded ePaper typography; reverted to Helvetica
+
+- **Symptoms:** after switching sans font from Helvetica to Helvetica Neue, text on the ePaper display had inconsistent stroke widths — thin strokes broke up or disappeared after Floyd-Steinberg 1-bit dithering.
+- **Root cause:** Helvetica Neue has thinner stroke weights than Helvetica. At small sizes, the thin/thick contrast falls across the dithering threshold unevenly, producing inconsistent line widths on 1-bit output.
+- **Fix:** reverted font priority in `fonts.py` to prefer `/System/Library/Fonts/Helvetica.ttc` (uniform stroke weight). Helvetica Neue removed from the list.
+- **Evidence:** re-rendered previews with Helvetica show clean, consistent strokes at all sizes.
+- **Gotcha (recurring):** for 1-bit monochrome ePaper, prefer fonts with uniform stroke weight. Avoid neo-grotesque variants with optical size adjustments — they fight the dithering.
+
+## 2026-04-17 — Full ePaper refresh degrades display quality vs partial refresh
+
+- **Symptoms:** after a full refresh (black→white→content), typography and line weights looked visibly worse than partial refresh updates.
+- **Root cause:** full ePaper refresh drives all pixels through a complete inversion cycle which introduces slight contrast loss. Partial refresh updates pixels in place with higher fidelity.
+- **Fix:** firmware changed to use partial refresh exclusively for all API-driven updates. Full refresh only triggers on right button press or `POST /page` with `?full=1`. Removed the automatic full-refresh-every-N-partials counter.
+- **Evidence:** after flashing, partial-only updates maintain consistent typography quality across cycles.
+
 ## 2026-04-16 — Family calendar blank because naive datetime fails Google Calendar API
 
 - **Symptoms:** family-calendar scene on the reTerminal showed "calendar unavailable" or empty items despite valid GWS auth.

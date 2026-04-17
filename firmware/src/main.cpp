@@ -20,6 +20,7 @@
 #include <ArduinoJson.h>
 #include <GxEPD2_BW.h>
 #include <Fonts/FreeMonoBold18pt7b.h>
+#include <LittleFS.h>
 #include <stdlib.h>
 
 #ifndef RETERMINAL_WIFI_SSID
@@ -74,12 +75,21 @@ const char* BUILD_TIME = __DATE__ " " __TIME__;
 #define DISPLAY_HEIGHT 480
 #define IMAGE_BYTES (DISPLAY_WIDTH * DISPLAY_HEIGHT / 8)  // 48000 bytes
 
+// Partial refresh only — full refresh is manual (right button) or via API.
+// The GDEY075T7 panel handles 50+ partials before ghosting is noticeable.
+int partialRefreshCount = 0;
+
 // Page system
 int currentPage = 0;
 const int NUM_PAGES = 4;
 const char* PAGE_NAMES[] = {"slot-0", "slot-1", "slot-2", "slot-3"};
 uint8_t* pageStorage[NUM_PAGES] = {nullptr};
 bool pageLoaded[NUM_PAGES] = {false};
+
+// Flash persistence
+bool fsReady = false;
+const char* SLOT_DIR = "/slots";
+const char* STATE_FILE = "/state.json";
 
 // Button state tracking
 bool lastLeft = HIGH, lastMiddle = HIGH, lastRight = HIGH;
@@ -113,17 +123,75 @@ void printCentered(const char* text, int y) {
   display.print(text);
 }
 
-void showPage(int page) {
+// === Flash persistence ===
+
+String slotPath(int page) {
+  return String(SLOT_DIR) + "/slot-" + String(page) + ".raw";
+}
+
+void saveSlotToFlash(int page) {
+  if (!fsReady || !pageLoaded[page] || pageStorage[page] == nullptr) return;
+  File f = LittleFS.open(slotPath(page), "w");
+  if (!f) return;
+  f.write(pageStorage[page], IMAGE_BYTES);
+  f.close();
+  usbSerial.printf("Saved slot %d to flash\n", page);
+}
+
+bool loadSlotFromFlash(int page) {
+  if (!fsReady || pageStorage[page] == nullptr) return false;
+  File f = LittleFS.open(slotPath(page), "r");
+  if (!f || f.size() != IMAGE_BYTES) {
+    if (f) f.close();
+    return false;
+  }
+  f.read(pageStorage[page], IMAGE_BYTES);
+  f.close();
+  pageLoaded[page] = true;
+  usbSerial.printf("Loaded slot %d from flash\n", page);
+  return true;
+}
+
+void removeSlotFromFlash(int page) {
+  if (!fsReady) return;
+  LittleFS.remove(slotPath(page));
+}
+
+void saveState() {
+  if (!fsReady) return;
+  File f = LittleFS.open(STATE_FILE, "w");
+  if (!f) return;
+  JsonDocument doc;
+  doc["currentPage"] = currentPage;
+  serializeJson(doc, f);
+  f.close();
+}
+
+int loadState() {
+  if (!fsReady) return 0;
+  File f = LittleFS.open(STATE_FILE, "r");
+  if (!f) return 0;
+  JsonDocument doc;
+  if (deserializeJson(doc, f) != DeserializationError::Ok) {
+    f.close();
+    return 0;
+  }
+  f.close();
+  int page = doc["currentPage"] | 0;
+  if (page < 0 || page >= NUM_PAGES) return 0;
+  return page;
+}
+
+// === Display rendering ===
+
+void showPageFull(int page) {
   display.setFullWindow();
   display.firstPage();
   do {
     display.fillScreen(GxEPD_WHITE);
-
     if (pageLoaded[page] && pageStorage[page] != nullptr) {
-      // Draw stored bitmap
       display.drawBitmap(0, 0, pageStorage[page], DISPLAY_WIDTH, DISPLAY_HEIGHT, GxEPD_BLACK);
     } else {
-      // Draw placeholder
       display.setFont(&FreeMonoBold18pt7b);
       display.setTextColor(GxEPD_BLACK);
       String title = String(PAGE_NAMES[page]);
@@ -131,12 +199,29 @@ void showPage(int page) {
       printCentered(title.c_str(), 200);
       printCentered("No image loaded", 260);
     }
-
-    // Render the stored bitmap truthfully with no firmware overlay chrome.
-
   } while (display.nextPage());
+  partialRefreshCount = 0;
+  usbSerial.printf("Full refresh page %d (%s)\n", page, PAGE_NAMES[page]);
+}
 
-  usbSerial.printf("Displayed page %d (%s)\n", page, PAGE_NAMES[page]);
+void showPagePartial(int page) {
+  if (!pageLoaded[page] || pageStorage[page] == nullptr) {
+    showPageFull(page);
+    return;
+  }
+  display.setPartialWindow(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+  display.firstPage();
+  do {
+    display.fillScreen(GxEPD_WHITE);
+    display.drawBitmap(0, 0, pageStorage[page], DISPLAY_WIDTH, DISPLAY_HEIGHT, GxEPD_BLACK);
+  } while (display.nextPage());
+  partialRefreshCount++;
+  usbSerial.printf("Partial refresh page %d (%s) [%d]\n",
+    page, PAGE_NAMES[page], partialRefreshCount);
+}
+
+void showPage(int page) {
+  showPagePartial(page);
 }
 
 void showBootScreen() {
@@ -204,6 +289,7 @@ void showBlankScreen() {
   do {
     display.fillScreen(GxEPD_WHITE);
   } while (display.nextPage());
+  partialRefreshCount = 0;
 }
 
 void clearStoredPage(int page) {
@@ -214,6 +300,7 @@ void clearStoredPage(int page) {
     memset(pageStorage[page], 0xFF, IMAGE_BYTES);
   }
   pageLoaded[page] = false;
+  removeSlotFromFlash(page);
 }
 
 void appendCapabilityFields(JsonDocument& doc) {
@@ -226,6 +313,7 @@ void appendCapabilityFields(JsonDocument& doc) {
   doc["image_bytes"] = IMAGE_BYTES;
   doc["page_slots"] = NUM_PAGES;
   doc["snapshot_readback"] = true;
+  doc["persistent_storage"] = fsReady;
   doc["current_page"] = currentPage;
   doc["current_page_name"] = PAGE_NAMES[currentPage];
   doc["current_page_loaded"] = pageLoaded[currentPage];
@@ -377,8 +465,20 @@ void handlePage() {
     return;
   }
 
-  beep(100);
-  showPage(currentPage);
+  // Allow ?full=1 or {"full": true} to force a full refresh (clears ghosting)
+  bool fullRefresh = false;
+  if (server.arg("full") == "1") {
+    fullRefresh = true;
+  } else if (doc["full"].is<bool>() && doc["full"].as<bool>()) {
+    fullRefresh = true;
+  }
+
+  if (fullRefresh) {
+    showPageFull(currentPage);
+  } else {
+    showPage(currentPage);
+  }
+  saveState();
 
   JsonDocument resp;
   resp["page"] = currentPage;
@@ -471,6 +571,7 @@ void handleImageRaw() {
 
     memcpy(pageStorage[uploadTargetPage], imageBuffer, IMAGE_BYTES);
     pageLoaded[uploadTargetPage] = true;
+    saveSlotToFlash(uploadTargetPage);
 
     if (uploadTargetPage == currentPage) {
       showPage(currentPage);
@@ -488,6 +589,7 @@ void handleImageRaw() {
     display.fillScreen(GxEPD_WHITE);
     display.drawBitmap(0, 0, imageBuffer, DISPLAY_WIDTH, DISPLAY_HEIGHT, GxEPD_BLACK);
   } while (display.nextPage());
+  partialRefreshCount = 0;
 
   server.send(200, "application/json", "{\"success\": true, \"displayed\": true}");
   resetUploadState();
@@ -570,6 +672,15 @@ void setup() {
   lastMiddle = digitalRead(BTN_MIDDLE);
   lastRight = digitalRead(BTN_RIGHT);
 
+  // Initialize LittleFS for persistent slot storage
+  if (LittleFS.begin(true)) {
+    fsReady = true;
+    LittleFS.mkdir(SLOT_DIR);
+    usbSerial.println("LittleFS ready");
+  } else {
+    usbSerial.println("LittleFS failed — slots will be volatile only");
+  }
+
   // Allocate page storage in PSRAM
   usbSerial.println("Allocating page storage...");
   for (int i = 0; i < NUM_PAGES; i++) {
@@ -585,6 +696,14 @@ void setup() {
     }
   }
 
+  // Restore persisted slots from flash
+  int restoredCount = 0;
+  for (int i = 0; i < NUM_PAGES; i++) {
+    if (loadSlotFromFlash(i)) restoredCount++;
+  }
+  currentPage = loadState();
+  usbSerial.printf("Restored %d slots from flash, active page %d\n", restoredCount, currentPage);
+
   // Initialize display SPI
   hspi.begin(EPD_SCK_PIN, -1, EPD_MOSI_PIN, -1);
   display.epd2.selectSPI(hspi, SPISettings(2000000, MSBFIRST, SPI_MODE0));
@@ -592,8 +711,12 @@ void setup() {
   display.setRotation(0);
   usbSerial.println("Display initialized");
 
-  // Show boot screen
-  showBootScreen();
+  // If we restored content, show it immediately instead of boot screen
+  if (restoredCount > 0 && pageLoaded[currentPage]) {
+    showPageFull(currentPage);
+  } else {
+    showBootScreen();
+  }
 
   // Connect WiFi
   if (strlen(WIFI_SSID) > 0) {
@@ -611,7 +734,10 @@ void setup() {
 
     if (WiFi.status() == WL_CONNECTED) {
       usbSerial.println("Connected! IP: " + WiFi.localIP().toString());
-      showReadyScreen(WiFi.localIP().toString());
+      // Only show ready screen if no restored content
+      if (restoredCount == 0 || !pageLoaded[currentPage]) {
+        showReadyScreen(WiFi.localIP().toString());
+      }
       beep(100);
     } else {
       usbSerial.println("WiFi failed!");
@@ -664,6 +790,7 @@ void loop() {
       beep(100);
       currentPage = (currentPage - 1 + NUM_PAGES) % NUM_PAGES;
       showPage(currentPage);
+      saveState();
     }
     lastLeft = curLeft;
   }
@@ -676,6 +803,7 @@ void loop() {
       beep(100);
       currentPage = (currentPage + 1) % NUM_PAGES;
       showPage(currentPage);
+      saveState();
     }
     lastMiddle = curMiddle;
   }
@@ -686,7 +814,7 @@ void loop() {
     if (curRight == LOW) {
       usbSerial.println("Right button - Refresh");
       beep(100);
-      showPage(currentPage);
+      showPageFull(currentPage);
     }
     lastRight = curRight;
   }

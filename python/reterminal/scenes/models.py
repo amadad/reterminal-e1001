@@ -42,6 +42,7 @@ class SceneSpec:
     items: list[str] = field(default_factory=list)
     footer: str | None = None
     image_path: str | None = None
+    image_url: str | None = None
     meta: JSONObject = field(default_factory=dict)
 
     @classmethod
@@ -66,6 +67,7 @@ class SceneSpec:
             items=_string_list(data.get("items")),
             footer=_optional_str(data.get("footer")),
             image_path=image_path,
+            image_url=_optional_str(data.get("image_url")),
             meta=_json_object(data.get("meta")),
         )
 

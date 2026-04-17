@@ -25,7 +25,10 @@ Based on live probing plus USB bootloader interrogation on `kunst`:
 - current live contract is `800x480`, `1-bit`, `48000` bytes per raw image
 - current firmware exposes **4** physical slots with neutral names `slot-0..slot-3`
 - `snapshot_readback` is live and can return the exact stored raw bitmap for a loaded slot
-- reboot/reflash can still leave `current_page_loaded: false` until the host republishes cached slots
+- slots are persisted to LittleFS on the 32MB flash — survive power cycles and reboots
+- on boot, firmware restores persisted slots and shows the last active page (no ready screen unless first boot)
+- display uses **partial refresh only** for API-driven updates (no black flash). Full refresh via right button or `POST /page` with `?full=1`
+- `POST /page` does **not** beep — beep is reserved for physical button presses
 - USB interrogation identified the board as `ESP32-S3` with embedded `8MB` PSRAM and `32MB` flash behind a `CH340` serial bridge on `kunst`
 
 The checked-in `artifacts/probe-report.json` captures the older pre-reflash firmware's invalid-input behavior. Do not assume those old wraparound semantics are still live truth until the reflashed firmware is probed again.
@@ -91,6 +94,8 @@ uv run reterminal watch clock -i 60
 3. **Do not tie scene meaning to slot numbers.** Slots are physical; scenes are logical.
 4. **Prefer provider/scene/scheduler/render boundaries** over page-specific scripts.
 5. **Use `reterminal/device` for capability-aware slot operations** instead of hitting raw firmware semantics from new code.
+6. **Use Helvetica (not Helvetica Neue) for ePaper rendering.** Uniform stroke weight survives 1-bit Floyd-Steinberg dithering. See `_solutions.md` for the Neue regression.
+7. **Prefer partial refresh.** Full ePaper refresh degrades typography. Only use full refresh for ghosting cleanup.
 
 ## Live feed architecture
 

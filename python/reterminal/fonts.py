@@ -12,6 +12,7 @@ from loguru import logger
 FONT_PATHS = {
     "sans": {
         "Darwin": [
+            "/System/Library/Fonts/Helvetica.ttc",
             "/System/Library/Fonts/Supplemental/Helvetica.ttc",
             "/System/Library/Fonts/Supplemental/Arial.ttf",
             "/Library/Fonts/Arial.ttf",
