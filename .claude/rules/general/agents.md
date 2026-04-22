@@ -1,0 +1,1 @@
+/Users/amadad/agents/_rules/general/agents.md

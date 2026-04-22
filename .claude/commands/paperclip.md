@@ -1,0 +1,1 @@
+/Users/amadad/agents/_commands/paperclip.md
