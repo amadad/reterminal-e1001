@@ -120,7 +120,7 @@ def fit_text_block(
     max_font_size: int,
     min_font_size: int,
     max_lines: int,
-    line_spacing: int = 4,
+    line_spacing: int = 1,
 ) -> FittedText:
     """Fit text into a bounded rectangle using wrap + shrink + ellipsis."""
     normalized = " ".join(text.split())
@@ -163,7 +163,7 @@ def draw_text_block(
     align: TextAlign = "left",
     valign: VerticalAlign = "top",
     fill: int = 0,
-    line_spacing: int = 4,
+    line_spacing: int = 1,
 ) -> None:
     """Draw a pre-fitted text block inside a rectangle."""
     y = rect.y

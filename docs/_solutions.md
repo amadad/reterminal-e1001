@@ -2,6 +2,41 @@
 
 Newest first. Keep entries short, dated, and evidence-oriented.
 
+## 2026-04-22 — Baseball rows became much more useful once the feed preserved practice/game/team/opponent detail
+
+- **Symptoms:** the boys' biggest question was whether baseball was a practice or a game, for which team, and against whom — but the earlier simplified schedule collapsed too much of that detail into generic `Baseball` labels.
+- **Root cause:** schedule titles were being normalized too aggressively for the display, which removed exactly the distinctions the kitchen board needed to preserve.
+- **Fix:** keep baseball-specific detail in the feed (`NSMS Practice`, `Orioles Practice`, `Orioles vs Angels`, `Pirates vs Rockies`), add practice/game icon variants, and prioritize baseball rows on the main Today/Tomorrow board before pushing lower-priority overflow elsewhere.
+- **Evidence:** current live/previews show tomorrow baseball entries with practice/game/team/opponent detail intact, while non-baseball overflow is deprioritized.
+
+## 2026-04-22 — Kitchen pages got more useful once they shifted from generic family summaries to action pages
+
+- **Symptoms:** the kitchen display still had a low-value upcoming page and a chores page that was just placeholder kid labels instead of the actual routine the family follows.
+- **Root cause:** the page model was still organized around abstract categories instead of the real kitchen workflow: today/tomorrow, routine, need, and reset.
+- **Fix:** replace the old upcoming page with a reset page, populate `chores.md` with the real after-school and cleanup routine, and keep the main board focused on today/tomorrow baseball-aware schedule plus dinner.
+- **Evidence:** current previews/live slots are `today-board`, `ready-board`, `need-board`, and `reset-board`, with routine lines like unpack backpack / reading / work and reset lines like dishes / laundry / vacuum / tabletops.
+
+## 2026-04-22 — Kitchen schedule became much clearer once calendar data was rendered as structured agenda rows instead of raw event strings
+
+- **Symptoms:** the kitchen display needed bigger chunks and clearer ownership cues than a generic family-summary layout or raw Google Calendar strings could provide.
+- **Root cause:** the earlier scene model compressed schedule data into plain text lines, which made it hard to compare today vs tomorrow and hard to see which kid or family group owned each event.
+- **Fix:** add an `agenda` scene kind with structured rows (owner chip, event icon, time, title), switch slot 0 to a two-column Today/Tomorrow board with dinner, add a grouped upcoming agenda for later days, and move chores / meal-prep into dedicated kitchen pages.
+- **Evidence:** current previews and the live device now show `today-board`, `ready-board`, `need-board`, and `upcoming-board`, with event ownership indicated by `A/H/L/N/F` chips and custom 1-bit icons.
+
+## 2026-04-22 — Text-heavy scenes looked choppy because the renderer treated typography like dithered art
+
+- **Symptoms:** body copy on the device looked dot-matrix-like, ellipsized too aggressively, and still carried too much chrome for a kitchen-family display.
+- **Root cause:** the renderer was using the same Floyd-Steinberg output style and generic dashboard-ish layout pressure for text scenes that should have behaved more like calm posters or lists.
+- **Fix:** render non-poster scenes with a hard threshold instead of dithering, add chrome-free `focus` heroes plus quieter list pages, and move the live family feed toward one focus page plus short 4-item lists.
+- **Evidence:** current previews show cleaner threshold-rendered text, and the newer kitchen agenda/list pages keep larger rows with less forced truncation.
+
+## 2026-04-22 — Host refresh loop was redrawing the visible slot on every hidden-slot update
+
+- **Symptoms:** the display would look stuck or heavily ghosted after running for a day or two, even when the user stayed on a mostly static page like the family calendar.
+- **Root cause:** `~/oc-min/scripts/reterminal-refresh.sh` called `POST /page` for the current slot whenever *any* slot changed. At the same time, the old feed changed slot 0 every minute (clock) and slot 1 frequently (ops timestamp), so the visible page was being partially refreshed thousands of extra times. The live log showed `showing slot` about 2,695 times, while slot 2 only uploaded 34 times and slot 3 only 19 times.
+- **Fix:** change the bridge to redraw the screen only when the currently visible slot changed, when the device rebooted, or when the current slot was not loaded. Rework the live feed toward lower-churn family/kitchen scenes instead of minute-by-minute ops pages.
+- **Evidence:** after the change, the bridge can distinguish hidden-slot-only updates from visible-slot updates, and the family feed no longer needs minute-by-minute clock/ops pages to stay useful.
+
 ## 2026-04-17 — Helvetica Neue degraded ePaper typography; reverted to Helvetica
 
 - **Symptoms:** after switching sans font from Helvetica to Helvetica Neue, text on the ePaper display had inconsistent stroke widths — thin strokes broke up or disappeared after Floyd-Steinberg 1-bit dithering.

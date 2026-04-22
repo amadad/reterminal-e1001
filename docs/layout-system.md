@@ -11,7 +11,7 @@ The display renderer cannot rely on ad hoc `draw.text()` coordinates anymore. Th
 - unstable spacing from one scene to the next
 - poor image/text composition in monochrome
 
-The fix is to treat layout as a small editorial system with measured regions and explicit fitting rules.
+The fix is to treat layout as a small editorial system with measured regions and explicit fitting rules. The current direction is deliberately narrower than a general dashboard toolkit: a small set of calm templates with only a few optical scales and regular spatial relationships.
 
 ## Rendering model
 
@@ -39,11 +39,10 @@ Each render goes through four conceptual layers:
 Each scene kind must constrain how much content it can successfully display.
 
 #### `hero`
-- title: max 3 lines
-- subtitle/meta: max 1 line
-- metric: optional, but if present it gets its own reserved panel
-- body: max 3 bullets
-- footer: max 1 line
+- default hero: title max 3 lines, optional metric panel, body max 4 bullets
+- focus hero (`meta.hero_style = "focus"`): one large title block plus one large focus line
+- focus heroes are allowed to hide both header chrome and footer chrome
+- footer is optional, not mandatory
 
 #### `metrics`
 - title: max 1 line
@@ -54,10 +53,20 @@ Each scene kind must constrain how much content it can successfully display.
 - details: max 1 line
 
 #### `bulletin`
-- title: max 1 line
-- subtitle: max 1 line
-- feed items: max 5 rows
-- each item: max 2 lines
+- title: max 1 quiet heading line
+- subtitle: optional, max 1 line
+- feed items: usually 3–4 rows on-device for the current kitchen-family layouts
+- each item: 2 lines by default, with row budgets adjustable via scene metadata
+- footer is optional, not mandatory
+
+#### `agenda`
+- supports schedule-oriented compositions where rows have ownership markers, time labels, and short titles
+- current renderer supports two agenda modes:
+  - **two-day**: `Today` / `Tomorrow` columns plus a dinner band
+  - **grouped**: stacked future-day sections with short event rows
+- current live kitchen feed uses the **two-day** agenda for slot 0; grouped agenda remains available as a renderer pattern but is no longer the default fourth page
+- event rows should prefer monogram chips, simple 1-bit icons, and short titles over raw calendar strings
+- sports rows may use variant icons so practice vs game survives even when the title is shortened
 
 #### `poster`
 - image region is dominant
@@ -79,9 +88,7 @@ Templates define explicit rectangles for content, for example:
 - `image_rect`
 - `caption_rect`
 
-Every scene must reserve a footer/folio strip. Page indicators, freshness stamps, and source labels belong there instead of floating near the bottom of the content area.
-
-The current renderer now leaves the right side of that strip blank by default; scene metadata must opt in explicitly if any right-hand footer chrome should be shown.
+Footer/folio strips are now optional. Text-heavy scenes may hide header and footer chrome entirely when the content benefits from a calmer poster-like composition. If footer chrome is shown, it should hold provenance or low-priority metadata instead of competing with the main content.
 
 Content is fitted into regions; regions do not resize dynamically based on drawing side effects.
 
@@ -118,15 +125,20 @@ The current renderer now uses:
 - `Rect`
 - `fit_text_block()`
 - `draw_text_block()`
-- footer/folio chrome regions
+- opt-in header/footer chrome via `meta.hide_header` / `meta.hide_footer`
+- `meta.hero_style = "focus"` for the older kitchen-board style hero
+- bulletin row tuning via `item_max_lines`, `item_max_font_size`, `item_min_font_size`, and `item_gap`
+- agenda metadata for schedule scenes (`agenda_style`, column/day labels, structured rows, dinner band)
 - deterministic bitmap generators for poster scenes
 
 These provide:
 
 - explicit region boundaries
 - font-size search within min/max limits
+- calmer focus/list/agenda compositions for text-heavy scenes
 - line-budget reduction based on height
-- ellipsis on the last visible line when needed
+- ellipsis on the last visible line only when fitting still fails
+- hard-threshold text rendering for non-poster scenes, with dithering reserved for poster/image work
 
 ## Technical direction
 

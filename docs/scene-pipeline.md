@@ -88,7 +88,17 @@ Supported scene kinds:
 - `hero`
 - `metrics`
 - `bulletin`
+- `agenda`
 - `poster`
+
+Current renderer behavior worth knowing:
+
+- `hero` scenes can opt into a chrome-free focus composition via `meta.hero_style = "focus"`
+- text-heavy scenes can suppress header/footer chrome with `meta.hide_header` / `meta.hide_footer`
+- bulletin rows can tune line count, font-size bounds, row gaps, and whether title/row rules are shown
+- `agenda` scenes support structured row payloads (chip, icon, time, title) for schedule pages, plus grouped future-day sections and a dinner band for the main Today/Tomorrow board
+- agenda rows can encode small semantic icon variants (for example baseball practice vs game) so short titles still keep the important distinction
+- poster/image scenes still use Floyd-Steinberg dithering, but text-heavy scenes now render with a hard threshold for cleaner typography
 
 This is the right place to evolve typography, image treatment, layout systems, and generated bitmap art.
 
