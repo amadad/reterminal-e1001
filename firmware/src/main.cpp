@@ -185,9 +185,11 @@ int loadState() {
 
 // === Display rendering ===
 
-// Full refresh: used for new content (image push) and manual cleanup (right button).
-// Kindle pattern: partial refresh for navigation between already-rendered slots,
-// full refresh when content changes or when the user explicitly asks for a clean wipe.
+// Full refresh on every path. Partial refresh was tried for navigation but
+// produced layered/ghosted artifacts when swapping between dissimilar slot
+// content — the partial LUT can't handle large pixel deltas cleanly on this
+// panel. Kindle-style partial nav works for incremental page turns; slot
+// navigation here is a full-frame image swap, which is the pathological case.
 void showPage(int page) {
   display.setFullWindow();
   display.firstPage();
@@ -206,23 +208,6 @@ void showPage(int page) {
   } while (display.nextPage());
   display.hibernate();
   usbSerial.printf("Full refresh page %d (%s)\n", page, PAGE_NAMES[page]);
-}
-
-// Partial refresh: used for navigation between already-loaded slots where the
-// content was already cleanly rendered by the most recent push.
-void showPagePartial(int page) {
-  if (!pageLoaded[page] || pageStorage[page] == nullptr) {
-    showPage(page);
-    return;
-  }
-  display.setPartialWindow(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT);
-  display.firstPage();
-  do {
-    display.fillScreen(GxEPD_WHITE);
-    display.drawBitmap(0, 0, pageStorage[page], DISPLAY_WIDTH, DISPLAY_HEIGHT, GxEPD_BLACK);
-  } while (display.nextPage());
-  display.hibernate();
-  usbSerial.printf("Partial refresh page %d (%s)\n", page, PAGE_NAMES[page]);
 }
 
 void showBootScreen() {
@@ -469,7 +454,7 @@ void handlePage() {
     return;
   }
 
-  showPagePartial(currentPage);
+  showPage(currentPage);
   saveState();
 
   JsonDocument resp;
@@ -781,7 +766,7 @@ void loop() {
       usbSerial.println("Left button - Previous page");
       beep(100);
       currentPage = (currentPage - 1 + NUM_PAGES) % NUM_PAGES;
-      showPagePartial(currentPage);
+      showPage(currentPage);
       saveState();
     }
     lastLeft = curLeft;
@@ -794,7 +779,7 @@ void loop() {
       usbSerial.println("Middle button - Next page");
       beep(100);
       currentPage = (currentPage + 1) % NUM_PAGES;
-      showPagePartial(currentPage);
+      showPage(currentPage);
       saveState();
     }
     lastMiddle = curMiddle;

@@ -27,7 +27,7 @@ Based on live probing plus USB bootloader interrogation on `kunst`:
 - `snapshot_readback` is live and can return the exact stored raw bitmap for a loaded slot
 - slots are persisted to LittleFS on the 32MB flash — survive power cycles and reboots
 - on boot, firmware restores persisted slots and shows the last active page (no ready screen unless first boot)
-- display uses **full refresh when content changes** (image push to current slot, manual right-button refresh, boot restore) and **partial refresh for navigation** between already-loaded slots (`/page` switches, left/middle buttons). Kindle pattern: flash only when content changes, not on every page turn. Every refresh function calls `display.hibernate()` at the end per GxEPD2 canonical usage. See `docs/_solutions.md`
+- display uses **full refresh on every path** — image push, navigation, manual button, boot restore. Partial refresh was tried for navigation but produced layered/ghosted artifacts because slot content is dissimilar (agenda vs list vs list vs list); the partial LUT can only handle small pixel deltas cleanly. The flash on every nav is the accepted cost. Every refresh function calls `display.hibernate()` at the end. See `docs/_solutions.md`
 - `POST /page` does **not** beep — beep is reserved for physical button presses
 - USB interrogation identified the board as `ESP32-S3` with embedded `8MB` PSRAM and `32MB` flash behind a `CH340` serial bridge on `kunst`
 
@@ -96,7 +96,7 @@ uv run reterminal watch clock -i 60
 5. **Use `reterminal/device` for capability-aware slot operations** instead of hitting raw firmware semantics from new code.
 6. **Use Helvetica (not Helvetica Neue) for ePaper rendering.** Uniform stroke weight survives 1-bit rendering on this panel better than thinner neo-grotesque variants. See `_solutions.md` for the Neue regression.
 7. **Text-heavy scenes should render with a hard black/white threshold; reserve Floyd-Steinberg dithering for poster/image scenes.** That keeps body copy from turning into dot-matrix texture.
-8. **Full refresh when content changes; partial refresh for navigation.** Image push to the currently-visible slot does a full refresh (new pixels → clean slate). Switching between already-loaded slots does a partial refresh (content is already clean from the last full-refresh push, no ghost accumulation because the pixels do not change between navs). Right-button press is a manual full-refresh cleanup lever. Call `display.hibernate()` after every refresh.
+8. **Full refresh on every path.** Push, navigation, manual button, boot — all full. Partial refresh is a poor fit for this display because the 4 slots hold dissimilar content (different layouts, not incremental page turns), and the panel's partial LUT produces layered artifacts when pixel deltas are large. The 2-second flash on nav is the accepted cost. Call `display.hibernate()` after every refresh. (This codebase does not expose a partial-refresh path; re-introducing one would need a very specific use case — incremental updates to the same layout, e.g. a ticking clock in a fixed position.)
 
 ## Live feed architecture
 
