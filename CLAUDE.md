@@ -52,7 +52,7 @@ reterminal-e1001/
 │       ├── cli/
 │       ├── device/
 │       ├── providers/
-│       ├── render/              # mono renderer + layout/bitmap primitives
+│       ├── render/              # mono renderer, layout/bitmap primitives, shared viz vocabulary (see docs/visualizations.md)
 │       ├── scheduler/
 │       ├── scenes/
 │       ├── pages/               # legacy fixed-page modules

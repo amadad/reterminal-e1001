@@ -102,6 +102,8 @@ Current renderer behavior worth knowing:
 
 This is the right place to evolve typography, image treatment, layout systems, and generated bitmap art.
 
+Shared quantitative visualization primitives (progress bars, sparklines, heatmaps, dots, rings, scales, category shapes) live in `reterminal.render.viz`. See `docs/visualizations.md` for the rubric — use these primitives across scene kinds rather than reinventing visual encodings per kind, so readers learn one visual vocabulary.
+
 ### `reterminal/app`
 
 High-level orchestration.

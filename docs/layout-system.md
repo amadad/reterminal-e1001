@@ -118,6 +118,8 @@ Poster scenes should support deterministic host-generated bitmap art in addition
 
 Generated bitmap art should use the same reserved caption and footer bands as image-based posters.
 
+The shared vocabulary for quantitative visualizations now lives in `reterminal.render.viz` — `progress_bar`, `sparkline`, `heatmap`, `dots`, `ring`, `scale`, and category `shape`. See `docs/visualizations.md` for the rubric on when to use each primitive and when not. Reach for these before inventing a new visualization style inside a specific scene kind.
+
 ## Current implementation
 
 The current renderer now uses:

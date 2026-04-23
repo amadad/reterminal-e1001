@@ -47,7 +47,7 @@ python/reterminal/
 ├── payloads.py     # shared device/JSON payload types
 ├── protocols.py    # shared structural interfaces
 ├── providers/      # scene adapters
-├── render/         # monochrome layouts, bitmap generators, and art handling
+├── render/         # monochrome layouts, bitmap generators, art handling, viz primitives (see docs/visualizations.md)
 ├── scheduler/      # logical scenes -> 4 slots
 ├── scenes/         # scene schema
 ├── pages/          # legacy fixed page flow
