@@ -6,15 +6,9 @@ from typing import Protocol
 
 from PIL import Image
 
+from reterminal.device.capabilities import DeviceCapabilities
 from reterminal.payloads import JSONObject, PushResultPayload
 from reterminal.scenes import SceneSpec
-
-
-class DeviceCapabilitiesLike(Protocol):
-    """Minimum capability surface the publisher needs."""
-
-    host: str
-    page_slots: int
 
 
 class SceneRenderer(Protocol):
@@ -33,10 +27,10 @@ class SceneRenderer(Protocol):
 class DisplayDevice(Protocol):
     """Device adapter used by the publish pipeline."""
 
-    def discover_capabilities(self, refresh: bool = False) -> DeviceCapabilitiesLike:
+    def discover_capabilities(self, refresh: bool = False) -> DeviceCapabilities:
         """Return the current device contract."""
 
-    def prepare_push_cycle(self) -> DeviceCapabilitiesLike:
+    def prepare_push_cycle(self) -> DeviceCapabilities:
         """Refresh any per-cycle state before uploads begin."""
 
     def push_pil(self, image: Image.Image, slot: int) -> PushResultPayload:
