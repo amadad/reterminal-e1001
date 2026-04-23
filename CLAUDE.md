@@ -27,7 +27,7 @@ Based on live probing plus USB bootloader interrogation on `kunst`:
 - `snapshot_readback` is live and can return the exact stored raw bitmap for a loaded slot
 - slots are persisted to LittleFS on the 32MB flash — survive power cycles and reboots
 - on boot, firmware restores persisted slots and shows the last active page (no ready screen unless first boot)
-- display uses **full refresh on every API-driven update** (reverted 2026-04-23 from the partial-only policy; see `docs/_solutions.md`). Every refresh function calls `display.hibernate()` at the end per GxEPD2 canonical usage
+- display uses **full refresh when content changes** (image push to current slot, manual right-button refresh, boot restore) and **partial refresh for navigation** between already-loaded slots (`/page` switches, left/middle buttons). Kindle pattern: flash only when content changes, not on every page turn. Every refresh function calls `display.hibernate()` at the end per GxEPD2 canonical usage. See `docs/_solutions.md`
 - `POST /page` does **not** beep — beep is reserved for physical button presses
 - USB interrogation identified the board as `ESP32-S3` with embedded `8MB` PSRAM and `32MB` flash behind a `CH340` serial bridge on `kunst`
 
@@ -96,7 +96,7 @@ uv run reterminal watch clock -i 60
 5. **Use `reterminal/device` for capability-aware slot operations** instead of hitting raw firmware semantics from new code.
 6. **Use Helvetica (not Helvetica Neue) for ePaper rendering.** Uniform stroke weight survives 1-bit rendering on this panel better than thinner neo-grotesque variants. See `_solutions.md` for the Neue regression.
 7. **Text-heavy scenes should render with a hard black/white threshold; reserve Floyd-Steinberg dithering for poster/image scenes.** That keeps body copy from turning into dot-matrix texture.
-8. **Full refresh is the default** at hourly-or-slower cadence (matches Kindle / TRMNL / Waveshare reference behavior). The 2026-04-17 partial-only policy applied to a minute-cadence feed that no longer exists; the 2026-04-23 device test refuted the typography-degradation claim. Call `display.hibernate()` after every refresh.
+8. **Full refresh when content changes; partial refresh for navigation.** Image push to the currently-visible slot does a full refresh (new pixels → clean slate). Switching between already-loaded slots does a partial refresh (content is already clean from the last full-refresh push, no ghost accumulation because the pixels do not change between navs). Right-button press is a manual full-refresh cleanup lever. Call `display.hibernate()` after every refresh.
 
 ## Live feed architecture
 
