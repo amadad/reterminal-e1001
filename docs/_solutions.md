@@ -2,6 +2,14 @@
 
 Newest first. Keep entries short, dated, and evidence-oriented.
 
+## 2026-04-23 — Ghosting fixed by reverting to full-refresh default and adding hibernate
+
+- **Symptoms:** display showed ghosting, washed-out contrast, and artifacted afterimages after the hourly feed had run for a while. User asked whether the hardware was bad or whether we were missing something idiomatic.
+- **Root cause(s):** two compounding issues. (1) The 2026-04-17 partial-only policy was correct for the minute-cadence architecture that existed then but wrong for the current hourly feed — at low cadence, full refresh is the universal idiom (Kindle, TRMNL, Waveshare reference all do full refresh per update) and does not accumulate typography degradation because the particle substrate settles between updates. (2) The firmware never called `display.hibernate()` after refresh cycles, so the UC8179 controller left panel driving voltages on between updates, contributing to residual charge and image fading — a deviation from the GxEPD2 canonical example.
+- **Fix:** firmware now does full refresh on every API-driven update (`showPagePartial`, `partialRefreshCount`, and the `?full=1` opt-in all removed). Every refresh function — `showPage`, `showBootScreen`, `showReadyScreen`, `showConfigRequiredScreen`, `showBlankScreen`, and the untargeted `/imageraw` draw path — ends with `display.hibernate()`. CLAUDE.md rule 8 revised.
+- **Evidence:** before any firmware change, triggering three `POST /page?full=1` calls on the live device at 15-second spacing produced the cleanest display in recent memory — refuting the 2026-04-17 claim that full refresh inherently degrades typography. The new firmware was flashed via USB (CH340 at `/dev/cu.usbserial-1410`) and cycled through all 4 slots cleanly. Build `Apr 23 2026 09:59:17` running on device.
+- **Gotcha:** the 2026-04-17 entry below is still instructive — at high-frequency cadences (every minute or faster), repeated full refreshes can accumulate contrast loss faster than the substrate can settle. The rule is cadence-aware, not absolute. If the refresh cadence ever drops back below ~5 minutes, revisit the policy.
+
 ## 2026-04-22 — Baseball rows became much more useful once the feed preserved practice/game/team/opponent detail
 
 - **Symptoms:** the boys' biggest question was whether baseball was a practice or a game, for which team, and against whom — but the earlier simplified schedule collapsed too much of that detail into generic `Baseball` labels.
