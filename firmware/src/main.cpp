@@ -75,9 +75,10 @@ const char* BUILD_TIME = __DATE__ " " __TIME__;
 #define DISPLAY_HEIGHT 480
 #define IMAGE_BYTES (DISPLAY_WIDTH * DISPLAY_HEIGHT / 8)  // 48000 bytes
 
-// Partial refresh only — full refresh is manual (right button) or via API.
-// The GDEY075T7 panel handles 50+ partials before ghosting is noticeable.
-int partialRefreshCount = 0;
+// Full refresh on every content push. Partial refresh was removed after the
+// 2026-04-23 test showed full refresh produces the cleanest display at the
+// current hourly cadence. GxEPD2 canonical pattern: hibernate() after each
+// refresh to cut panel driving voltages between updates.
 
 // Page system
 int currentPage = 0;
@@ -184,7 +185,7 @@ int loadState() {
 
 // === Display rendering ===
 
-void showPageFull(int page) {
+void showPage(int page) {
   display.setFullWindow();
   display.firstPage();
   do {
@@ -200,28 +201,8 @@ void showPageFull(int page) {
       printCentered("No image loaded", 260);
     }
   } while (display.nextPage());
-  partialRefreshCount = 0;
-  usbSerial.printf("Full refresh page %d (%s)\n", page, PAGE_NAMES[page]);
-}
-
-void showPagePartial(int page) {
-  if (!pageLoaded[page] || pageStorage[page] == nullptr) {
-    showPageFull(page);
-    return;
-  }
-  display.setPartialWindow(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT);
-  display.firstPage();
-  do {
-    display.fillScreen(GxEPD_WHITE);
-    display.drawBitmap(0, 0, pageStorage[page], DISPLAY_WIDTH, DISPLAY_HEIGHT, GxEPD_BLACK);
-  } while (display.nextPage());
-  partialRefreshCount++;
-  usbSerial.printf("Partial refresh page %d (%s) [%d]\n",
-    page, PAGE_NAMES[page], partialRefreshCount);
-}
-
-void showPage(int page) {
-  showPagePartial(page);
+  display.hibernate();
+  usbSerial.printf("Refresh page %d (%s)\n", page, PAGE_NAMES[page]);
 }
 
 void showBootScreen() {
@@ -234,6 +215,7 @@ void showBootScreen() {
     printCentered("reTerminal E1001", 180);
     printCentered("Connecting to WiFi...", 240);
   } while (display.nextPage());
+  display.hibernate();
 }
 
 void showReadyScreen(String ip) {
@@ -249,6 +231,7 @@ void showReadyScreen(String ip) {
     printCentered(ipLine.c_str(), 280);
     printCentered("Press buttons to navigate", 340);
   } while (display.nextPage());
+  display.hibernate();
 }
 
 void showConfigRequiredScreen(const char* title, const char* detail) {
@@ -262,6 +245,7 @@ void showConfigRequiredScreen(const char* title, const char* detail) {
     printCentered(title, 220);
     printCentered(detail, 300);
   } while (display.nextPage());
+  display.hibernate();
 }
 
 bool isValidPageIndex(int page) {
@@ -289,7 +273,7 @@ void showBlankScreen() {
   do {
     display.fillScreen(GxEPD_WHITE);
   } while (display.nextPage());
-  partialRefreshCount = 0;
+  display.hibernate();
 }
 
 void clearStoredPage(int page) {
@@ -465,19 +449,7 @@ void handlePage() {
     return;
   }
 
-  // Allow ?full=1 or {"full": true} to force a full refresh (clears ghosting)
-  bool fullRefresh = false;
-  if (server.arg("full") == "1") {
-    fullRefresh = true;
-  } else if (doc["full"].is<bool>() && doc["full"].as<bool>()) {
-    fullRefresh = true;
-  }
-
-  if (fullRefresh) {
-    showPageFull(currentPage);
-  } else {
-    showPage(currentPage);
-  }
+  showPage(currentPage);
   saveState();
 
   JsonDocument resp;
@@ -589,7 +561,7 @@ void handleImageRaw() {
     display.fillScreen(GxEPD_WHITE);
     display.drawBitmap(0, 0, imageBuffer, DISPLAY_WIDTH, DISPLAY_HEIGHT, GxEPD_BLACK);
   } while (display.nextPage());
-  partialRefreshCount = 0;
+  display.hibernate();
 
   server.send(200, "application/json", "{\"success\": true, \"displayed\": true}");
   resetUploadState();
@@ -713,7 +685,7 @@ void setup() {
 
   // If we restored content, show it immediately instead of boot screen
   if (restoredCount > 0 && pageLoaded[currentPage]) {
-    showPageFull(currentPage);
+    showPage(currentPage);
   } else {
     showBootScreen();
   }
@@ -814,7 +786,7 @@ void loop() {
     if (curRight == LOW) {
       usbSerial.println("Right button - Refresh");
       beep(100);
-      showPageFull(currentPage);
+      showPage(currentPage);
     }
     lastRight = curRight;
   }
