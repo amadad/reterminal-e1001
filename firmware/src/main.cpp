@@ -75,11 +75,6 @@ const char* BUILD_TIME = __DATE__ " " __TIME__;
 #define DISPLAY_HEIGHT 480
 #define IMAGE_BYTES (DISPLAY_WIDTH * DISPLAY_HEIGHT / 8)  // 48000 bytes
 
-// Full refresh on every content push. Partial refresh was removed after the
-// 2026-04-23 test showed full refresh produces the cleanest display at the
-// current hourly cadence. GxEPD2 canonical pattern: hibernate() after each
-// refresh to cut panel driving voltages between updates.
-
 // Page system
 int currentPage = 0;
 const int NUM_PAGES = 4;
@@ -97,18 +92,22 @@ bool lastLeft = HIGH, lastMiddle = HIGH, lastRight = HIGH;
 unsigned long lastButtonPress = 0;
 const unsigned long DEBOUNCE_MS = 50;
 
-// Display and SPI objects
+// WiFi liveness tracking. WiFi.begin() runs once in setup(); without these,
+// loop() never notices an AP reboot or DHCP renewal and the device goes silently
+// off-network until power-cycled.
+unsigned long lastWifiOkMs = 0;
+unsigned long lastWifiRetryMs = 0;
+const unsigned long WIFI_GRACE_MS = 30000;
+const unsigned long WIFI_RETRY_INTERVAL_MS = 30000;
+
 GxEPD2_BW<GxEPD2_750_GDEY075T7, GxEPD2_750_GDEY075T7::HEIGHT> display(
     GxEPD2_750_GDEY075T7(EPD_CS_PIN, EPD_DC_PIN, EPD_RES_PIN, EPD_BUSY_PIN));
 SPIClass hspi(HSPI);
 
-// Web server
 WebServer server(80);
 
-// Image buffer for uploads
 uint8_t* imageBuffer = nullptr;
 
-// USB Serial (per working example)
 HardwareSerial &usbSerial = Serial1;
 
 void beep(int duration_ms = 300) {
@@ -185,11 +184,8 @@ int loadState() {
 
 // === Display rendering ===
 
-// Full refresh on every path. Partial refresh was tried for navigation but
-// produced layered/ghosted artifacts when swapping between dissimilar slot
-// content — the partial LUT can't handle large pixel deltas cleanly on this
-// panel. Kindle-style partial nav works for incremental page turns; slot
-// navigation here is a full-frame image swap, which is the pathological case.
+// Full refresh on every path: this panel's partial-update LUT can't handle the
+// large pixel deltas of a full-frame slot swap without leaving ghosted artifacts.
 void showPage(int page) {
   display.setFullWindow();
   display.firstPage();
@@ -205,6 +201,7 @@ void showPage(int page) {
       printCentered(title.c_str(), 200);
       printCentered("No image loaded", 260);
     }
+    delay(1);
   } while (display.nextPage());
   display.hibernate();
   usbSerial.printf("Full refresh page %d (%s)\n", page, PAGE_NAMES[page]);
@@ -219,6 +216,7 @@ void showBootScreen() {
     display.setTextColor(GxEPD_BLACK);
     printCentered("reTerminal E1001", 180);
     printCentered("Connecting to WiFi...", 240);
+    delay(1);
   } while (display.nextPage());
   display.hibernate();
 }
@@ -235,6 +233,7 @@ void showReadyScreen(String ip) {
     String ipLine = "IP: " + ip;
     printCentered(ipLine.c_str(), 280);
     printCentered("Press buttons to navigate", 340);
+    delay(1);
   } while (display.nextPage());
   display.hibernate();
 }
@@ -249,6 +248,7 @@ void showConfigRequiredScreen(const char* title, const char* detail) {
     printCentered("reTerminal E1001", 140);
     printCentered(title, 220);
     printCentered(detail, 300);
+    delay(1);
   } while (display.nextPage());
   display.hibernate();
 }
@@ -277,6 +277,7 @@ void showBlankScreen() {
   display.firstPage();
   do {
     display.fillScreen(GxEPD_WHITE);
+    delay(1);
   } while (display.nextPage());
   display.hibernate();
 }
@@ -565,6 +566,7 @@ void handleImageRaw() {
   do {
     display.fillScreen(GxEPD_WHITE);
     display.drawBitmap(0, 0, imageBuffer, DISPLAY_WIDTH, DISPLAY_HEIGHT, GxEPD_BLACK);
+    delay(1);
   } while (display.nextPage());
   display.hibernate();
 
@@ -631,12 +633,11 @@ void handleNotFound() {
 }
 
 void setup() {
-  // USB Serial on GPIO 44/43 (per working example)
+  // reTerminal routes USB-serial through GPIO 44/43, not the default pins.
   usbSerial.begin(115200, SERIAL_8N1, 44, 43);
   delay(500);
   usbSerial.println("\n\nreTerminal E1001 Starting...");
 
-  // Buttons
   pinMode(BTN_LEFT, INPUT_PULLUP);
   pinMode(BTN_MIDDLE, INPUT_PULLUP);
   pinMode(BTN_RIGHT, INPUT_PULLUP);
@@ -644,12 +645,10 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
 
-  // Read initial button states
   lastLeft = digitalRead(BTN_LEFT);
   lastMiddle = digitalRead(BTN_MIDDLE);
   lastRight = digitalRead(BTN_RIGHT);
 
-  // Initialize LittleFS for persistent slot storage
   if (LittleFS.begin(true)) {
     fsReady = true;
     LittleFS.mkdir(SLOT_DIR);
@@ -658,9 +657,10 @@ void setup() {
     usbSerial.println("LittleFS failed — slots will be volatile only");
   }
 
-  // Allocate page storage in PSRAM
   usbSerial.println("Allocating page storage...");
   for (int i = 0; i < NUM_PAGES; i++) {
+    // Prefer PSRAM (8MB) for slot buffers; only the first ~128KB of internal
+    // RAM is free after framework init, so 4x 48000-byte buffers won't fit.
     pageStorage[i] = (uint8_t*)ps_malloc(IMAGE_BYTES);
     if (pageStorage[i] == nullptr) {
       pageStorage[i] = (uint8_t*)malloc(IMAGE_BYTES);
@@ -673,7 +673,6 @@ void setup() {
     }
   }
 
-  // Restore persisted slots from flash
   int restoredCount = 0;
   for (int i = 0; i < NUM_PAGES; i++) {
     if (loadSlotFromFlash(i)) restoredCount++;
@@ -681,21 +680,18 @@ void setup() {
   currentPage = loadState();
   usbSerial.printf("Restored %d slots from flash, active page %d\n", restoredCount, currentPage);
 
-  // Initialize display SPI
   hspi.begin(EPD_SCK_PIN, -1, EPD_MOSI_PIN, -1);
   display.epd2.selectSPI(hspi, SPISettings(2000000, MSBFIRST, SPI_MODE0));
   display.init(115200, true);
   display.setRotation(0);
   usbSerial.println("Display initialized");
 
-  // If we restored content, show it immediately instead of boot screen
   if (restoredCount > 0 && pageLoaded[currentPage]) {
     showPage(currentPage);
   } else {
     showBootScreen();
   }
 
-  // Connect WiFi
   if (strlen(WIFI_SSID) > 0) {
     WiFi.setHostname(HOSTNAME);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
@@ -711,7 +707,6 @@ void setup() {
 
     if (WiFi.status() == WL_CONNECTED) {
       usbSerial.println("Connected! IP: " + WiFi.localIP().toString());
-      // Only show ready screen if no restored content
       if (restoredCount == 0 || !pageLoaded[currentPage]) {
         showReadyScreen(WiFi.localIP().toString());
       }
@@ -725,7 +720,6 @@ void setup() {
     showConfigRequiredScreen("WiFi not configured", "Set platformio.local.ini");
   }
 
-  // HTTP routes
   server.on("/", handleRoot);
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/capabilities", HTTP_GET, handleCapabilities);
@@ -739,7 +733,6 @@ void setup() {
   server.begin();
   usbSerial.println("HTTP server started");
 
-  // OTA
   if (WiFi.status() == WL_CONNECTED && strlen(OTA_PASSWORD) > 0) {
     ArduinoOTA.setHostname(HOSTNAME);
     ArduinoOTA.setPassword(OTA_PASSWORD);
@@ -754,11 +747,26 @@ void setup() {
   usbSerial.println("Setup complete!");
 }
 
+void maintainWifi() {
+  if (strlen(WIFI_SSID) == 0) return;
+  unsigned long now = millis();
+  if (WiFi.status() == WL_CONNECTED) {
+    lastWifiOkMs = now;
+    return;
+  }
+  if (now - lastWifiOkMs < WIFI_GRACE_MS) return;
+  if (now - lastWifiRetryMs < WIFI_RETRY_INTERVAL_MS) return;
+  lastWifiRetryMs = now;
+  usbSerial.printf("WiFi down for %lu ms, reconnecting\n", now - lastWifiOkMs);
+  WiFi.disconnect();
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+}
+
 void loop() {
+  maintainWifi();
   ArduinoOTA.handle();
   server.handleClient();
 
-  // Check buttons (same pattern as working example)
   bool curLeft = digitalRead(BTN_LEFT);
   if (curLeft != lastLeft) {
     delay(DEBOUNCE_MS);
