@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Launchd agent for the kitchen-display publisher.
+
+  Install:
+    cp scripts/sh.reterminal.publish.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/sh.reterminal.publish.plist
+
+  Tail logs:
+    tail -F ~/Library/Logs/reterminal/publish.log
+
+  Reload after editing:
+    launchctl unload ~/Library/LaunchAgents/sh.reterminal.publish.plist
+    launchctl load ~/Library/LaunchAgents/sh.reterminal.publish.plist
+
+  Notes:
+    - KeepAlive=true restarts the publisher if it crashes.
+    - RunAtLoad=true starts it immediately on load and on user login.
+    - The watch loop blocks on FSEvents; no --interval needed.
+    - Adjust paths below for your install (uv path, repo path).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>sh.reterminal.publish</string>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/amadad/projects/reterminal-e1001/python</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/amadad/.local/bin/uv</string>
+        <string>run</string>
+        <string>reterminal</string>
+        <string>publish</string>
+        <string>--feed</string>
+        <string>/Users/amadad/projects/reterminal-e1001/python/examples/kitchen-display.json</string>
+        <string>--push</string>
+        <string>--watch</string>
+        <string>--live</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/amadad/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>RETERMINAL_HOST</key>
+        <string>192.168.7.27</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/amadad/Library/Logs/reterminal/publish.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/amadad/Library/Logs/reterminal/publish.log</string>
+</dict>
+</plist>

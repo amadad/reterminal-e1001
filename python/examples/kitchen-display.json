@@ -1,0 +1,8 @@
+{
+  "providers": [
+    {"type": "calendar", "path": "~/madad/family/calendar.md"},
+    {"type": "missions", "path": "~/madad/family/missions.md"},
+    {"type": "events", "path": "~/madad/family/events.md"},
+    {"type": "activities", "path": "~/madad/family/activities.md"}
+  ]
+}

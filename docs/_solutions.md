@@ -2,6 +2,23 @@
 
 Newest first. Keep entries short, dated, and evidence-oriented.
 
+## 2026-04-27 — Device froze after 24-48h of operational use; required power cycle
+
+- **Symptoms:** kitchen display became unreachable on `/status` after 1-2 days of continuous operation. Power cycle restored normal operation. Pattern repeated.
+- **Root cause(s):** two compounding firmware issues. (1) `WiFi.begin()` was called once in `setup()` with no reconnect logic in `loop()`, so an AP reboot or DHCP-lease renewal left the device silently off-network until physically power-cycled — the typical 24h DHCP cycle on home routers is the smoking gun. (2) Long ePaper paint loops (`do { } while (display.nextPage())`) starved the IDLE task during the 2-4s full refresh on the 800x480 panel, risking Task Watchdog Timer fires once SPI/UC8179 timing drifted under sustained use.
+- **Fix:** firmware patch (commit `3dd5b14`): non-blocking `maintainWifi()` in `loop()` with 30s grace + 30s retry backoff calling `WiFi.disconnect()` + `WiFi.begin()`; `delay(1)` added inside every paint `do { }` body to feed the IDLE task. Six paint sites patched (`showPage`, `showBootScreen`, `showReadyScreen`, `showConfigRequiredScreen`, `showBlankScreen`, `/imageraw` direct path).
+- **Evidence:** flashed via `/dev/cu.usbserial-1410`, build sha `wifi-twdt-1`, 2026-04-27 09:07:27. Device back up immediately, all 4 slots restored from LittleFS, `free_heap` 222KB. 72h soak in progress.
+- **Wrong diagnosis ruled out:** initial automated audit flagged an `imageBuffer` "leak" at `firmware/src/main.cpp:486` — but the allocation is guarded by `if (imageBuffer == nullptr)`, so it is a one-shot singleton, not a per-request leak. Confident wrong answer; verify before acting.
+- **OTA gotcha (still recurring, see 2026-04-23 entry):** OTA flash from this Mac fails with "Host Not Found" because macOS Application Firewall drops the UDP reply from the device to espota's ephemeral port. USB flash via `/dev/cu.usbserial-1410` works. Either disable firewall briefly or whitelist Python.
+
+## 2026-04-24 — Designed kitchen slots were overwritten because live ownership was split between docs and a legacy refresh wrapper
+
+- **Symptoms:** after the designed reTerminal pages landed, the device later showed the old routine/need/reset pages instead of the four-kid missions, upcoming-events, and activities/movie pages.
+- **Root cause:** slot ownership was contradictory. `CLAUDE.md` still described legacy `ready-board` / `need-board` / `reset-board` as the live layout, while the skill doc said the designed pages were only preview-lifespan. The hourly `~/oc-min/scripts/reterminal-refresh.sh` rendered the legacy live feed for all four slots, so it silently overwrote slots 1-3 on the next refresh.
+- **Fix:** make slot ownership explicit and durable: slot 0 remains the calendar/feed page; slots 1-3 are the designed markdown-driven pages from `~/madad/family/{missions,events,activities}.md`. Added `docs/kitchen-display-sop.md`, updated `CLAUDE.md`, updated the OpenClaw reTerminal skill, and patched the refresh wrapper to overlay slots 1-3 from `preview_missions.py` / `preview_family.py` before publishing raws.
+- **Evidence:** `uv run --extra dev pytest -q` passes (`42 passed`), `uv run --extra dev ruff check reterminal tests` passes, production refresh reports no slot drift, and device `/snapshot` hashes for slots 1-3 match the local designed raw files exactly.
+- **Gotcha (recurring):** a pretty manual push is not production unless the unattended refresh loop is taught the same ownership. Any future slot-layout change must update `CLAUDE.md`, this log/SOP, the OpenClaw skill, and the refresh path together.
+
 ## 2026-04-23 — Ghosting fixed: full refresh on every path, plus hibernate everywhere
 
 - **Symptoms:** display showed ghosting, washed-out contrast, and artifacted afterimages after the hourly feed had run for a while.
@@ -26,14 +43,14 @@ Newest first. Keep entries short, dated, and evidence-oriented.
 - **Symptoms:** the kitchen display still had a low-value upcoming page and a chores page that was just placeholder kid labels instead of the actual routine the family follows.
 - **Root cause:** the page model was still organized around abstract categories instead of the real kitchen workflow: today/tomorrow, routine, need, and reset.
 - **Fix:** replace the old upcoming page with a reset page, populate `chores.md` with the real after-school and cleanup routine, and keep the main board focused on today/tomorrow baseball-aware schedule plus dinner.
-- **Evidence:** current previews/live slots are `today-board`, `ready-board`, `need-board`, and `reset-board`, with routine lines like unpack backpack / reading / work and reset lines like dishes / laundry / vacuum / tabletops.
+- **Evidence at the time:** previews/live slots were `today-board`, `ready-board`, `need-board`, and `reset-board`, with routine lines like unpack backpack / reading / work and reset lines like dishes / laundry / vacuum / tabletops. This layout was later superseded on 2026-04-24 by the designed missions/events/activities slots.
 
 ## 2026-04-22 — Kitchen schedule became much clearer once calendar data was rendered as structured agenda rows instead of raw event strings
 
 - **Symptoms:** the kitchen display needed bigger chunks and clearer ownership cues than a generic family-summary layout or raw Google Calendar strings could provide.
 - **Root cause:** the earlier scene model compressed schedule data into plain text lines, which made it hard to compare today vs tomorrow and hard to see which kid or family group owned each event.
 - **Fix:** add an `agenda` scene kind with structured rows (owner chip, event icon, time, title), switch slot 0 to a two-column Today/Tomorrow board with dinner, add a grouped upcoming agenda for later days, and move chores / meal-prep into dedicated kitchen pages.
-- **Evidence:** current previews and the live device now show `today-board`, `ready-board`, `need-board`, and `upcoming-board`, with event ownership indicated by `A/H/L/N/F` chips and custom 1-bit icons.
+- **Evidence at the time:** previews and the live device showed `today-board`, `ready-board`, `need-board`, and `upcoming-board`, with event ownership indicated by `A/H/L/N/F` chips and custom 1-bit icons. This layout was later superseded on 2026-04-24 by the designed missions/events/activities slots.
 
 ## 2026-04-22 — Text-heavy scenes looked choppy because the renderer treated typography like dithered art
 

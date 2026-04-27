@@ -39,9 +39,19 @@ Responsibilities:
 
 Current providers:
 
-- `FileSceneProvider`
+- `FileSceneProvider` (legacy `{"scenes": [...]}` feed shape)
 - `SystemSceneProvider`
 - `PaperclipSceneProvider` (remote HTTP feed adapter)
+- `CalendarProvider` — reads `~/madad/family/calendar.md`
+- `MissionsProvider` — reads `~/madad/family/missions.md`
+- `EventsProvider` — reads `~/madad/family/events.md`
+- `ActivitiesProvider` — reads `~/madad/family/activities.md`
+
+The kitchen-display providers register themselves into a manifest registry
+(`providers/manifest.py`) so a `{"providers": [...]}` JSON config like
+`python/examples/kitchen-display.json` can wire them up declaratively.
+Provider factories receive their per-entry config dict (typically `path`)
+and return a SceneProvider instance.
 
 Additional providers worth adding:
 
@@ -90,6 +100,10 @@ Supported scene kinds:
 - `bulletin`
 - `agenda`
 - `poster`
+- `prerendered` — provider supplies its own 800x480 1-bit PIL image via
+  `SceneSpec.prerendered`; MonoRenderer short-circuits and just blits it.
+  Used by the kitchen-display providers (calendar/missions/events/activities)
+  whose layouts do not fit the chrome+content kinds above.
 
 Current renderer behavior worth knowing:
 
@@ -108,9 +122,13 @@ Shared quantitative visualization primitives (progress bars, sparklines, heatmap
 
 High-level orchestration.
 
-Current entrypoint:
+Current entrypoints:
 
-- `DisplayPublisher`
+- `DisplayPublisher` — single-shot publish (collect → schedule → render → push)
+- `run_live` (in `app/live.py`) — FSEvents-driven loop for `publish --watch`.
+  Watches the parent directories of every manifest provider's source file,
+  re-renders on change, in-memory bitmap-compares to skip unchanged pushes,
+  and ticks every 5 minutes as a sanity fallback. No persisted state.
 
 Pipeline:
 

@@ -19,6 +19,7 @@ dependencies = [
     "loguru>=0.7.0",
     "tenacity>=8.2.0",
     "python-dotenv>=1.0.0",
+    "watchdog>=4.0.0",
 ]
 
 [project.optional-dependencies]

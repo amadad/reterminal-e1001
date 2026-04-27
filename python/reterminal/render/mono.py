@@ -39,6 +39,8 @@ class MonoRenderer:
         slot: int | None = None,
         total_slots: int | None = None,
     ) -> Image.Image:
+        if scene.prerendered is not None:
+            return self._finalize_prerendered(scene.prerendered)
         img = Image.new("L", (WIDTH, HEIGHT), color=255)
         draw = ImageDraw.Draw(img)
         frame = self._build_frame()
@@ -63,6 +65,16 @@ class MonoRenderer:
         if scene.kind == "poster":
             return finished.convert("1", dither=Image.Dither.FLOYDSTEINBERG)
         return finished.point(lambda x: 255 if x >= 192 else 0, mode="1")
+
+    def _finalize_prerendered(self, image: Image.Image) -> Image.Image:
+        """Coerce a provider-supplied bitmap to the device contract (800x480 mode "1")."""
+        if image.size != (WIDTH, HEIGHT):
+            image = image.resize((WIDTH, HEIGHT))
+        if image.mode == "1":
+            return image
+        if image.mode != "L":
+            image = image.convert("L")
+        return image.point(lambda x: 255 if x >= 192 else 0, mode="1")
 
     def _build_frame(self) -> SceneFrame:
         margin = self.theme.outer_margin
@@ -211,23 +223,31 @@ class MonoRenderer:
 
     def _render_two_day_agenda(self, draw: ImageDraw.ImageDraw, scene: SceneSpec, frame: SceneFrame) -> None:
         content = frame.content
-        dinner_height = 104
-        upper_rect, dinner_rect = content.split_bottom(dinner_height, gap=18)
+        dinner_height = 112
+        upper_rect, dinner_rect = content.split_bottom(dinner_height, gap=12)
         left_rect, right_rect = upper_rect.columns(2, gap=18)
         divider_x = left_rect.right + 9
         draw.line((divider_x, upper_rect.y, divider_x, upper_rect.bottom), fill=0, width=2)
+
+        today_rows = self._meta_rows(scene, "today_rows")
+        tomorrow_rows = self._meta_rows(scene, "tomorrow_rows")
+        shared_row_count = max(len(today_rows), len(tomorrow_rows), 1)
+        _, left_rows_rect = left_rect.split_top(28, gap=8)
+        row_height = min(52, max(38, left_rows_rect.height // shared_row_count))
 
         self._draw_agenda_column(
             draw,
             left_rect,
             str(self._meta(scene, "today_label") or "Today"),
-            self._meta_rows(scene, "today_rows"),
+            today_rows,
+            row_height=row_height,
         )
         self._draw_agenda_column(
             draw,
             right_rect,
             str(self._meta(scene, "tomorrow_label") or "Tomorrow"),
-            self._meta_rows(scene, "tomorrow_rows"),
+            tomorrow_rows,
+            row_height=row_height,
         )
         self._draw_dinner_block(
             draw,
@@ -274,10 +294,13 @@ class MonoRenderer:
         rect: Rect,
         label: str,
         rows: list[dict[str, object]],
+        *,
+        row_height: int | None = None,
     ) -> None:
         label_rect, rows_rect = rect.split_top(28, gap=8)
         self._fit_and_draw(draw, label_rect, label, max_font_size=32, min_font_size=22, max_lines=1)
-        row_height = 44 if len(rows) >= 6 else 50 if len(rows) >= 5 else 52
+        if row_height is None:
+            row_height = 44 if len(rows) >= 6 else 50 if len(rows) >= 5 else 52
         self._draw_agenda_rows(draw, rows_rect, rows, row_height=row_height, row_gap=0, separator_width=2)
 
     def _draw_agenda_section(self, draw: ImageDraw.ImageDraw, rect: Rect, section: object) -> None:
@@ -407,8 +430,8 @@ class MonoRenderer:
             icon_rect = Rect(label_rect.x, label_rect.y + max(0, (label_rect.height - 18) // 2), 18, 18)
             self._draw_event_icon(draw, icon_rect, icon)
             label_text_rect = Rect(icon_rect.right + 8, label_rect.y, max(1, label_rect.right - (icon_rect.right + 8)), label_rect.height)
-        self._fit_and_draw(draw, label_text_rect, label, max_font_size=28, min_font_size=18, max_lines=1, valign="center")
-        self._fit_and_draw(draw, value_rect, value, max_font_size=34, min_font_size=22, max_lines=2, valign="center")
+        self._fit_and_draw(draw, label_text_rect, label, max_font_size=26, min_font_size=16, max_lines=1, valign="center")
+        self._fit_and_draw(draw, value_rect, value, max_font_size=30, min_font_size=16, max_lines=3, line_spacing=1, valign="center")
 
     # === Poster: image with caption overlay ===
 
@@ -634,7 +657,7 @@ class MonoRenderer:
             resp = requests.get(url, timeout=5)
             resp.raise_for_status()
             return Image.open(io.BytesIO(resp.content)).convert("L")
-        except Exception:
+        except (requests.RequestException, OSError, Image.UnidentifiedImageError):
             return None
 
     def _placeholder_art(self, width: int, height: int, scene: SceneSpec) -> Image.Image:

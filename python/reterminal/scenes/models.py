@@ -5,8 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from reterminal.payloads import JSONObject, JSONValue
+
+if TYPE_CHECKING:
+    from PIL.Image import Image as PILImage
 
 
 @dataclass(slots=True)
@@ -44,6 +48,12 @@ class SceneSpec:
     image_path: str | None = None
     image_url: str | None = None
     meta: JSONObject = field(default_factory=dict)
+    # When set, MonoRenderer skips its own kind-dispatch and returns this
+    # bitmap as-is. Lets providers that own their layout (missions, events,
+    # activities, calendar) render directly without inventing new SceneRenderer
+    # kinds for each. PIL.Image.Image at runtime; typed loosely so models.py
+    # does not need to import PIL.
+    prerendered: "PILImage | None" = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, object], *, base_dir: Path | None = None) -> "SceneSpec":
