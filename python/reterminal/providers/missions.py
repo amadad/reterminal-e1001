@@ -13,15 +13,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
+from reterminal.providers.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, render_notice, to_1bit
 from reterminal.providers.manifest import register_provider
 from reterminal.render.viz import dots, heatmap, progress_bar
 from reterminal.scenes import SceneSpec
 
 
-WIDTH, HEIGHT = 800, 480
-HELVETICA = Path("/System/Library/Fonts/Helvetica.ttc")
 DEFAULT_PATH = Path.home() / "madad" / "family" / "missions.md"
 KID_ORDER = ("Laila", "Hasan", "Ammar", "Noora")
 
@@ -87,13 +86,7 @@ def _parse_days(s: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def _font(size: int, weight: str = "regular") -> ImageFont.ImageFont:
-    if not HELVETICA.exists():
-        return ImageFont.load_default()
-    return ImageFont.truetype(str(HELVETICA), size, index={"regular": 0, "bold": 1}[weight])
-
-
-def _wrap(draw: ImageDraw.ImageDraw, text: str, f: ImageFont.ImageFont, max_w: int) -> list[str]:
+def _wrap(draw: ImageDraw.ImageDraw, text: str, f, max_w: int) -> list[str]:
     words = text.split()
     lines: list[str] = []
     current = ""
@@ -117,12 +110,12 @@ def _render_quadrant(draw: ImageDraw.ImageDraw, m: Mission, x: int, y: int, w: i
     inner_w = w - pad * 2
     bottom = y + h - pad
 
-    name_f = _font(20, "bold")
-    kind_f = _font(13, "bold")
-    title_f = _font(30, "bold")
-    next_label_f = _font(12, "bold")
-    next_f = _font(16)
-    meta_f = _font(14)
+    name_f = font(20, "bold")
+    kind_f = font(13, "bold")
+    title_f = font(30, "bold")
+    next_label_f = font(12, "bold")
+    next_f = font(16)
+    meta_f = font(14)
 
     draw.text((cx, top), m.who.upper(), font=name_f, fill=0)
     kind_label = m.kind.upper()
@@ -174,7 +167,7 @@ def _render_quadrant(draw: ImageDraw.ImageDraw, m: Mission, x: int, y: int, w: i
         cell = min(cell, max_cell_w)
         heatmap(draw, cx, viz_top, series, cols=cols, cell=cell, gap=gap)
         grid_right = cx + cols * cell + (cols - 1) * gap
-        streak_big = _font(28, "bold")
+        streak_big = font(28, "bold")
         draw.text((grid_right + 14, viz_top - 2), str(days), font=streak_big, fill=0)
         draw.text((grid_right + 14, viz_top + 28), "day streak", font=meta_f, fill=0)
     elif m.kind == "milestone":
@@ -191,10 +184,10 @@ def _render_quadrant(draw: ImageDraw.ImageDraw, m: Mission, x: int, y: int, w: i
             draw.text((cx, viz_top + 28), f"{value} / {total}", font=meta_f, fill=0)
 
 
-def render_missions(missions: list[Mission]) -> Image.Image:
+def render_missions(missions: list[Mission], *, source_path: Path | None = None) -> Image.Image:
     img = Image.new("L", (WIDTH, HEIGHT), color=255)
     draw = ImageDraw.Draw(img)
-    draw.text((24, 14), "MISSIONS", font=_font(13, "bold"), fill=0)
+    draw.text((24, 14), "MISSIONS", font=font(13, "bold"), fill=0)
 
     grid_top = 38
     grid_h = HEIGHT - grid_top
@@ -217,7 +210,8 @@ def render_missions(missions: list[Mission]) -> Image.Image:
         qy = grid_top + row * cell_h
         _render_quadrant(draw, m, qx, qy, cell_w, cell_h)
 
-    return img.point(lambda x: 255 if x >= 192 else 0, mode="1")
+    draw_source_stamp(draw, source_path)
+    return to_1bit(img)
 
 
 class MissionsProvider:
@@ -228,9 +222,10 @@ class MissionsProvider:
 
     def fetch(self) -> list[SceneSpec]:
         if not self.path.exists():
-            return []
-        missions = parse_missions(self.path)
-        image = render_missions(missions)
+            image = render_notice("Missions", "missions source missing", str(self.path))
+        else:
+            missions = parse_missions(self.path)
+            image = render_missions(missions, source_path=self.path)
         return [
             SceneSpec(
                 id="missions",

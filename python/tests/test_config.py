@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from reterminal.config import Settings, get_host, settings
@@ -23,3 +25,12 @@ def test_get_host_uses_configured_host_or_override(monkeypatch):
 
     assert get_host() == "192.168.7.76"
     assert get_host("192.168.7.80") == "192.168.7.80"
+
+
+def test_env_example_does_not_embed_a_historical_dhcp_lease():
+    env_example = Path(__file__).resolve().parent.parent / ".env.example"
+
+    body = env_example.read_text()
+
+    assert "RETERMINAL_HOST=" in body
+    assert "192.168.7.76" not in body

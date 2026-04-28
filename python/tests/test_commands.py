@@ -3,7 +3,7 @@ import json
 from typer.testing import CliRunner
 
 from reterminal.cli.app import app
-from reterminal.cli.commands import find_unsupported_legacy_pages, next_assigned_slot
+from reterminal.cli.commands import next_assigned_slot
 
 
 runner = CliRunner()
@@ -18,12 +18,6 @@ def test_top_level_help_includes_agent_examples():
     assert "reterminal discover --output json" in normalized
     assert "reterminal publish --feed ./feed.json --push --live" in normalized
 
-
-
-def test_find_unsupported_legacy_pages_flags_targets_above_device_slot_count():
-    unsupported = find_unsupported_legacy_pages(["market", "portfolio", "weather"], page_slots=4)
-
-    assert unsupported == [("portfolio", 4), ("weather", 6)]
 
 
 
@@ -98,6 +92,43 @@ def test_push_preview_supports_json_output(tmp_path):
     assert payload["preview_path"] == str(preview_path)
     assert preview_path.exists()
 
+
+
+def test_push_live_requires_page_unless_transient():
+    result = runner.invoke(app, ["push", "--text", "hello", "--live"])
+
+    assert result.exit_code == 1
+    assert "requires --page" in result.stdout
+    assert "--transient" in result.stdout
+
+
+def test_push_transient_invokes_direct_display(monkeypatch):
+    captured = {}
+
+    class StubClient:
+        host = "192.168.7.32"
+
+        def __init__(self, host=None):
+            captured["host"] = host
+
+        def push_raw(self, raw, page=None):
+            captured["page"] = page
+            captured["raw_len"] = len(raw)
+            return {"success": True, "displayed": True}
+
+    monkeypatch.setattr("reterminal.cli.commands.ReTerminal", StubClient)
+
+    result = runner.invoke(
+        app,
+        ["push", "--text", "hello", "--transient", "--live", "--output", "json"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["transient"] is True
+    assert payload["result"]["displayed"] is True
+    assert captured["page"] is None
+    assert captured["raw_len"] == 48000
 
 
 def test_snapshot_command_writes_png_and_raw(monkeypatch, tmp_path):
@@ -180,6 +211,15 @@ def test_publish_push_requires_live_flag(tmp_path):
     assert result.exit_code == 1
     assert "Use --live to confirm" in result.stdout
 
+
+def test_publish_watch_rejects_show_slot(tmp_path):
+    feed = tmp_path / "manifest.json"
+    feed.write_text('{"providers": []}')
+
+    result = runner.invoke(app, ["publish", "--feed", str(feed), "--watch", "--show-slot", "0"])
+
+    assert result.exit_code == 1
+    assert "--show-slot is not supported with --watch" in result.stdout
 
 
 def test_page_set_requires_live_flag():

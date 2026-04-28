@@ -5,7 +5,7 @@ ESP32-S3 firmware for reTerminal E1001 with HTTP API and OTA support.
 Current tracked source is designed to stay small and truthful:
 
 - host-rendered 1-bit bitmaps
-- 4 volatile slot buffers in PSRAM
+- 4 slot buffers in PSRAM, persisted to LittleFS when storage is mounted
 - buttons + HTTP control only
 - no firmware overlay chrome on stored pages
 - neutral slot names (`slot-0..slot-3`) instead of semantic app page names
@@ -58,15 +58,15 @@ build_flags =
     -DRETERMINAL_BUILD_SHA=\"unknown\"
 
 [env:ota]
-upload_port = 192.168.x.x
+upload_port = reterminal.local
 ```
 
 Notes:
 
 - Wi-Fi is now configured via build flags, not hardcoded in source.
 - OTA is **disabled by default** and only starts when `RETERMINAL_OTA_PASSWORD` is set.
-- `platformio.local.ini` is gitignored.
-- If PlatformIO reports recursive `build_flags` when using a copied local config, inline the base flags in `platformio.local.ini` instead of referencing `${env:reterminal.build_flags}`.
+- `platformio.local.ini` is gitignored, but build flags can still appear in `pio project config` output; avoid pasting local config output into logs.
+- The example file repeats the base build flags intentionally. Do not reference `${env:reterminal.build_flags}` from `platformio.local.ini`; PlatformIO can recurse when loading it as an `extra_config`.
 
 ## Flashing
 
@@ -135,8 +135,9 @@ Notes:
 
 - `/capabilities` is the richer machine-readable contract for host software.
 - `/snapshot` returns the exact stored raw bitmap for a loaded slot so host tooling can verify what the device has cached.
-- `/clear` clears one slot or the full volatile cache.
-- Stored pages should be treated as volatile cache, not durable persistence across power cycles, until re-probed after flashing.
+- `/clear` clears one slot or the stored slot cache.
+- Stored pages are persisted to LittleFS on the current tracked firmware when the filesystem mounts successfully.
+- Invalid page numbers are rejected with `400 Page out of range`; older wraparound/display-immediate behavior belongs to the historical pre-reflash build.
 - If the live device still returns `404` for `/capabilities`, `/snapshot`, or `/clear`, you are still talking to the older flashed firmware and need a reflash before expecting the newer source contract.
 
 ## Pin Mapping
@@ -181,20 +182,20 @@ Managed automatically by PlatformIO:
 
 ### OTA upload fails
 
-- Verify `upload_port` is correct in `platformio.local.ini`
+- Verify `upload_port` is correct in `platformio.local.ini` (`reterminal.local` should work once mDNS is visible)
 - Ensure `RETERMINAL_OTA_PASSWORD` is set in `platformio.local.ini`
 - Ensure device is powered and on network
-- Check firewall isn't blocking port 3232
+- Check firewall isn't blocking port 3232. On macOS, Application Firewall can also block espota's UDP reply; briefly disable it or whitelist the Python/PlatformIO runtime if OTA reports "Host Not Found".
 
 ### Display not updating
 
-- ePaper takes 2-3 seconds for full refresh
+- ePaper takes about 5-6 seconds for a visible full refresh on this panel
 - Check serial monitor for errors
 - Verify image is exactly 48000 bytes
-- If a power cycle returns with `loaded: false`, republish from the host; the volatile cache should not yet be treated as durable across reboot
+- If a power cycle returns with `loaded: false`, republish from the host and inspect LittleFS health in `/capabilities`
 
 ## Memory
 
 - **PSRAM**: 4 pages × 48KB = 192KB stored in PSRAM
 - **Heap**: ~225KB free after boot
-- **Flash**: ~1.2MB firmware size
+- **Flash**: verified hardware has 32MB flash; `boards/reterminal_e1001_esp32s3.json` and `partitions-32mb.csv` allocate dual 3MB OTA apps plus ~26MB LittleFS

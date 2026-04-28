@@ -18,6 +18,7 @@
     - KeepAlive=true restarts the publisher if it crashes.
     - RunAtLoad=true starts it immediately on load and on user login.
     - The watch loop blocks on FSEvents; no --interval needed.
+    - The wrapper discovers the DHCP-assigned device unless RETERMINAL_HOST is set.
     - Adjust paths below for your install (uv path, repo path).
 -->
 <plist version="1.0">
@@ -30,23 +31,15 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/amadad/.local/bin/uv</string>
-        <string>run</string>
-        <string>reterminal</string>
-        <string>publish</string>
-        <string>--feed</string>
-        <string>/Users/amadad/projects/reterminal-e1001/python/examples/kitchen-display.json</string>
-        <string>--push</string>
-        <string>--watch</string>
-        <string>--live</string>
+        <string>/Users/amadad/projects/reterminal-e1001/scripts/reterminal-publish-watch.sh</string>
     </array>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
         <string>/Users/amadad/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
-        <key>RETERMINAL_HOST</key>
-        <string>192.168.7.27</string>
+        <key>RETERMINAL_DISCOVERY_SUBNET</key>
+        <string>192.168.7</string>
     </dict>
 
     <key>RunAtLoad</key>

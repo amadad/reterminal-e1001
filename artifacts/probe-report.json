@@ -177,5 +177,7 @@
     "Power-cycle the device and record whether stored page buffers survive reboot.",
     "Measure full-screen refresh time and note any ghosting or partial-update artifacts.",
     "If OTA is required, test one OTA flash on the same firmware build and record success/failure."
-  ]
+  ],
+  "historical": true,
+  "historical_note": "Older pre-reflash firmware probe; do not treat wraparound/display-immediate invalid-input behavior as the current live contract."
 }

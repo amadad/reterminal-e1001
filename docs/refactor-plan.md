@@ -2,6 +2,8 @@
 
 This is the cleanup plan for bringing the repo back to one truthful architecture.
 
+Current status (2026-04-27): the repo now centers on a 4-slot provider-driven kitchen-display pipeline. Firmware, host docs, and launchd tooling have been updated for clean invalid-slot rejection, LittleFS persistence, mDNS/OTA startup, snapshot-seeded live publishing, and 32MB flash configuration. Remaining closure still requires flashing/probing the current source on the live device and recording that evidence.
+
 ## Phase 0 — freeze and secure
 
 Goal: stop compounding drift while the system is being verified.
@@ -44,7 +46,7 @@ Decision points:
 
 - if firmware supports only 4 reliable slots, host can still render more logical pages but only 4 may be cached at once
 - if firmware supports 7+ reliable slots, a native 7-page carousel is acceptable
-- if page persistence is weak, cached pages are an optimization, not a contract
+- if page persistence is weak, host republish remains the recovery path; current tracked source persists slots to LittleFS when mounted
 
 Exit criteria:
 
@@ -60,18 +62,18 @@ Keep:
 - `firmware/`
 - `python/reterminal/`
 
-Archive or delete after migration:
+Archived/decommissioned after migration:
 
-- `python/reterminal.py`
-- `python/refresh.py`
-- `python/pages/*`
-- stale docs that describe the legacy Python flow as current
+- root-level legacy direct scripts (`python/reterminal.py`, `python/refresh.py`) are gone
+- fixed-page `refresh` / `watch` CLI commands are no longer active
+- `python/reterminal/pages/*` remains only as compatibility code, not as the design center
+- stale docs that describe the legacy Python flow as current should be rewritten or removed
 
 Exit criteria:
 
 - one Python CLI path
-- one page registry
-- no parallel implementations of the same feature
+- provider manifests are the active page ownership model
+- no live production loop uses legacy fixed-page ownership
 
 ## Phase 4 — rebuild the smallest truthful vertical slice
 
@@ -97,6 +99,7 @@ Exit criteria:
 - expose firmware-reported capabilities to the host
 - add smoke tests for probe/encoding flows
 - remove any mention of unsupported page counts or broken wrappers
+- keep `docs/_solutions.md`, `CLAUDE.md`, `AGENTS.md`, README, and the launchd wrapper in sync when slot ownership changes
 
 Exit criteria:
 

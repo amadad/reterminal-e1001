@@ -22,7 +22,7 @@ Truthful SDK for the current firmware contract.
 
 Responsibilities:
 
-- discover capabilities (prefer `/capabilities`, fall back to `/status` + `/page`)
+- discover capabilities from `/capabilities` on the current firmware contract
 - validate slot operations against the live slot count
 - push PIL images safely
 - keep firmware quirks away from the rest of the app
@@ -127,8 +127,11 @@ Current entrypoints:
 - `DisplayPublisher` — single-shot publish (collect → schedule → render → push)
 - `run_live` (in `app/live.py`) — FSEvents-driven loop for `publish --watch`.
   Watches the parent directories of every manifest provider's source file,
-  re-renders on change, in-memory bitmap-compares to skip unchanged pushes,
-  and ticks every 5 minutes as a sanity fallback. No persisted state.
+  seeds startup slot hashes from `/snapshot` when available, refreshes device
+  capabilities on each tick so reboot/storage-loss resets clear the in-memory
+  digest cache, skips unchanged raw bitmaps, commits cache entries only after a
+  successful upload, and ticks every 5 minutes as a sanity fallback. No disk
+  SHA cache is kept.
 
 Pipeline:
 

@@ -14,14 +14,13 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
+from reterminal.providers.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, render_notice, to_1bit
 from reterminal.providers.manifest import register_provider
 from reterminal.scenes import SceneSpec
 
 
-WIDTH, HEIGHT = 800, 480
-HELVETICA = Path("/System/Library/Fonts/Helvetica.ttc")
 DEFAULT_PATH = Path.home() / "madad" / "family" / "events.md"
 
 ISO_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})\s+(.*)$")
@@ -78,13 +77,6 @@ def parse_events(path: Path) -> list[Event]:
     return [e for e in events if e.days_until >= 0]
 
 
-def _font(size: int, weight: str = "regular") -> ImageFont.ImageFont:
-    if not HELVETICA.exists():
-        return ImageFont.load_default()
-    face_index = {"regular": 0, "bold": 1}.get(weight, 0)
-    return ImageFont.truetype(str(HELVETICA), size, index=face_index)
-
-
 def _draw_shape(draw: ImageDraw.ImageDraw, kind: str, cx: int, cy: int, size: int = 16) -> None:
     r = size // 2
     if kind == "circle":
@@ -109,17 +101,18 @@ def _draw_shape(draw: ImageDraw.ImageDraw, kind: str, cx: int, cy: int, size: in
         draw.ellipse([cx - 3, cy - 3, cx + 3, cy + 3], fill=0)
 
 
-def render_events(events: list[Event]) -> Image.Image:
+def render_events(events: list[Event], *, source_path: Path | None = None) -> Image.Image:
     img = Image.new("L", (WIDTH, HEIGHT), color=255)
     draw = ImageDraw.Draw(img)
     margin = 24
 
-    draw.text((margin, margin), "UPCOMING", font=_font(14, "bold"), fill=0)
+    draw.text((margin, margin), "UPCOMING", font=font(14, "bold"), fill=0)
 
     shown = events[:5]
     if not shown:
-        draw.text((margin, HEIGHT // 2), "(no upcoming events)", font=_font(24), fill=0)
-        return img.point(lambda x: 255 if x >= 192 else 0, mode="1")
+        draw.text((margin, HEIGHT // 2), "(no upcoming events)", font=font(24), fill=0)
+        draw_source_stamp(draw, source_path)
+        return to_1bit(img)
 
     row_top = margin + 42
     row_height = (HEIGHT - row_top - margin) // len(shown)
@@ -132,9 +125,9 @@ def render_events(events: list[Event]) -> Image.Image:
     glyph_col_w = 40
     label_col_x = glyph_col_x + glyph_col_w
 
-    big = _font(56, "bold")
-    sm = _font(16)
-    title = _font(28)
+    big = font(56, "bold")
+    sm = font(16)
+    title = font(28)
 
     for i, ev in enumerate(shown):
         y = row_top + i * row_height
@@ -168,7 +161,8 @@ def render_events(events: list[Event]) -> Image.Image:
             rule_y = y + row_height - 2
             draw.line([(margin, rule_y), (WIDTH - margin, rule_y)], fill=0, width=1)
 
-    return img.point(lambda x: 255 if x >= 192 else 0, mode="1")
+    draw_source_stamp(draw, source_path)
+    return to_1bit(img)
 
 
 class EventsProvider:
@@ -179,9 +173,10 @@ class EventsProvider:
 
     def fetch(self) -> list[SceneSpec]:
         if not self.path.exists():
-            return []
-        events = parse_events(self.path)
-        image = render_events(events)
+            image = render_notice("Upcoming", "events source missing", str(self.path))
+        else:
+            events = parse_events(self.path)
+            image = render_events(events, source_path=self.path)
         return [
             SceneSpec(
                 id="events",

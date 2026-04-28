@@ -9,7 +9,7 @@ from loguru import logger
 from tenacity import (
     before_sleep_log,
     retry,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
 )
@@ -26,6 +26,17 @@ from reterminal.payloads import (
 )
 
 
+def _is_retryable_exception(exc: BaseException) -> bool:
+    if isinstance(exc, ConnectionError):
+        return True
+    if isinstance(exc, (requests.Timeout, requests.ConnectionError)):
+        return True
+    if isinstance(exc, requests.HTTPError):
+        response = exc.response
+        return response is None or response.status_code >= 500
+    return isinstance(exc, requests.RequestException)
+
+
 def _get_retry_decorator():
     """Create retry decorator with current settings."""
     return retry(
@@ -34,7 +45,7 @@ def _get_retry_decorator():
             min=settings.retry_min_wait,
             max=settings.retry_max_wait,
         ),
-        retry=retry_if_exception_type((requests.RequestException, ConnectionError)),
+        retry=retry_if_exception(_is_retryable_exception),
         before_sleep=before_sleep_log(logger, "WARNING"),
         reraise=True,
     )

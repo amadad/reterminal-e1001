@@ -9,14 +9,16 @@ The repo now treats the device as a **4-slot monochrome display appliance**:
 
 ## Verified device profile
 
-Live probe results from the current flashed firmware:
+Live probe results from the current flashed firmware confirm:
 
 - **Resolution:** 800x480
 - **Color depth:** 1-bit monochrome
 - **Raw upload size:** 48,000 bytes
 - **Physical page slots:** 4 (`0..3`)
-- **Out-of-range `POST /page`:** wraps modulo 4
-- **Out-of-range `POST /imageraw?page=N`:** displays immediately instead of storing
+
+The tracked firmware rejects out-of-range `POST /page` and `POST /imageraw?page=N` requests with `400 Page out of range`; re-run the destructive probe before replacing the historical probe artifact with fresh live invalid-input evidence.
+
+The checked-in `artifacts/probe-report.json` is historical evidence from the older pre-reflash firmware; it is not the current live contract.
 
 See:
 
@@ -102,7 +104,7 @@ uv run reterminal probe
 Destructive slot verification:
 
 ```bash
-uv run reterminal probe --upload-pages --slots 8 --output ../artifacts/probe-report.json
+uv run reterminal probe --upload-pages --slots 8 --expected-pages 4 --output ../artifacts/probe-report.json
 ```
 
 ### 4. Preview the new scene pipeline
@@ -127,17 +129,17 @@ uv run reterminal publish \
   --live
 ```
 
-To keep a real feed fresh and rotate the visible slot over time:
+To keep the kitchen display fresh in production, use the provider manifest with the FSEvents watcher:
 
 ```bash
 uv run reterminal publish \
-  --feed path/to/live-feed.json \
+  --feed examples/kitchen-display.json \
   --push \
-  --live \
-  --interval 60
+  --watch \
+  --live
 ```
 
-Repeated publish runs now skip unchanged slot uploads within the same device uptime, so a steady feed loop does less unnecessary work. Use `--show-slot <n>` when you want to keep a specific slot visible instead of rotating across assigned slots.
+Repeated publish runs skip unchanged slot uploads and preserve the current visible slot unless `--show-slot` is explicit. Use `--interval` only for demos/debugging; with full-refresh firmware, interval-based visible rotation is unnecessarily flashy for normal kitchen use.
 
 ## Agent-friendly CLI workflow
 
@@ -200,9 +202,7 @@ reterminal snapshot      Read back a stored slot bitmap
 reterminal probe         Probe live device behavior
 reterminal publish       Render/schedule/preview/push scene feeds
 reterminal push          Push ad hoc text/image/QR/pattern
-reterminal clear         Clear one slot or the full volatile cache
-reterminal refresh       Legacy fixed-page refresh flow
-reterminal watch         Legacy fixed-page watch flow
+reterminal clear         Clear one slot or the stored slot cache
 reterminal config        Show current configuration
 reterminal buttons       Read button state
 reterminal page          Get/set the current device slot
@@ -245,13 +245,13 @@ Current live truth includes:
 - `/capabilities`, `/clear`, and `/snapshot`
 - neutral slot names (`slot-0..slot-3`)
 - no firmware overlay chrome on stored pages
-- 4-slot volatile cache that still needs host republish after reboot/reflash
+- LittleFS-backed slot persistence across power cycles on the current flashed build
 
-The checked-in `artifacts/probe-report.json` is historical evidence from the older pre-reflash firmware. Re-run destructive probing on the current live build before treating invalid-input behavior as freshly verified.
+The checked-in `artifacts/probe-report.json` is historical evidence from the older pre-reflash firmware. Re-run destructive probing on the current live build before replacing it with current invalid-input proof.
 
 ## Legacy wrapper
 
-`refresh.sh` now points at the active CLI, but it remains a legacy wrapper for the old fixed-page workflow and now requires `RETERMINAL_HOST` to be set explicitly.
+The old fixed-page `refresh` / `watch` CLI commands are not part of the active interface. `refresh.sh` is kept only as a decommissioning pointer to the provider-driven publish flow.
 
 ## Development
 

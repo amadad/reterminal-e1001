@@ -16,6 +16,7 @@ class StatusPayload(TypedDict, total=False):
     uptime_ms: int
     free_heap: int
     current_page: int
+    current_page_name: str
     page_name: str
 
 
@@ -41,6 +42,19 @@ class CapabilitiesPayload(TypedDict, total=False):
     hostname: str
     build_time: str
     build_sha: str
+    reset_reason: str
+    wifi_connected: bool
+    wifi_status: int
+    wifi_reconnect_attempts: int
+    last_wifi_ok_ms: int
+    last_wifi_lost_ms: int
+    last_wifi_reconnect_ms: int
+    mdns_ready: bool
+    ota_ready: bool
+    free_psram: int
+    min_free_heap: int
+    littlefs_total_bytes: int
+    littlefs_used_bytes: int
     snapshot_readback: bool
     loaded_pages: list[bool]
     slot_names: list[str]

@@ -40,15 +40,15 @@ mkdir -p ../artifacts
 uv run reterminal probe \
   --upload-pages \
   --slots 8 \
-  --expected-pages 7 \
+  --expected-pages 4 \
   --output ../artifacts/probe-report.json
 ```
 
 What this does:
 
 - uploads a known bitmap pattern to requested slots `0..7`
-- checks whether the firmware confirms that each slot was actually stored
-- calls `POST /page` for the same requested slot values
+- checks whether the firmware confirms that each slot was actually stored or cleanly rejects an invalid slot
+- calls `POST /page` for the same requested slot values and records clean `400` rejections instead of aborting
 - infers the contiguous supported slot count starting at slot `0`
 - restores the original current page if possible
 
@@ -80,10 +80,10 @@ After the automated and manual checks, write down these answers:
 
 ## 5. How to interpret results
 
-- If the probe confirms **4 slots**, the current firmware is a 4-slot cache and the host must adapt.
-- If it confirms **7+ slots**, the 7-page carousel is viable on-device.
+- If the probe confirms **4 slots**, the current firmware remains a 4-slot display/cache and the host must adapt.
+- If it ever confirms **7+ slots**, a native larger carousel is viable on-device.
 - If behavior is inconsistent between API and buttons, firmware needs cleanup before host refactor.
-- If reboot clears cached pages, treat caching as ephemeral.
+- If reboot clears cached pages unexpectedly, inspect LittleFS health and keep host republish as the recovery path.
 
 ## 6. Required follow-up
 

@@ -16,6 +16,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 
+import requests
+
 from reterminal.client import ReTerminal
 from reterminal.encoding import create_pattern
 from reterminal.payloads import JSONObject, PageInfoPayload, StatusPayload
@@ -27,8 +29,8 @@ EXPECTED_STATUS_FIELDS = (
     "uptime_ms",
     "free_heap",
     "current_page",
-    "page_name",
 )
+PAGE_NAME_FIELDS = ("current_page_name", "page_name")
 
 VALID_PATTERNS = ("checkerboard", "horizontal", "vertical", "diagonal")
 
@@ -79,7 +81,39 @@ class ProbeReport:
 
 def missing_status_fields(status: StatusPayload) -> list[str]:
     """Return expected status fields missing from the device response."""
-    return [field for field in EXPECTED_STATUS_FIELDS if field not in status]
+    missing = [field for field in EXPECTED_STATUS_FIELDS if field not in status]
+    if not any(field in status for field in PAGE_NAME_FIELDS):
+        missing.append("current_page_name/page_name")
+    return missing
+
+
+def page_name_from_status(status: StatusPayload) -> object:
+    return status.get("current_page_name") or status.get("page_name", "?")
+
+
+def _clean_rejection_payload(exc: requests.HTTPError) -> JSONObject | None:
+    response = exc.response
+    if response is None or response.status_code != 400:
+        return None
+    try:
+        payload = response.json()
+        if not isinstance(payload, dict):
+            payload = {"error": str(payload)}
+    except ValueError:
+        payload = {"error": response.text or "Bad Request"}
+    payload["status_code"] = response.status_code
+    payload["rejected"] = True
+    return payload
+
+
+def _call_probe_step(call) -> JSONObject:
+    try:
+        return call()
+    except requests.HTTPError as exc:
+        payload = _clean_rejection_payload(exc)
+        if payload is None:
+            raise
+        return payload
 
 
 def analyze_slot_result(
@@ -95,6 +129,8 @@ def analyze_slot_result(
     notes: list[str] = []
     if push_stored:
         notes.append("stored")
+    elif push_response.get("rejected"):
+        notes.append("upload rejected cleanly")
     elif push_displayed:
         notes.append("displayed immediately instead of storing")
     else:
@@ -102,6 +138,8 @@ def analyze_slot_result(
 
     if selected_page_matches:
         notes.append("selectable via /page")
+    elif set_response.get("rejected"):
+        notes.append("set_page rejected cleanly")
     else:
         returned = set_response.get("page")
         notes.append(f"set_page returned {returned!r}")
@@ -133,7 +171,7 @@ def infer_contiguous_slot_count(slot_results: list[SlotProbeResult]) -> int:
 def run_probe(
     host: str | None = None,
     *,
-    expected_pages: int = 7,
+    expected_pages: int = 4,
     requested_slots: int = 8,
     pattern: str = "checkerboard",
     upload_pages: bool = False,
@@ -180,8 +218,8 @@ def run_probe(
 
     raw = create_pattern(pattern)
     for slot in range(requested_slots):
-        push_response = client.push_raw(raw, page=slot)
-        set_response = client.set_page(slot)
+        push_response = _call_probe_step(lambda slot=slot: client.push_raw(raw, page=slot))
+        set_response = _call_probe_step(lambda slot=slot: client.set_page(slot))
         report.slot_results.append(analyze_slot_result(slot, push_response, set_response))
 
     report.inferred_slot_count = infer_contiguous_slot_count(report.slot_results)
@@ -215,7 +253,7 @@ def format_report(report: ProbeReport) -> str:
         "",
         "Status endpoint",
         f"  current_page: {report.status.get('current_page', '?')}",
-        f"  page_name: {report.status.get('page_name', '?')}",
+        f"  page_name: {page_name_from_status(report.status)}",
         f"  missing fields: {', '.join(report.status_missing_fields) if report.status_missing_fields else 'none'}",
         "",
         "Page endpoint",

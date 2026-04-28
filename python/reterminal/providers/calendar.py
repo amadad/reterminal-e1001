@@ -24,14 +24,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
+from reterminal.providers.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, render_notice, to_1bit
 from reterminal.providers.manifest import register_provider
 from reterminal.scenes import SceneSpec
 
 
-WIDTH, HEIGHT = 800, 480
-HELVETICA = Path("/System/Library/Fonts/Helvetica.ttc")
 DEFAULT_PATH = Path.home() / "madad" / "family" / "calendar.md"
 
 TIME_RE = re.compile(r"^(\d{1,2}(?::\d{2})?(?:am|pm)?)\s+(.*)$", re.IGNORECASE)
@@ -86,14 +85,7 @@ def parse_calendar(path: Path) -> tuple[list[CalendarItem], list[CalendarItem]]:
     return today, tomorrow
 
 
-def _font(size: int, weight: str = "regular") -> ImageFont.ImageFont:
-    if not HELVETICA.exists():
-        return ImageFont.load_default()
-    face_index = {"regular": 0, "bold": 1}.get(weight, 0)
-    return ImageFont.truetype(str(HELVETICA), size, index=face_index)
-
-
-def _truncate(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, max_w: int) -> str:
+def _truncate(draw: ImageDraw.ImageDraw, text: str, font, max_w: int) -> str:
     label = text
     while draw.textlength(label, font=font) > max_w and len(label) > 4:
         label = label[:-2] + "…"
@@ -110,10 +102,10 @@ def _render_column(
     bottom: int,
     title: str,
 ) -> None:
-    title_f = _font(18, "bold")
-    time_f = _font(20, "bold")
-    label_f = _font(24)
-    who_f = _font(14)
+    title_f = font(18, "bold")
+    time_f = font(20, "bold")
+    label_f = font(24)
+    who_f = font(14)
 
     draw.text((x, y), title, font=title_f, fill=0)
     draw.line([(x, y + 28), (x + width, y + 28)], fill=0, width=1)
@@ -139,13 +131,18 @@ def _render_column(
         cursor += 48
 
 
-def render_calendar(today: list[CalendarItem], tomorrow: list[CalendarItem]) -> Image.Image:
+def render_calendar(
+    today: list[CalendarItem],
+    tomorrow: list[CalendarItem],
+    *,
+    source_path: Path | None = None,
+) -> Image.Image:
     img = Image.new("L", (WIDTH, HEIGHT), color=255)
     draw = ImageDraw.Draw(img)
     margin = 24
     gutter = 28
 
-    draw.text((margin, margin), "AGENDA", font=_font(13, "bold"), fill=0)
+    draw.text((margin, margin), "AGENDA", font=font(13, "bold"), fill=0)
 
     body_top = margin + 30
     body_bottom = HEIGHT - margin
@@ -162,7 +159,8 @@ def render_calendar(today: list[CalendarItem], tomorrow: list[CalendarItem]) -> 
         title="TOMORROW",
     )
 
-    return img.point(lambda x: 255 if x >= 192 else 0, mode="1")
+    draw_source_stamp(draw, source_path)
+    return to_1bit(img)
 
 
 class CalendarProvider:
@@ -173,11 +171,10 @@ class CalendarProvider:
 
     def fetch(self) -> list[SceneSpec]:
         if not self.path.exists():
-            return []
-        today, tomorrow = parse_calendar(self.path)
-        if not today and not tomorrow:
-            return []
-        image = render_calendar(today, tomorrow)
+            image = render_notice("Agenda", "calendar source missing", str(self.path))
+        else:
+            today, tomorrow = parse_calendar(self.path)
+            image = render_calendar(today, tomorrow, source_path=self.path)
         return [
             SceneSpec(
                 id="calendar",

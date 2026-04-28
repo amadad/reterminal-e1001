@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import random
 import sys
-from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import ImageDraw
 
+from _common import HEIGHT, OUT_DIR, font, new_canvas, to_1bit
 from reterminal.render.viz import (
     dots,
     heatmap,
@@ -24,15 +24,7 @@ from reterminal.render.viz import (
     sparkline,
 )
 
-WIDTH, HEIGHT = 800, 480
-OUT = Path("/tmp/reterminal-review/viz-showcase.png")
-HELVETICA = Path("/System/Library/Fonts/Helvetica.ttc")
-
-
-def font(size: int, weight: str = "regular") -> ImageFont.FreeTypeFont:
-    if not HELVETICA.exists():
-        return ImageFont.load_default()
-    return ImageFont.truetype(str(HELVETICA), size, index={"regular": 0, "bold": 1}[weight])
+OUT = OUT_DIR / "viz-showcase.png"
 
 
 def label(draw: ImageDraw.ImageDraw, text: str, x: int, y: int) -> None:
@@ -41,8 +33,7 @@ def label(draw: ImageDraw.ImageDraw, text: str, x: int, y: int) -> None:
 
 def main() -> int:
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    img = Image.new("L", (WIDTH, HEIGHT), color=255)
-    draw = ImageDraw.Draw(img)
+    img, draw = new_canvas()
 
     draw.text((24, 18), "VIZ RUBRIC", font=font(14, "bold"), fill=0)
     draw.text((24, 34), "reterminal.render.viz primitives, rendered on-panel", font=font(12), fill=0)
@@ -105,7 +96,7 @@ def main() -> int:
         fill=0,
     )
 
-    final = img.point(lambda x: 255 if x >= 192 else 0, mode="1")
+    final = to_1bit(img)
     final.save(OUT)
     print(f"Wrote {OUT}")
     return 0

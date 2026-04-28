@@ -13,7 +13,7 @@ from reterminal.config import HEIGHT, IMAGE_BYTES, WIDTH
 from reterminal.device.capabilities import DeviceCapabilities
 from reterminal.encoding import pil_to_raw
 from reterminal.exceptions import PageError
-from reterminal.payloads import CapabilitiesPayload, ClearResultPayload, JSONObject, PushResultPayload
+from reterminal.payloads import ClearResultPayload, JSONObject, PushResultPayload
 
 
 @dataclass(slots=True)
@@ -50,58 +50,44 @@ class ReTerminalDevice:
         self._last_seen_uptime_ms: int | None = None
         self._slot_hashes: dict[int, str] = {}
 
-    def _read_firmware_capabilities(self) -> CapabilitiesPayload | None:
-        try:
-            return self.client.capabilities()
-        except requests.HTTPError as exc:
-            response = exc.response
-            if response is not None and response.status_code in {404, 405, 501}:
-                return None
-            raise
-        except RuntimeError as exc:
-            if str(exc).strip() == "/capabilities unavailable":
-                return None
-            raise
-
     def discover_capabilities(self, refresh: bool = False) -> DeviceCapabilities:
         if self._capabilities is not None and not refresh:
             return self._capabilities
 
-        firmware_caps = self._read_firmware_capabilities()
-        if firmware_caps is None:
-            status = self.client.status()
-            page = self.client.get_page()
-            uptime_ms = status.get("uptime_ms")
-            self._capabilities = DeviceCapabilities(
-                host=self.client.host,
-                page_slots=int(page.get("total", 4)),
-                current_page=page.get("page"),
-                current_page_name=page.get("name") or status.get("page_name"),
-                ssid=status.get("ssid"),
-                rssi=status.get("rssi"),
-                uptime_ms=uptime_ms,
-            )
-        else:
-            uptime_ms = firmware_caps.get("uptime_ms")
-            self._capabilities = DeviceCapabilities(
-                host=self.client.host,
-                width=int(firmware_caps.get("width", WIDTH)),
-                height=int(firmware_caps.get("height", HEIGHT)),
-                image_bytes=int(firmware_caps.get("image_bytes", IMAGE_BYTES)),
-                page_slots=int(firmware_caps.get("page_slots", 4)),
-                current_page=firmware_caps.get("current_page"),
-                current_page_name=firmware_caps.get("current_page_name") or firmware_caps.get("page_name"),
-                ssid=firmware_caps.get("ssid"),
-                rssi=firmware_caps.get("rssi"),
-                uptime_ms=uptime_ms,
-                firmware_version=firmware_caps.get("firmware_version"),
-                hostname=firmware_caps.get("hostname"),
-                build_time=firmware_caps.get("build_time"),
-                build_sha=firmware_caps.get("build_sha"),
-                snapshot_readback=firmware_caps.get("snapshot_readback"),
-                loaded_pages=[bool(value) for value in firmware_caps.get("loaded_pages", [])],
-                slot_names=[str(value) for value in firmware_caps.get("slot_names", [])],
-            )
+        firmware_caps = self.client.capabilities()
+        uptime_ms = firmware_caps.get("uptime_ms")
+        self._capabilities = DeviceCapabilities(
+            host=self.client.host,
+            width=int(firmware_caps.get("width", WIDTH)),
+            height=int(firmware_caps.get("height", HEIGHT)),
+            image_bytes=int(firmware_caps.get("image_bytes", IMAGE_BYTES)),
+            page_slots=int(firmware_caps.get("page_slots", 4)),
+            current_page=firmware_caps.get("current_page"),
+            current_page_name=firmware_caps.get("current_page_name"),
+            ssid=firmware_caps.get("ssid"),
+            rssi=firmware_caps.get("rssi"),
+            uptime_ms=uptime_ms,
+            firmware_version=firmware_caps.get("firmware_version"),
+            hostname=firmware_caps.get("hostname"),
+            build_time=firmware_caps.get("build_time"),
+            build_sha=firmware_caps.get("build_sha"),
+            reset_reason=firmware_caps.get("reset_reason"),
+            wifi_connected=firmware_caps.get("wifi_connected"),
+            wifi_status=firmware_caps.get("wifi_status"),
+            wifi_reconnect_attempts=firmware_caps.get("wifi_reconnect_attempts"),
+            last_wifi_ok_ms=firmware_caps.get("last_wifi_ok_ms"),
+            last_wifi_lost_ms=firmware_caps.get("last_wifi_lost_ms"),
+            last_wifi_reconnect_ms=firmware_caps.get("last_wifi_reconnect_ms"),
+            mdns_ready=firmware_caps.get("mdns_ready"),
+            ota_ready=firmware_caps.get("ota_ready"),
+            free_psram=firmware_caps.get("free_psram"),
+            min_free_heap=firmware_caps.get("min_free_heap"),
+            littlefs_total_bytes=firmware_caps.get("littlefs_total_bytes"),
+            littlefs_used_bytes=firmware_caps.get("littlefs_used_bytes"),
+            snapshot_readback=firmware_caps.get("snapshot_readback"),
+            loaded_pages=[bool(value) for value in firmware_caps.get("loaded_pages", [])],
+            slot_names=[str(value) for value in firmware_caps.get("slot_names", [])],
+        )
         if (
             isinstance(self._last_seen_uptime_ms, int)
             and isinstance(uptime_ms, int)

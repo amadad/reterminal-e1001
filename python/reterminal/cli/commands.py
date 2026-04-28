@@ -264,6 +264,7 @@ def push(
     qr: Optional[str] = typer.Option(None, "--qr", "-q", help="Generate QR code from text/URL"),
     pattern: Optional[str] = typer.Option(None, "--pattern", "-p", help="Test pattern"),
     page_num: Optional[int] = PageOption,
+    transient: bool = typer.Option(False, "--transient", help="Display directly without storing in a slot"),
     font_size: int = typer.Option(48, "--font-size", "-s", help="Font size for text"),
     invert: bool = typer.Option(False, "--invert", help="Invert colors"),
     preview: Optional[Path] = typer.Option(None, "--preview", help="Save preview PNG instead of pushing"),
@@ -276,8 +277,14 @@ def push(
         typer.echo("Error: Specify --text, --image, --qr, or --pattern")
         raise typer.Exit(1)
 
+    if transient and page_num is not None:
+        typer.echo("Error: --transient cannot be combined with --page")
+        raise typer.Exit(1)
     if preview is None:
         require_live_action("push", live=live, non_interactive=non_interactive)
+        if page_num is None and not transient:
+            typer.echo("Error: live push requires --page. Use --transient for direct display-only pushes.")
+            raise typer.Exit(1)
 
     from PIL import Image, ImageDraw
 
@@ -351,6 +358,7 @@ def push(
                 "mode": "preview",
                 "content_type": content_type,
                 "page": page_num,
+                "transient": transient,
                 "preview_path": str(preview),
             }
             if not emit_output(payload, output):
@@ -363,6 +371,7 @@ def push(
                 "content_type": content_type,
                 "host": client.host,
                 "page": page_num,
+                "transient": transient,
                 "result": result,
             }
             if not emit_output(payload, output):
@@ -529,7 +538,7 @@ def probe(
     ),
     slots: int = typer.Option(8, "--slots", min=1, help="How many page slots to probe"),
     expected_pages: int = typer.Option(
-        7,
+        4,
         "--expected-pages",
         min=1,
         help="Expected host-side page count to compare against",
@@ -656,7 +665,7 @@ def publish(
     push: bool = typer.Option(False, "--push", help="Push rendered scenes to the device"),
     include_system: bool = typer.Option(True, "--include-system/--no-include-system", help="Include a built-in ambient system scene"),
     slot_count: Optional[int] = typer.Option(None, "--slots", min=1, help="Override physical slot count"),
-    show_slot: Optional[int] = typer.Option(None, "--show-slot", min=0, help="Select which slot is visible after a push"),
+    show_slot: Optional[int] = typer.Option(None, "--show-slot", min=0, help="Select a visible slot after pushing; omitted preserves the current visible slot"),
     interval: Optional[int] = typer.Option(None, "--interval", min=1, help="Repeat publish every N seconds"),
     watch: bool = typer.Option(False, "--watch", help="FSEvents-driven loop (requires --feed pointing at a manifest); replaces --interval"),
     live: bool = typer.Option(False, "--live", help="Confirm a live device mutation"),
@@ -690,6 +699,9 @@ def publish(
 
     if not providers:
         typer.echo("Error: provide --feed, --paperclip-url, or enable --include-system")
+        raise typer.Exit(1)
+    if watch and show_slot is not None:
+        typer.echo("Error: --show-slot is not supported with --watch; watch preserves the current visible slot")
         raise typer.Exit(1)
     if show_slot is not None and not push:
         typer.echo("Error: --show-slot requires --push")

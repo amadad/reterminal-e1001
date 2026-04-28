@@ -14,10 +14,11 @@ The live device currently behaves as:
 - 800x480 monochrome
 - 48,000-byte raw upload payloads
 - 4 physical slots
-- invalid `page` requests wrap modulo 4
-- invalid `imageraw?page=N` uploads display immediately instead of storing
+- current tracked firmware rejects invalid `page` requests with `400 Page out of range`
+- current tracked firmware rejects invalid `imageraw?page=N` uploads with `400 Page out of range`
+- current flashed firmware persists loaded slots in LittleFS across normal power cycles
 
-Use `reterminal probe` and `reterminal capabilities` before assuming anything else. On newer firmware builds, `reterminal capabilities` reads the firmware-reported contract from `/capabilities`, `reterminal snapshot` can read back the exact stored slot bitmap, and `reterminal clear --all` can blank the volatile cache for ghosting/recovery workflows.
+Use `reterminal probe` and `reterminal capabilities` before assuming anything else. On newer firmware builds, `reterminal capabilities` reads the firmware-reported contract from `/capabilities`, `reterminal snapshot` can read back the exact stored slot bitmap, and `reterminal clear --all` can blank the stored slot cache for ghosting/recovery workflows.
 
 ## Install
 
@@ -46,7 +47,7 @@ uv run reterminal clear --all
 uv run reterminal probe
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews --push --live
-uv run reterminal publish --feed path/to/live-feed.json --push --live --interval 60
+uv run reterminal publish --feed examples/kitchen-display.json --push --watch --live
 ```
 
 The CLI no longer falls back to a baked-in host IP. Set `RETERMINAL_HOST` or pass `--host` explicitly after discovery. Use `reterminal discover` and `reterminal doctor` when DHCP or network behavior is unclear; earlier `.76/.77/.78` guesses are not stable identity.
@@ -77,7 +78,7 @@ The feed file at `examples/agent-feed.json` demonstrates the new format and is i
 - `bulletin`
 - `poster`
 
-These are logical scenes. The scheduler maps them into the 4 physical slots the firmware actually supports. Use a real feed or provider when you want the device to keep changing over time. Repeated publish loops skip unchanged slot uploads within the same device uptime for better throughput, and `--show-slot <n>` lets you pin the visible slot after each push. `poster` scenes can now render either a source image (`image_path`) or deterministic generated bitmap art via `meta.bitmap`.
+These are logical scenes. The scheduler maps them into the 4 physical slots the firmware actually supports. Use a real feed or provider when you want the device to keep changing over time. Repeated publish loops skip unchanged slot uploads for better throughput; by default, pushes preserve the current visible slot, and `--show-slot <n>` explicitly selects a visible slot after pushing. Use interval publishing for demos/debugging only; production should use `--watch` so visible full-refreshes happen only when content actually changes. `poster` scenes can now render either a source image (`image_path`) or deterministic generated bitmap art via `meta.bitmap`.
 
 Current providers include:
 
@@ -92,10 +93,8 @@ For the measured typography/layout approach behind these scenes, see `../docs/la
 The following are still present but are no longer the architectural center:
 
 - `reterminal/pages/*`
-- `reterminal refresh`
-- `reterminal watch`
 
-The old direct-script entrypoints (`python/reterminal.py`, `python/refresh.py`, and `python/pages/*`) have been removed so the repo only documents the package CLI and in-package legacy pages. Legacy fixed pages are still guarded against pushing to slots beyond the live device capacity.
+The old direct-script entrypoints (`python/reterminal.py`, `python/refresh.py`, and `python/pages/*`) plus the old fixed-page `refresh` / `watch` CLI commands are not part of the active interface. Use provider manifests and `reterminal publish` for new work.
 
 ## Tests
 

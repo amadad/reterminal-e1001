@@ -6,6 +6,7 @@ import json
 from collections.abc import Mapping
 from pathlib import Path
 
+from reterminal.payloads import JSONValue
 from reterminal.scenes import SceneSpec
 
 
@@ -36,12 +37,12 @@ class FileSceneProvider:
         if not self.path.exists():
             raise FileNotFoundError(f"Feed file not found: {self.path}")
 
-        data = json.loads(self.path.read_text())
+        data: JSONValue = json.loads(self.path.read_text())
         scenes_data = self._extract_scenes(data)
         return [SceneSpec.from_dict(item, base_dir=self.path.parent) for item in scenes_data]
 
     @staticmethod
-    def _extract_scenes(data: object) -> list[Mapping[str, object]]:
+    def _extract_scenes(data: JSONValue) -> list[Mapping[str, JSONValue]]:
         if isinstance(data, Mapping):
             scenes = data.get("scenes")
             if isinstance(scenes, list):

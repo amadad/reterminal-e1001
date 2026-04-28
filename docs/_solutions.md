@@ -2,6 +2,34 @@
 
 Newest first. Keep entries short, dated, and evidence-oriented.
 
+## 2026-04-28 — Publish defaults now avoid gratuitous visible refreshes
+
+- **Symptoms:** `publish --push` selected slot 0 after every single-shot publish, even when uploads were unchanged or only hidden slots changed. Because `/page` performs a full refresh, this could flash the visible panel for no content change.
+- **Root cause:** publishing conflated cache mutation with visible-page selection. The efficient path is staging hidden slots unless the caller explicitly asks to change what is on screen.
+- **Fix:** `DisplayPublisher.publish()` now preserves the current visible slot by default and only calls `show_slot()` when `--show-slot` is provided. The live watcher also refreshes device capabilities every tick and clears/reseeds its digest cache if device uptime resets.
+- **Evidence:** `uv run --extra dev pytest -q` passes (`72 passed`), ruff passes, preview scripts render, and `platformio run` succeeds for both firmware environments.
+
+## 2026-04-27 — Review-task sweep made the live pipeline retry-safe and DHCP-safe
+
+- **Symptoms:** review found several operational footguns: launchd pinned one DHCP lease, the live loop could mark a bitmap digest current before upload success, watcher restarts repushed already-cached slots, and interval examples encouraged unnecessary visible full refreshes.
+- **Root cause(s):** production ownership had moved from bash polling to `publish --watch`, but docs and launchd still carried assumptions from the earlier loop. The in-memory cache represented "rendered" rather than "confirmed on device."
+- **Fix:** add `scripts/reterminal-publish-watch.sh` discovery wrapper; make `run_live` seed slot hashes from `/snapshot` and mark cache entries only after successful `push_pil`; decommission legacy `refresh` / `watch` docs; update production docs to prefer `--watch` over `--interval`.
+- **Evidence:** `uv run --extra dev pytest -q` passes (`68 passed`), ruff passes, `plutil -lint scripts/sh.reterminal.publish.plist` passes, and `bash -n scripts/reterminal-publish-watch.sh refresh.sh` passes. Live device restart/soak still needs verification after deployment.
+
+## 2026-04-27 — Firmware source now rejects duplicate uploads cheaply and reports health
+
+- **Symptoms:** host-side hashing avoids many redundant uploads, but dumb clients could still rewrite LittleFS and full-refresh the visible slot with byte-identical payloads; diagnosing Wi-Fi/storage/display state still required serial logs.
+- **Root cause(s):** `/imageraw` always copied and persisted target-slot payloads before checking equality, and `/capabilities` exposed the display contract but not enough operational health.
+- **Fix:** firmware no-ops unchanged stored uploads with `{skipped:true}`; adds reset reason, Wi-Fi reconnect counters, mDNS/OTA readiness, PSRAM, and LittleFS usage fields; starts mDNS and OTA on reconnect; stops auto-formatting LittleFS on ordinary mount failure; adds 32MB board/partition config.
+- **Evidence:** `platformio run` succeeds for both `reterminal` and `ota`; build output now identifies `reTerminal E1001 ESP32S3 (32MB flash)`. Live flash/probe not run in this pass.
+
+## 2026-04-27 — Kitchen provider previews now share production renderers
+
+- **Symptoms:** preview scripts duplicated the provider parsing/rendering code, so previews could drift from what `publish --watch` actually pushed. Empty/missing markdown sources could also leave stale live slot content.
+- **Root cause:** preview scripts predated provider-native prerendered scenes, and missing markdown returned no scene instead of an explicit visible state.
+- **Fix:** preview scripts now call the production providers; providers share cached kitchen font helpers, render source-mtime stamps, and render explicit missing/empty states instead of silently preserving stale content.
+- **Evidence:** `uv run python examples/preview_missions.py` and `uv run python examples/preview_family.py` wrote `/tmp/reterminal-review/slot-*.png`; provider tests pass in the 68-test suite.
+
 ## 2026-04-27 — Device froze after 24-48h of operational use; required power cycle
 
 - **Symptoms:** kitchen display became unreachable on `/status` after 1-2 days of continuous operation. Power cycle restored normal operation. Pattern repeated.

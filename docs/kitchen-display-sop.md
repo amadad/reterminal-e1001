@@ -28,10 +28,12 @@ Production refresh is owned by:
 uv run reterminal publish --feed examples/kitchen-display.json --push --watch --live
 ```
 
-This is launchd-supervised via `scripts/sh.reterminal.publish.plist`. It
-watches the four markdown files via FSEvents and re-renders + pushes only
-the slots whose bitmap actually changed. No bash orchestrator, no SHA cache
-on disk, no tmux session.
+This is launchd-supervised via `scripts/sh.reterminal.publish.plist`, which
+runs `scripts/reterminal-publish-watch.sh`. The wrapper discovers the current
+DHCP-assigned host unless `RETERMINAL_HOST` is explicitly set. The loop watches
+the four markdown files via FSEvents and re-renders + pushes only the slots
+whose bitmap actually changed. It preserves the current visible slot unless an
+operator explicitly selects one. No legacy bash orchestrator, no tmux session.
 
 If you change slot ownership, update all of these in the same change:
 
@@ -41,14 +43,12 @@ If you change slot ownership, update all of these in the same change:
 4. `~/madad/family/CONVENTIONS.md` if the file/section format changes
 5. a verification note with readback hashes from the device
 
-## Legacy fallback (until decommissioned)
+## Legacy fallback
 
-`~/oc-min/scripts/reterminal-{live,refresh}.sh` and
-`generate_reterminal_feed.py` remain in oc-min as a fallback path, scheduled
-for removal once the new pipeline has soaked for ~1 week (task #11). If the
-new pipeline misbehaves, you can still run `~/oc-min/scripts/reterminal-refresh.sh`
-once for a single deterministic push — but do not restart the bash loop.
-The new pipeline is the only thing that should drive the device long-term.
+The old fixed-page CLI `refresh` / `watch` commands are not live. If the new
+pipeline misbehaves, prefer fixing or restarting the launchd watcher. Any
+external fallback should be a one-shot deterministic push only — do not restart
+a polling loop that can overwrite the designed slot ownership.
 
 ## Recovery checklist
 

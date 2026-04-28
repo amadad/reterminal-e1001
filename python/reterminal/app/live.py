@@ -33,6 +33,8 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from reterminal.app.publisher import DisplayPublisher
+from reterminal.encoding import pil_to_raw
+from reterminal.device.capabilities import DeviceCapabilities
 from reterminal.protocols import DisplayDevice
 from reterminal.providers import SceneProvider, build_providers, load_manifest
 from reterminal.providers.manifest import FeedManifest
@@ -45,15 +47,27 @@ SANITY_TICK_SECONDS = 300
 
 @dataclass(slots=True)
 class _BitmapCache:
-    """In-memory record of the last bitmap pushed to each slot."""
+    """In-memory record of the last bitmap known to be on each slot."""
 
     digests: dict[int, str] = field(default_factory=dict)
+    device_uptime_ms: int | None = None
 
-    def changed(self, slot: int, image: Image.Image) -> bool:
-        digest = hashlib.sha256(image.tobytes()).hexdigest()
-        previous = self.digests.get(slot)
+    @staticmethod
+    def image_digest(image: Image.Image) -> str:
+        return hashlib.sha256(pil_to_raw(image)).hexdigest()
+
+    @staticmethod
+    def raw_digest(raw: bytes) -> str:
+        return hashlib.sha256(raw).hexdigest()
+
+    def changed(self, slot: int, digest: str) -> bool:
+        return self.digests.get(slot) != digest
+
+    def mark_current(self, slot: int, digest: str) -> None:
         self.digests[slot] = digest
-        return digest != previous
+
+    def seed_raw(self, slot: int, raw: bytes) -> None:
+        self.mark_current(slot, self.raw_digest(raw))
 
 
 def _provider_paths(manifest: FeedManifest) -> list[Path]:
@@ -121,6 +135,73 @@ class _PathHandler(FileSystemEventHandler):
                 return
 
 
+def _seed_cache_from_device(
+    device: DisplayDevice,
+    cache: _BitmapCache,
+    *,
+    caps: DeviceCapabilities | None = None,
+) -> int:
+    """Seed slot digests from firmware snapshot readback when available."""
+    snapshot = getattr(device, "snapshot", None)
+    if snapshot is None:
+        return 0
+
+    if caps is None:
+        try:
+            caps = device.discover_capabilities(refresh=True)
+        except Exception:
+            logger.debug("live: could not refresh capabilities before snapshot seeding", exc_info=True)
+            return 0
+
+    if caps.loaded_pages:
+        slots = [slot for slot, loaded in enumerate(caps.loaded_pages[: caps.page_slots]) if loaded]
+    else:
+        slots = list(range(caps.page_slots))
+
+    seeded = 0
+    for slot in slots:
+        try:
+            slot_snapshot = snapshot(slot)
+        except Exception:
+            logger.debug(f"live: could not seed slot {slot} from snapshot", exc_info=True)
+            continue
+        cache.seed_raw(slot, slot_snapshot.raw)
+        seeded += 1
+    return seeded
+
+
+def _sync_cache_with_device(
+    device: DisplayDevice,
+    cache: _BitmapCache,
+    *,
+    seed_snapshots: bool = False,
+) -> int:
+    """Refresh device state and invalidate digest cache after a reboot."""
+    try:
+        caps = device.prepare_push_cycle()
+    except Exception:
+        logger.debug("live: could not refresh device state before publish", exc_info=True)
+        return 0
+
+    uptime_ms = caps.uptime_ms
+    rebooted = (
+        isinstance(cache.device_uptime_ms, int)
+        and isinstance(uptime_ms, int)
+        and uptime_ms < cache.device_uptime_ms
+    )
+    if rebooted:
+        cache.digests.clear()
+        seed_snapshots = True
+        logger.info("live: device uptime reset; cleared slot digest cache")
+
+    if isinstance(uptime_ms, int):
+        cache.device_uptime_ms = uptime_ms
+
+    if seed_snapshots:
+        return _seed_cache_from_device(device, cache, caps=caps)
+    return 0
+
+
 def _publish_once(
     publisher: DisplayPublisher,
     cache: _BitmapCache,
@@ -131,6 +212,9 @@ def _publish_once(
 
     Returns the number of slots actually pushed.
     """
+    if push and publisher.device is not None:
+        _sync_cache_with_device(publisher.device, cache)
+
     scenes = publisher._collect_scenes()
     if not scenes:
         return 0
@@ -141,11 +225,15 @@ def _publish_once(
         image = publisher.renderer.render(
             assignment.scene, slot=slot, total_slots=slot_count
         )
-        if not cache.changed(slot, image):
+        digest = cache.image_digest(image)
+        if not cache.changed(slot, digest):
             continue
         if push and publisher.device is not None:
             publisher.device.push_pil(image, slot)
+            cache.mark_current(slot, digest)
             pushed += 1
+        elif not push:
+            cache.mark_current(slot, digest)
     return pushed
 
 
@@ -179,7 +267,9 @@ def run_live(
     )
     cache = _BitmapCache()
     if push and device is not None:
-        device.prepare_push_cycle()
+        seeded = _sync_cache_with_device(device, cache, seed_snapshots=True)
+        if seeded:
+            logger.info(f"live: seeded {seeded} slot digest(s) from device snapshots")
 
     def tick() -> None:
         pushed = _publish_once(publisher, cache, push=push)

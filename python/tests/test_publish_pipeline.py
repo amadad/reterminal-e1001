@@ -75,11 +75,11 @@ def test_publisher_renders_preview_and_pushes_to_slots(tmp_path: Path):
 
     assert result.slot_count == 4
     assert result.assignments[0].scene.id == "hero"
-    assert result.shown_slot == 0
+    assert result.shown_slot is None
     assert result.push_results == {0: {"success": True, "page": 0}}
     assert device.prepare_calls == 1
     assert device.pushed == [(0, (800, 480), "1")]
-    assert device.shown == [0]
+    assert device.shown == []
     assert (preview_dir / "slot-0-hero.png").exists()
 
 

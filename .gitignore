@@ -20,6 +20,9 @@ build/
 .venv/
 venv/
 
+# Agent scratch/worktrees
+.claude/worktrees/
+
 # IDE
 .idea/
 *.swp

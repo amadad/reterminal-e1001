@@ -32,7 +32,7 @@ Do not center new work around the legacy fixed-page system unless explicitly ask
 - Live firmware now exposes `/capabilities`, `/clear`, and `/snapshot`
 - Live slot names are neutral: `slot-0..slot-3`
 - `snapshot_readback` is live and can return the exact stored raw bitmap for a loaded slot
-- reboot/reflash can still leave cached pages effectively empty until the host republishes
+- loaded slots persist to LittleFS across normal reboot/power cycle; host republish is still the recovery path after reflash, empty storage, or filesystem failure
 - on `kunst`, curl-based transport remains more reliable than Python `requests` for live device mutations
 
 The checked-in `artifacts/probe-report.json` describes the older pre-reflash firmware. Do not assume its old invalid-input wraparound behavior is still the current live contract until the reflashed device is probed again.
@@ -68,18 +68,12 @@ uv run reterminal clear --all
 uv run reterminal probe
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews --push --live
-uv run reterminal publish --feed path/to/live-feed.json --push --live --interval 60
+uv run reterminal publish --feed examples/kitchen-display.json --push --watch --live
 ```
 
-## Legacy commands
+## Decommissioned legacy commands
 
-These still exist but are not the preferred architecture:
-
-```bash
-uv run reterminal refresh market
-uv run reterminal watch clock -i 60
-./refresh.sh market
-```
+The old fixed-page `refresh` / `watch` CLI commands are no longer part of the active interface. Use `reterminal publish` with provider manifests instead. `refresh.sh` is retained only as a decommissioning pointer.
 
 ## Design direction
 
@@ -94,7 +88,7 @@ Avoid baking external integrations directly into firmware or into slot-specific 
 
 ## Safety rule
 
-Preview first. Live device mutations should require explicit `--live` approval and should refuse `--non-interactive` mutation attempts.
+Preview first. Live device mutations should require explicit `--live` approval and should refuse `--non-interactive` mutation attempts. `publish --push` stages changed slots without changing the visible page unless `--show-slot` is explicit.
 
 ## When adding features
 

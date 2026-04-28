@@ -19,27 +19,17 @@ from reterminal.exceptions import ImageError
 
 
 def pil_to_raw(img: Image.Image) -> bytes:
+    """Convert PIL image to raw 1-bit bitmap for the ePaper panel.
+
+    GxEPD2 draws 1-bits as BLACK pixels, so we set bit=1 for dark pixels and
+    pack MSB-first per byte.
     """
-    Convert PIL Image to raw 1-bit bitmap for ePaper display.
-
-    Args:
-        img: PIL Image (will be converted to 1-bit if needed)
-
-    Returns:
-        Raw bitmap data (48000 bytes)
-
-    Note:
-        GxEPD2 draws 1-bits as BLACK. This function sets bit=1 for dark pixels.
-    """
-    # Ensure correct dimensions
     if img.size != (WIDTH, HEIGHT):
         img = img.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
 
-    # Convert to 1-bit if needed
     if img.mode != "1":
         img = img.convert("L").convert("1", dither=Image.Dither.FLOYDSTEINBERG)
 
-    # Convert to raw bytes (MSB first)
     raw = bytearray(IMAGE_BYTES)
     pixels = img.load()
 
@@ -47,7 +37,6 @@ def pil_to_raw(img: Image.Image) -> bytes:
         for x in range(WIDTH):
             byte_idx = (y * WIDTH + x) // 8
             bit_idx = 7 - (x % 8)
-            # Black pixel (0 in PIL mode="1") = set bit to 1
             if not pixels[x, y]:
                 raw[byte_idx] |= (1 << bit_idx)
 
@@ -77,17 +66,7 @@ def image_to_raw(
     invert: bool = False,
     dither: bool = True,
 ) -> bytes:
-    """
-    Load image file and convert to raw 1-bit bitmap.
-
-    Args:
-        image_path: Path to image file (PNG, JPG, etc.)
-        invert: Invert black/white
-        dither: Use Floyd-Steinberg dithering (default True)
-
-    Returns:
-        Raw bitmap data (48000 bytes)
-    """
+    """Load an image file and convert to raw 1-bit bitmap."""
     path = Path(image_path)
     if not path.exists():
         raise ImageError(f"Image file not found: {path}")
@@ -97,19 +76,13 @@ def image_to_raw(
     except OSError as exc:
         raise ImageError(f"Failed to open image: {exc}") from exc
 
-    # Resize to display dimensions
-    img = img.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
+    img = img.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS).convert("L")
 
-    # Convert to grayscale
-    img = img.convert("L")
-
-    # Apply dithering or threshold
     if dither:
         img = img.convert("1", dither=Image.Dither.FLOYDSTEINBERG)
     else:
         img = img.point(lambda x: 255 if x > 127 else 0, mode="1")
 
-    # Invert if requested
     if invert:
         img = Image.eval(img, lambda x: 255 - x)
 

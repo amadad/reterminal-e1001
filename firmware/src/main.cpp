@@ -10,7 +10,7 @@
  *   GET/POST /page      - Get/set current page
  *   GET  /snapshot      - Read back a stored raw bitmap (800x480, 48000 bytes)
  *   POST /imageraw      - Upload raw 1-bit image (800x480, 48000 bytes)
- *   POST /clear         - Clear one slot or the full volatile cache
+ *   POST /clear         - Clear one slot or the stored slot cache
  */
 
 #include <Arduino.h>
@@ -18,9 +18,11 @@
 #include <WebServer.h>
 #include <ArduinoOTA.h>
 #include <ArduinoJson.h>
+#include <ESPmDNS.h>
 #include <GxEPD2_BW.h>
 #include <Fonts/FreeMonoBold18pt7b.h>
 #include <LittleFS.h>
+#include <esp_system.h>
 #include <stdlib.h>
 
 #ifndef RETERMINAL_WIFI_SSID
@@ -97,6 +99,11 @@ const unsigned long DEBOUNCE_MS = 50;
 // off-network until power-cycled.
 unsigned long lastWifiOkMs = 0;
 unsigned long lastWifiRetryMs = 0;
+unsigned long lastWifiLostMs = 0;
+unsigned long wifiReconnectAttempts = 0;
+unsigned long lastWifiReconnectMs = 0;
+bool mdnsReady = false;
+bool otaReady = false;
 const unsigned long WIFI_GRACE_MS = 30000;
 const unsigned long WIFI_RETRY_INTERVAL_MS = 30000;
 
@@ -293,6 +300,22 @@ void clearStoredPage(int page) {
   removeSlotFromFlash(page);
 }
 
+const char* resetReasonName(esp_reset_reason_t reason) {
+  switch (reason) {
+    case ESP_RST_POWERON: return "poweron";
+    case ESP_RST_EXT: return "external";
+    case ESP_RST_SW: return "software";
+    case ESP_RST_PANIC: return "panic";
+    case ESP_RST_INT_WDT: return "interrupt_watchdog";
+    case ESP_RST_TASK_WDT: return "task_watchdog";
+    case ESP_RST_WDT: return "watchdog";
+    case ESP_RST_DEEPSLEEP: return "deepsleep";
+    case ESP_RST_BROWNOUT: return "brownout";
+    case ESP_RST_SDIO: return "sdio";
+    default: return "unknown";
+  }
+}
+
 void appendCapabilityFields(JsonDocument& doc) {
   doc["hostname"] = HOSTNAME;
   doc["firmware_version"] = FIRMWARE_VERSION;
@@ -307,6 +330,21 @@ void appendCapabilityFields(JsonDocument& doc) {
   doc["current_page"] = currentPage;
   doc["current_page_name"] = PAGE_NAMES[currentPage];
   doc["current_page_loaded"] = pageLoaded[currentPage];
+  doc["reset_reason"] = resetReasonName(esp_reset_reason());
+  doc["wifi_connected"] = WiFi.status() == WL_CONNECTED;
+  doc["wifi_status"] = WiFi.status();
+  doc["wifi_reconnect_attempts"] = wifiReconnectAttempts;
+  doc["last_wifi_ok_ms"] = lastWifiOkMs;
+  doc["last_wifi_lost_ms"] = lastWifiLostMs;
+  doc["last_wifi_reconnect_ms"] = lastWifiReconnectMs;
+  doc["mdns_ready"] = mdnsReady;
+  doc["ota_ready"] = otaReady;
+  doc["free_psram"] = ESP.getFreePsram();
+  doc["min_free_heap"] = ESP.getMinFreeHeap();
+  if (fsReady) {
+    doc["littlefs_total_bytes"] = LittleFS.totalBytes();
+    doc["littlefs_used_bytes"] = LittleFS.usedBytes();
+  }
 
   JsonArray loadedPages = doc["loaded_pages"].to<JsonArray>();
   JsonArray slotNames = doc["slot_names"].to<JsonArray>();
@@ -547,6 +585,15 @@ void handleImageRaw() {
       return;
     }
 
+    bool unchanged = pageLoaded[uploadTargetPage]
+      && memcmp(pageStorage[uploadTargetPage], imageBuffer, IMAGE_BYTES) == 0;
+    if (unchanged) {
+      server.send(200, "application/json",
+        "{\"success\": true, \"page\": " + String(uploadTargetPage) + ", \"skipped\": true}");
+      resetUploadState();
+      return;
+    }
+
     memcpy(pageStorage[uploadTargetPage], imageBuffer, IMAGE_BYTES);
     pageLoaded[uploadTargetPage] = true;
     saveSlotToFlash(uploadTargetPage);
@@ -632,6 +679,28 @@ void handleNotFound() {
   server.send(404, "application/json", "{\"error\": \"Not Found\"}");
 }
 
+void startMdns() {
+  if (mdnsReady || WiFi.status() != WL_CONNECTED) return;
+  if (MDNS.begin(HOSTNAME)) {
+    MDNS.addService("http", "tcp", 80);
+    mdnsReady = true;
+    usbSerial.printf("mDNS ready: %s.local\n", HOSTNAME);
+  } else {
+    usbSerial.println("mDNS start failed");
+  }
+}
+
+void startOta() {
+  if (otaReady || WiFi.status() != WL_CONNECTED || strlen(OTA_PASSWORD) == 0) return;
+  ArduinoOTA.setHostname(HOSTNAME);
+  ArduinoOTA.setPassword(OTA_PASSWORD);
+  ArduinoOTA.onStart([]() { usbSerial.println("OTA starting..."); });
+  ArduinoOTA.onEnd([]() { usbSerial.println("OTA done!"); });
+  ArduinoOTA.begin();
+  otaReady = true;
+  usbSerial.println("OTA ready");
+}
+
 void setup() {
   // reTerminal routes USB-serial through GPIO 44/43, not the default pins.
   usbSerial.begin(115200, SERIAL_8N1, 44, 43);
@@ -649,12 +718,12 @@ void setup() {
   lastMiddle = digitalRead(BTN_MIDDLE);
   lastRight = digitalRead(BTN_RIGHT);
 
-  if (LittleFS.begin(true)) {
+  if (LittleFS.begin(false)) {
     fsReady = true;
     LittleFS.mkdir(SLOT_DIR);
     usbSerial.println("LittleFS ready");
   } else {
-    usbSerial.println("LittleFS failed — slots will be volatile only");
+    usbSerial.println("LittleFS failed — slots will be volatile only; not auto-formatting");
   }
 
   usbSerial.println("Allocating page storage...");
@@ -706,6 +775,7 @@ void setup() {
     usbSerial.println();
 
     if (WiFi.status() == WL_CONNECTED) {
+      lastWifiOkMs = millis();
       usbSerial.println("Connected! IP: " + WiFi.localIP().toString());
       if (restoredCount == 0 || !pageLoaded[currentPage]) {
         showReadyScreen(WiFi.localIP().toString());
@@ -733,14 +803,9 @@ void setup() {
   server.begin();
   usbSerial.println("HTTP server started");
 
-  if (WiFi.status() == WL_CONNECTED && strlen(OTA_PASSWORD) > 0) {
-    ArduinoOTA.setHostname(HOSTNAME);
-    ArduinoOTA.setPassword(OTA_PASSWORD);
-    ArduinoOTA.onStart([]() { usbSerial.println("OTA starting..."); });
-    ArduinoOTA.onEnd([]() { usbSerial.println("OTA done!"); });
-    ArduinoOTA.begin();
-    usbSerial.println("OTA ready");
-  } else {
+  startMdns();
+  startOta();
+  if (strlen(OTA_PASSWORD) == 0) {
     usbSerial.println("OTA disabled (set RETERMINAL_OTA_PASSWORD to enable)");
   }
 
@@ -752,11 +817,20 @@ void maintainWifi() {
   unsigned long now = millis();
   if (WiFi.status() == WL_CONNECTED) {
     lastWifiOkMs = now;
+    if (lastWifiLostMs != 0) {
+      usbSerial.println("WiFi restored: " + WiFi.localIP().toString());
+      lastWifiLostMs = 0;
+    }
+    startMdns();
+    startOta();
     return;
   }
+  if (lastWifiLostMs == 0) lastWifiLostMs = now;
   if (now - lastWifiOkMs < WIFI_GRACE_MS) return;
   if (now - lastWifiRetryMs < WIFI_RETRY_INTERVAL_MS) return;
   lastWifiRetryMs = now;
+  lastWifiReconnectMs = now;
+  wifiReconnectAttempts++;
   usbSerial.printf("WiFi down for %lu ms, reconnecting\n", now - lastWifiOkMs);
   WiFi.disconnect();
   WiFi.begin(WIFI_SSID, WIFI_PASS);
@@ -764,7 +838,7 @@ void maintainWifi() {
 
 void loop() {
   maintainWifi();
-  ArduinoOTA.handle();
+  if (otaReady) ArduinoOTA.handle();
   server.handleClient();
 
   bool curLeft = digitalRead(BTN_LEFT);

@@ -5,7 +5,6 @@ from reterminal.diagnostics import (
     DiscoveryResult,
     build_discovery_candidates,
     discover_hosts,
-    find_legacy_page_issues,
     run_doctor,
 )
 
@@ -80,12 +79,6 @@ def test_discover_hosts_returns_only_reachable_results(monkeypatch):
 
 
 
-def test_find_legacy_page_issues_flags_pages_beyond_device_capacity():
-    issues = find_legacy_page_issues(page_slots=4)
-
-    assert issues == [("portfolio", 4), ("dashboard", 5), ("weather", 6)]
-
-
 
 def test_run_doctor_reports_pipeline_health_and_example_feed_warnings(monkeypatch, tmp_path: Path):
     feed = tmp_path / "examples" / "feed.json"
@@ -101,8 +94,6 @@ def test_run_doctor_reports_pipeline_health_and_example_feed_warnings(monkeypatc
     assert report.resolved_host == "192.168.7.76"
     assert report.assignment_count == 2
     assert any("static demo content" in warning for warning in report.warnings)
-    assert report.legacy_page_issues == [("portfolio", 4), ("dashboard", 5), ("weather", 6)]
-
 
 
 def test_run_doctor_reports_connectivity_errors(monkeypatch):

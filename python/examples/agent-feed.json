@@ -57,7 +57,7 @@
         "this example feed is static and is meant for previews, smoke tests, and demos",
         "swap in a real JSON feed or remote provider when you want live operational content",
         "slot zero is the front page, not a rotating carousel controller",
-        "use `reterminal publish --push --interval 60` to keep a real feed refreshed"
+        "use `reterminal publish --push --watch --live` with a provider manifest for production"
       ],
       "footer": "demo bulletin / example only"
     },

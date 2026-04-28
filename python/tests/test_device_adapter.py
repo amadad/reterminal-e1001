@@ -11,7 +11,18 @@ class FakeClient:
         self.host = "192.168.7.76"
         self.status_payload = {"uptime_ms": 1000, "page_name": "dashboard"}
         self.page_payload = {"total": 4, "page": 0, "name": "dashboard"}
-        self.capabilities_payload = None
+        self.capabilities_payload = {
+            "width": 800,
+            "height": 480,
+            "image_bytes": 48000,
+            "page_slots": 4,
+            "current_page": 0,
+            "current_page_name": "dashboard",
+            "uptime_ms": 1000,
+            "snapshot_readback": True,
+            "loaded_pages": [True, True, True, True],
+            "slot_names": ["slot-0", "slot-1", "slot-2", "slot-3"],
+        }
         self.snapshot_payload = b"\xff" * 48000
         self.pushes = []
         self.shown = []
@@ -70,6 +81,7 @@ def test_device_clears_upload_cache_when_uptime_resets():
     device.push_pil(image, 0)
 
     client.status_payload["uptime_ms"] = 50
+    client.capabilities_payload["uptime_ms"] = 50
     device.prepare_push_cycle()
     result = device.push_pil(image, 0)
 

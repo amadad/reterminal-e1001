@@ -78,7 +78,7 @@ class DisplayPublisher:
                 push_results[slot] = self.device.push_pil(image, slot)
 
         shown_slot: int | None = None
-        if push and assignments:
+        if push and show_slot is not None:
             if self.device is None:
                 raise ValueError("A device adapter is required when push=True")
             shown_slot = self._resolve_show_slot(assignments, show_slot)

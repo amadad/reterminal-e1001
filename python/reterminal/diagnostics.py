@@ -12,7 +12,6 @@ import requests
 from reterminal.app import DisplayPublisher
 from reterminal.config import settings
 from reterminal.device import DeviceCapabilities, ReTerminalDevice
-from reterminal.pages import list_pages
 from reterminal.payloads import PageInfoPayload, StatusPayload
 from reterminal.providers import build_scene_providers
 from reterminal.render import MonoRenderer
@@ -39,7 +38,6 @@ class DoctorReport:
     resolved_host: str | None = None
     reachable: bool = False
     capabilities: DeviceCapabilities | None = None
-    legacy_page_issues: list[tuple[str, int]] = field(default_factory=list)
     scene_count: int = 0
     assignment_count: int = 0
     warnings: list[str] = field(default_factory=list)
@@ -133,11 +131,6 @@ def discover_hosts(
     return [result for result in ordered_results if result.reachable]
 
 
-def find_legacy_page_issues(page_slots: int) -> list[tuple[str, int]]:
-    """Return legacy fixed pages that point past the live device slot count."""
-    return [(name, slot) for name, slot in list_pages().items() if slot >= page_slots]
-
-
 def run_doctor(
     host: str | None = None,
     *,
@@ -163,13 +156,6 @@ def run_doctor(
     report.reachable = True
     report.resolved_host = capabilities.host
     report.capabilities = capabilities
-    report.legacy_page_issues = find_legacy_page_issues(capabilities.page_slots)
-
-    if report.legacy_page_issues:
-        report.warnings.append(
-            "Legacy fixed pages exceed the live device slot count: "
-            + ", ".join(f"{name}->{slot}" for name, slot in report.legacy_page_issues)
-        )
 
     if feed is not None and "examples" in feed.resolve().parts:
         report.warnings.append("The selected feed is static demo content and will not update on its own.")

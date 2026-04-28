@@ -33,7 +33,7 @@ The device was physically attached to `kunst` over USB-C, interrogated through t
 - **Live slot naming:** neutral `slot-0..slot-3`
 - **Snapshot readback:** `snapshot_readback: true`; `GET /snapshot?page=0` returns `404` while a slot is empty and returns an exact `48000`-byte raw bitmap after upload
 - **Byte-for-byte readback proof:** the SHA-256 of the uploaded slot-0 raw bitmap matched the returned `/snapshot?page=0` payload exactly
-- **Cache semantics after reboot/reflash:** device booted with `current_page_loaded: false` and `loaded_pages: [false,false,false,false]` until the host republished
+- **Persistence semantics:** current firmware saves loaded slots to LittleFS and restores them on normal reboot/power cycle when the filesystem mounts successfully; reboot/reflash can still require host republish if storage is empty or unavailable
 - **Current republished state during this session:** all four slots loaded and slot 0 visible
 - **Measured visible page refresh time:** `POST /page {"page": 0}` clustered around `~5.5s` on repeated runs (`2.73s`, `5.52s`, `5.53s`; average `4.59s`)
 - **Measured visible-slot upload time:** uploading a full bitmap to the currently visible slot took `~5.54s` on repeated runs
@@ -85,7 +85,7 @@ These are the practical design constraints supported by live measurement on the 
 - **Firmware stores full-screen bitmaps, not semantic UI widgets:** all composition happens on the host.
 - **No touch / cursor / scroll / text input path exists in the current firmware:** interaction is limited to previous, next, and redraw.
 - **Monochrome output only:** any gray appearance must come from host-side dithering.
-- **Current cache should be treated as volatile:** reboot/reflash can require host republish before any slot is usable again.
+- **Current cache is persistent but recoverable:** LittleFS-backed slots survive normal reboot on the current build, but host republish remains the recovery path after reflash, storage failure, or empty slots.
 - **Current product fit:** ambient dashboards, posters, briefings, and low-frequency status surfaces fit well; animation and high-frequency UI do not.
 
 ## Current evidence from code inspection
@@ -103,6 +103,7 @@ These are facts supported by the current codebase, not yet by live hardware meas
 | Slot naming | Tracked firmware source now uses neutral slot names (`slot-0..slot-3`) instead of legacy semantic page labels | `firmware/src/main.cpp` | High |
 | Display chrome | Tracked firmware source no longer overlays `Page X/4` on top of host-rendered bitmaps | `firmware/src/main.cpp` | High |
 | Security posture | WiFi creds are no longer hardcoded in source; OTA is disabled unless a password is configured; HTTP endpoints are still unauthenticated | `firmware/src/main.cpp`, `firmware/platformio.local.example.ini` | Medium |
+| Firmware health | Tracked source reports reset reason, Wi-Fi reconnect counters, mDNS/OTA readiness, PSRAM, and LittleFS usage through capabilities/status | `firmware/src/main.cpp` | High |
 | Shell wrapper | `refresh.sh` now requires `RETERMINAL_HOST` explicitly and points at the active CLI; legacy fixed pages are fenced to the live slot count in the CLI | `refresh.sh`, `python/reterminal/cli/commands.py` | High |
 
 ## Provisional architecture assumption
@@ -131,16 +132,16 @@ Until hardware verification says otherwise, the refactor should assume this mode
 These still need fresh measurement on the reflashed device before major architecture claims are considered safe:
 
 1. **Current-firmware invalid page behavior**
-   - What happens now for `POST /page {"page": 4}` or `{"page": -1}`?
-   - Does the reflashed firmware reject cleanly exactly as source suggests?
+   - Tracked source rejects `POST /page {"page": 4}` or `{"page": -1}` with `400 Page out of range`.
+   - A fresh destructive probe should still record this against the live flashed unit before replacing historical artifacts.
 
 2. **Current-firmware invalid upload behavior**
-   - What happens now for `POST /imageraw?page=4` on the reflashed build?
-   - Does it reject cleanly or still show any fallback behavior?
+   - Tracked source rejects `POST /imageraw?page=4` with `400 Page out of range`.
+   - A fresh destructive probe should still record this against the live flashed unit before replacing historical artifacts.
 
 3. **Stored page persistence**
-   - Do page buffers survive a normal reboot?
-   - Do they survive OTA?
+   - Normal reboot/power-cycle persistence is now supported via LittleFS on the current build.
+   - OTA persistence should still be rechecked after the next OTA-capable flash.
 
 4. **Button parity with API**
    - Do physical buttons navigate exactly the same slot range and naming as `/page` on the reflashed build?
@@ -183,7 +184,7 @@ The device should eventually expose enough information for the host to adapt wit
 | `POST /page` | Rejects invalid input explicitly, no unsafe wraparound |
 | `GET /snapshot` | Returns the exact stored raw bitmap for a loaded slot or a clear error if none is stored |
 | `POST /imageraw?page=N` | Either stores slot `N` or returns a clear error |
-| `POST /clear` | Clears one slot or the full volatile cache without inventing host-side content |
+| `POST /clear` | Clears one slot or the stored slot cache without inventing host-side content |
 
 ### Required host behavior
 

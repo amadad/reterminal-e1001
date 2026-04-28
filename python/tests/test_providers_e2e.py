@@ -102,12 +102,25 @@ def test_calendar_provider_renders(tmp_path: Path):
     _assert_bitmap(s.prerendered)
 
 
-def test_provider_returns_empty_when_file_missing(tmp_path: Path):
+def test_provider_renders_notice_when_file_missing(tmp_path: Path):
     missing = tmp_path / "absent.md"
-    assert MissionsProvider(path=missing).fetch() == []
-    assert EventsProvider(path=missing).fetch() == []
-    assert ActivitiesProvider(path=missing).fetch() == []
-    assert CalendarProvider(path=missing).fetch() == []
+    for provider in (
+        MissionsProvider(path=missing),
+        EventsProvider(path=missing),
+        ActivitiesProvider(path=missing),
+        CalendarProvider(path=missing),
+    ):
+        scenes = provider.fetch()
+        assert len(scenes) == 1
+        _assert_bitmap(scenes[0].prerendered)
+
+
+def test_calendar_provider_renders_empty_agenda(tmp_path: Path):
+    md = _write(tmp_path / "calendar.md", "## Today\n\n## Tomorrow\n")
+    scenes = CalendarProvider(path=md).fetch()
+    assert len(scenes) == 1
+    assert scenes[0].id == "calendar"
+    _assert_bitmap(scenes[0].prerendered)
 
 
 def test_manifest_builds_all_four_providers(tmp_path: Path):

@@ -79,13 +79,9 @@ uv run reterminal publish --feed examples/agent-feed.json --preview ./previews -
 uv run reterminal publish --feed examples/kitchen-display.json --push --watch --live
 ```
 
-## Commands considered legacy
+## Decommissioned legacy commands
 
-```bash
-uv run reterminal refresh market
-uv run reterminal watch clock -i 60
-./refresh.sh market
-```
+The old fixed-page `refresh` / `watch` CLI commands are no longer active. Do not use `./refresh.sh market`; it now points users to the provider-driven publish flow.
 
 ## Architectural rules
 
@@ -124,7 +120,7 @@ OC heartbeat  ─►  gws        ─►  ~/madad/family/calendar.md
 
 The wiring lives in `python/examples/kitchen-display.json` (a provider manifest, not a scene list). `~/madad/family/CONVENTIONS.md` documents the file-format contracts (preamble, renderer-consumed sections, `## Notes` working-memory). Provider implementations are in `python/reterminal/providers/{calendar,missions,events,activities}.py`. Each returns a `SceneSpec` carrying a prerendered 800x480 1-bit bitmap; `MonoRenderer` short-circuits on prerendered scenes and just blits.
 
-The trigger loop (`python/reterminal/app/live.py`) uses `watchdog` for FSEvents on the parent directories of the four files, with a 5-minute sanity tick. An in-memory bitmap cache means the device only receives a `POST /imageraw` when the rendered output actually changes — no SHA cache on disk. The launchd plist at `scripts/sh.reterminal.publish.plist` keeps the loop alive across reboots.
+The trigger loop (`python/reterminal/app/live.py`) uses `watchdog` for FSEvents on the parent directories of the four files, with a 5-minute sanity tick. It seeds its in-memory slot hashes from `/snapshot` on startup, refreshes capabilities on each tick to detect device reboots/storage loss, then marks a slot current only after a successful upload; this keeps launchd restarts, reboots, and transient upload failures from causing redundant or missed pushes. The launchd plist at `scripts/sh.reterminal.publish.plist` runs `scripts/reterminal-publish-watch.sh`, which discovers the DHCP-assigned host unless `RETERMINAL_HOST` is explicitly set.
 
 Do **not** reintroduce legacy `ready-board` / `need-board` / `reset-board` as live slots unless Ali explicitly asks for a rollback. The legacy bash orchestrator (`~/oc-min/scripts/reterminal-{live,refresh}.sh`, `generate_reterminal_feed.py`) is no longer in the kitchen-display path; it remains in oc-min until the new pipeline has soaked.
 

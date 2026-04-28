@@ -14,14 +14,13 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageEnhance, ImageOps
 
+from reterminal.providers.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, render_notice, to_1bit
 from reterminal.providers.manifest import register_provider
 from reterminal.scenes import SceneSpec
 
 
-WIDTH, HEIGHT = 800, 480
-HELVETICA = Path("/System/Library/Fonts/Helvetica.ttc")
 DEFAULT_PATH = Path.home() / "madad" / "family" / "activities.md"
 POSTERS_DIR = Path("/tmp/reterminal-review/posters")
 
@@ -72,13 +71,6 @@ def parse_activities(path: Path) -> tuple[list[Activity], list[Activity]]:
     return recent, queue
 
 
-def _font(size: int, weight: str = "regular") -> ImageFont.ImageFont:
-    if not HELVETICA.exists():
-        return ImageFont.load_default()
-    face_index = {"regular": 0, "bold": 1}.get(weight, 0)
-    return ImageFont.truetype(str(HELVETICA), size, index=face_index)
-
-
 def _dither_poster(path: Path, target_h: int) -> Image.Image:
     src = Image.open(path).convert("L")
     ratio = target_h / src.height
@@ -105,17 +97,19 @@ def render_activities(
     recent: list[Activity],
     queue: list[Activity],
     poster_path: Path | None = None,
+    *,
+    source_path: Path | None = None,
 ) -> Image.Image:
     img = Image.new("L", (WIDTH, HEIGHT), color=255)
     draw = ImageDraw.Draw(img)
     margin = 24
     gutter = 24
 
-    kicker = _font(14, "bold")
-    section_h = _font(18, "bold")
-    item_f = _font(28)
-    meta_f = _font(16)
-    hero_title = _font(36, "bold")
+    kicker = font(14, "bold")
+    section_h = font(18, "bold")
+    item_f = font(28)
+    meta_f = font(16)
+    hero_title = font(36, "bold")
 
     poster_h = HEIGHT - margin * 2
     poster = _dither_poster(poster_path, poster_h) if poster_path and poster_path.exists() else None
@@ -176,7 +170,8 @@ def render_activities(
             draw.text((margin, y), rest_label, font=item_f, fill=0)
             y += 38
 
-    return img.point(lambda x: 255 if x >= 192 else 0, mode="1")
+    draw_source_stamp(draw, source_path)
+    return to_1bit(img)
 
 
 class ActivitiesProvider:
@@ -187,10 +182,11 @@ class ActivitiesProvider:
 
     def fetch(self) -> list[SceneSpec]:
         if not self.path.exists():
-            return []
-        recent, queue = parse_activities(self.path)
-        poster = _resolve_poster(queue)
-        image = render_activities(recent, queue, poster_path=poster)
+            image = render_notice("Activities", "activities source missing", str(self.path))
+        else:
+            recent, queue = parse_activities(self.path)
+            poster = _resolve_poster(queue)
+            image = render_activities(recent, queue, poster_path=poster, source_path=self.path)
         return [
             SceneSpec(
                 id="activities",
