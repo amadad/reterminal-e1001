@@ -1,4 +1,5 @@
 import json
+import re
 
 from typer.testing import CliRunner
 
@@ -7,14 +8,19 @@ from reterminal.cli.commands import next_assigned_slot
 
 
 runner = CliRunner()
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def normalized_console_text(text: str) -> str:
+    return " ".join(ANSI_ESCAPE_RE.sub("", text).split())
 
 
 def test_top_level_help_includes_agent_examples():
     result = runner.invoke(app, ["--help"])
-    normalized = " ".join(result.stdout.split())
+    normalized = normalized_console_text(result.stdout)
 
     assert result.exit_code == 0
-    assert "Use when you need to discover a device" in result.stdout
+    assert "Use when you need to discover a device" in normalized
     assert "reterminal discover --output json" in normalized
     assert "reterminal publish --feed ./feed.json --push --live" in normalized
 
