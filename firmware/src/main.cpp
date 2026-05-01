@@ -113,7 +113,7 @@ const unsigned long WIFI_RETRY_INTERVAL_MS = 30000;
 // any other path that blocks the main task. The previous `delay(1)` in paint
 // loops only fed the IDLE task watchdog; nothing armed a watchdog on loopTask
 // itself, so an indefinitely-blocked loop never recovered.
-const uint32_t LOOP_WDT_TIMEOUT_MS = 60000;
+const uint32_t LOOP_WDT_TIMEOUT_S = 60;
 
 GxEPD2_BW<GxEPD2_750_GDEY075T7, GxEPD2_750_GDEY075T7::HEIGHT> display(
     GxEPD2_750_GDEY075T7(EPD_CS_PIN, EPD_DC_PIN, EPD_RES_PIN, EPD_BUSY_PIN));
@@ -817,19 +817,13 @@ void setup() {
     usbSerial.println("OTA disabled (set RETERMINAL_OTA_PASSWORD to enable)");
   }
 
-  esp_task_wdt_config_t wdt_cfg = {
-      .timeout_ms = LOOP_WDT_TIMEOUT_MS,
-      .idle_core_mask = (1U << portNUM_PROCESSORS) - 1U,
-      .trigger_panic = true,
-  };
-  esp_err_t wdt_init_err = esp_task_wdt_init(&wdt_cfg);
-  if (wdt_init_err == ESP_ERR_INVALID_STATE) {
-    wdt_init_err = esp_task_wdt_reconfigure(&wdt_cfg);
-  }
+  // Arduino-ESP32 v2.x / IDF v5.1 exposes the legacy 2-arg form. The struct-
+  // based esp_task_wdt_config_t API is IDF v5.2+ and not available here.
+  esp_err_t wdt_init_err = esp_task_wdt_init(LOOP_WDT_TIMEOUT_S, true);
   if (wdt_init_err == ESP_OK) {
     esp_task_wdt_add(NULL);
-    usbSerial.printf("Loop watchdog armed: %u ms, panic=true\n",
-                     (unsigned)LOOP_WDT_TIMEOUT_MS);
+    usbSerial.printf("Loop watchdog armed: %us, panic=true\n",
+                     (unsigned)LOOP_WDT_TIMEOUT_S);
   } else {
     usbSerial.printf("Loop watchdog setup failed: %d\n", (int)wdt_init_err);
   }
