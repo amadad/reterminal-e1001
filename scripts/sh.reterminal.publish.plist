@@ -38,6 +38,8 @@
     <dict>
         <key>PATH</key>
         <string>/Users/amadad/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>RETERMINAL_HOST</key>
+        <string>192.168.7.46</string>
         <key>RETERMINAL_DISCOVERY_SUBNET</key>
         <string>192.168.7</string>
     </dict>
