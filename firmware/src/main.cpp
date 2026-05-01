@@ -23,6 +23,7 @@
 #include <Fonts/FreeMonoBold18pt7b.h>
 #include <LittleFS.h>
 #include <esp_system.h>
+#include <esp_task_wdt.h>
 #include <stdlib.h>
 
 #ifndef RETERMINAL_WIFI_SSID
@@ -106,6 +107,13 @@ bool mdnsReady = false;
 bool otaReady = false;
 const unsigned long WIFI_GRACE_MS = 30000;
 const unsigned long WIFI_RETRY_INTERVAL_MS = 30000;
+
+// Loop-task watchdog: reboots the device if loop() stops iterating for this
+// long. Catches synchronous WebServer wedges on half-open TCP, SPI hangs, and
+// any other path that blocks the main task. The previous `delay(1)` in paint
+// loops only fed the IDLE task watchdog; nothing armed a watchdog on loopTask
+// itself, so an indefinitely-blocked loop never recovered.
+const uint32_t LOOP_WDT_TIMEOUT_MS = 60000;
 
 GxEPD2_BW<GxEPD2_750_GDEY075T7, GxEPD2_750_GDEY075T7::HEIGHT> display(
     GxEPD2_750_GDEY075T7(EPD_CS_PIN, EPD_DC_PIN, EPD_RES_PIN, EPD_BUSY_PIN));
@@ -809,6 +817,23 @@ void setup() {
     usbSerial.println("OTA disabled (set RETERMINAL_OTA_PASSWORD to enable)");
   }
 
+  esp_task_wdt_config_t wdt_cfg = {
+      .timeout_ms = LOOP_WDT_TIMEOUT_MS,
+      .idle_core_mask = (1U << portNUM_PROCESSORS) - 1U,
+      .trigger_panic = true,
+  };
+  esp_err_t wdt_init_err = esp_task_wdt_init(&wdt_cfg);
+  if (wdt_init_err == ESP_ERR_INVALID_STATE) {
+    wdt_init_err = esp_task_wdt_reconfigure(&wdt_cfg);
+  }
+  if (wdt_init_err == ESP_OK) {
+    esp_task_wdt_add(NULL);
+    usbSerial.printf("Loop watchdog armed: %u ms, panic=true\n",
+                     (unsigned)LOOP_WDT_TIMEOUT_MS);
+  } else {
+    usbSerial.printf("Loop watchdog setup failed: %d\n", (int)wdt_init_err);
+  }
+
   usbSerial.println("Setup complete!");
 }
 
@@ -837,6 +862,7 @@ void maintainWifi() {
 }
 
 void loop() {
+  esp_task_wdt_reset();
   maintainWifi();
   if (otaReady) ArduinoOTA.handle();
   server.handleClient();
