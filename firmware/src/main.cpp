@@ -726,12 +726,16 @@ void setup() {
   lastMiddle = digitalRead(BTN_MIDDLE);
   lastRight = digitalRead(BTN_RIGHT);
 
-  if (LittleFS.begin(false)) {
+  // Auto-format on mount failure so a fresh partition self-heals into a usable
+  // filesystem on first boot. Without this, a corrupted or empty LittleFS
+  // partition leaves slots volatile permanently, breaking the watchdog reboot
+  // recovery story.
+  if (LittleFS.begin(true)) {
     fsReady = true;
     LittleFS.mkdir(SLOT_DIR);
     usbSerial.println("LittleFS ready");
   } else {
-    usbSerial.println("LittleFS failed — slots will be volatile only; not auto-formatting");
+    usbSerial.println("LittleFS mount AND format failed — slots volatile this boot");
   }
 
   usbSerial.println("Allocating page storage...");
