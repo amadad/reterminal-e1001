@@ -21,10 +21,10 @@ def test_get_host_requires_an_explicit_host_when_none_is_configured(monkeypatch)
 
 
 def test_get_host_uses_configured_host_or_override(monkeypatch):
-    monkeypatch.setattr(settings, "host", "192.168.7.76")
+    monkeypatch.setattr(settings, "host", "192.0.2.76")
 
-    assert get_host() == "192.168.7.76"
-    assert get_host("192.168.7.80") == "192.168.7.80"
+    assert get_host() == "192.0.2.76"
+    assert get_host("192.0.2.80") == "192.0.2.80"
 
 
 def test_env_example_does_not_embed_a_historical_dhcp_lease():
@@ -33,4 +33,4 @@ def test_env_example_does_not_embed_a_historical_dhcp_lease():
     body = env_example.read_text()
 
     assert "RETERMINAL_HOST=" in body
-    assert "192.168.7.76" not in body
+    assert "192.0.2.76" not in body

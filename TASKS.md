@@ -92,7 +92,7 @@ Source: repo review on 2026-04-27 after live kitchen-display pipeline and Wi-Fi/
   - **Acceptance:** probing slots `0..7` against a 4-slot reject-cleanly firmware completes and reports slots `4..7` as rejected, not crashed.
 
 - [x] **RETERM-R3: Remove hardcoded production device IP from launchd path**
-  - Replace `scripts/sh.reterminal.publish.plist`'s fixed `RETERMINAL_HOST` with one of:
+  - Replace the launchd template's fixed `RETERMINAL_HOST` with one of:
     - mDNS host (`reterminal.local`) once firmware advertises it reliably
     - a wrapper that runs discovery and exports the selected host
     - a documented router DHCP reservation
@@ -187,10 +187,11 @@ Source: repo review on 2026-04-27 after live kitchen-display pipeline and Wi-Fi/
 
 ## Completion evidence
 
-- `cd python && uv run --extra dev pytest -q` → `72 passed`
-- `cd python && uv run --extra dev ruff check reterminal tests` → passed
-- `cd firmware && platformio run` → `reterminal` and `ota` succeeded; build now reports `32MB Flash`
-- `platformio run` also succeeds with `platformio.local.ini` temporarily absent, matching CI/no-secret setup
-- `plutil -lint scripts/sh.reterminal.publish.plist` → OK; `bash -n scripts/reterminal-publish-watch.sh refresh.sh` → OK
-- `uv run python examples/preview_missions.py` and `uv run python examples/preview_family.py` wrote preview PNGs under `/tmp/reterminal-review/`
-- Live device flash/probe was not run in this pass; firmware changes are source/build verified only.
+- `env -u VIRTUAL_ENV uv --directory python run --extra dev pytest -q` → `80 passed`
+- `env -u VIRTUAL_ENV uv --directory python run --extra dev ruff check reterminal tests` → passed
+- `cd firmware && platformio run -e reterminal` → succeeded; build reports `32MB Flash`
+- USB flash to the live unit succeeded; `/capabilities` reports build SHA matching the dirty checkout and all four slots loaded
+- Destructive slot probe was run and saved as sanitized `artifacts/probe-report.json`; slots `0..3` store/select and invalid slots `4..7` reject cleanly
+- Serial reset verified `LittleFS ready`, `Loaded slot 0..3 from flash`, and `Restored 4 slots from flash`
+- `plutil -lint scripts/sh.reterminal.publish.example.plist` → OK; `bash -n scripts/reterminal-publish-watch.sh` → OK
+- Launchd watcher is running, discovers the host, and seeds 4 slot digests from `/snapshot`

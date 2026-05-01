@@ -18,6 +18,7 @@ from reterminal.app.publisher import DisplayPublisher
 from reterminal.providers.activities import ActivitiesProvider
 from reterminal.providers.events import EventsProvider
 from reterminal.providers.missions import MissionsProvider
+from reterminal.exceptions import ConnectionError as DeviceConnectionError
 from reterminal.scenes import SceneSpec
 
 
@@ -28,6 +29,7 @@ class _FakeDevice:
         self.pushes: list[tuple[int, tuple[int, int]]] = []
         self.prepared = 0
         self.fail_next_push = False
+        self.fail_next_connection = False
         self.snapshots: dict[int, bytes] = {}
         self.uptime_ms = 1000
         self.prepare_uptimes: list[int] = []
@@ -42,6 +44,9 @@ class _FakeDevice:
         if self.fail_next_push:
             self.fail_next_push = False
             raise RuntimeError("transient upload failure")
+        if self.fail_next_connection:
+            self.fail_next_connection = False
+            raise DeviceConnectionError("device offline")
         self.pushes.append((slot, image.size))
 
     def show_slot(self, slot):
@@ -97,7 +102,7 @@ def test_bitmap_cache_is_per_slot():
 def _write_real_files(tmp_path: Path) -> tuple[Path, Path, Path]:
     missions = tmp_path / "missions.md"
     missions.write_text(
-        "## Active\n\n### Laila\nkind: project\ntitle: STEAM\nprogress: 1 / 4 weeks\nnext: pick\n"
+        "## Active\n\n### Kid 1\nkind: project\ntitle: STEAM\nprogress: 1 / 4 weeks\nnext: pick\n"
     )
     events = tmp_path / "events.md"
     events.write_text("## Upcoming\n\n- 2099-01-01 New Year [event]\n")
@@ -178,6 +183,46 @@ def test_publish_once_retries_after_failed_push(tmp_path: Path):
 
     assert pushed == 1
     assert device.pushes[0][0] == 1
+
+
+def test_publish_once_recovers_connection_failure_during_push(tmp_path: Path):
+    missions, _events, _activities = _write_real_files(tmp_path)
+    device = _FakeDevice()
+    publisher = DisplayPublisher(
+        providers=[MissionsProvider(path=missions)],
+        device=device,
+    )
+    cache = _BitmapCache()
+    recover_calls = []
+
+    def recover(_device):
+        recover_calls.append(True)
+        return True
+
+    device.fail_next_connection = True
+    pushed = _publish_once(publisher, cache, push=True, recover_device=recover)
+
+    assert pushed == 1
+    assert len(recover_calls) == 1
+    assert device.pushes[0][0] == 1
+    assert cache.digests
+
+
+def test_publish_once_keeps_cache_stale_when_connection_recovery_fails(tmp_path: Path):
+    missions, _events, _activities = _write_real_files(tmp_path)
+    device = _FakeDevice()
+    publisher = DisplayPublisher(
+        providers=[MissionsProvider(path=missions)],
+        device=device,
+    )
+    cache = _BitmapCache()
+
+    device.fail_next_connection = True
+    pushed = _publish_once(publisher, cache, push=True, recover_device=lambda _device: False)
+
+    assert pushed == 0
+    assert device.pushes == []
+    assert cache.digests == {}
 
 
 def test_publish_once_reuploads_after_device_uptime_reset(tmp_path: Path):

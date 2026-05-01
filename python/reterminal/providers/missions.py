@@ -1,7 +1,7 @@
 """SceneProvider for the missions slot (slot 1).
 
-Reads ~/madad/family/missions.md and returns a SceneSpec carrying a
-prerendered 800x480 1-bit bitmap. The provider owns parsing and layout
+Reads ~/reterminal-content/family/missions.md and returns a SceneSpec carrying
+a prerendered 800x480 1-bit bitmap. The provider owns parsing and layout
 end-to-end; MonoRenderer just blits the bitmap.
 """
 
@@ -21,8 +21,8 @@ from reterminal.render.viz import dots, heatmap, progress_bar
 from reterminal.scenes import SceneSpec
 
 
-DEFAULT_PATH = Path.home() / "madad" / "family" / "missions.md"
-KID_ORDER = ("Laila", "Hasan", "Ammar", "Noora")
+DEFAULT_PATH = Path.home() / "reterminal-content" / "family" / "missions.md"
+DEFAULT_MISSION_ORDER: tuple[str, ...] = ()
 
 
 @dataclass(slots=True)
@@ -184,7 +184,22 @@ def _render_quadrant(draw: ImageDraw.ImageDraw, m: Mission, x: int, y: int, w: i
             draw.text((cx, viz_top + 28), f"{value} / {total}", font=meta_f, fill=0)
 
 
-def render_missions(missions: list[Mission], *, source_path: Path | None = None) -> Image.Image:
+def _ordered_missions(missions: list[Mission], order: tuple[str, ...] | None = None) -> list[Mission]:
+    if not order:
+        return missions[:4]
+    by_name = {m.who: m for m in missions}
+    ordered = [by_name[name] for name in order if name in by_name]
+    seen = {m.who for m in ordered}
+    ordered.extend(m for m in missions if m.who not in seen)
+    return ordered[:4]
+
+
+def render_missions(
+    missions: list[Mission],
+    *,
+    source_path: Path | None = None,
+    order: tuple[str, ...] | None = None,
+) -> Image.Image:
     img = Image.new("L", (WIDTH, HEIGHT), color=255)
     draw = ImageDraw.Draw(img)
     draw.text((24, 14), "MISSIONS", font=font(13, "bold"), fill=0)
@@ -200,11 +215,7 @@ def render_missions(missions: list[Mission], *, source_path: Path | None = None)
     draw.line([(mid_x, grid_top + 10), (mid_x, HEIGHT - 10)], fill=0, width=1)
     draw.line([(20, mid_y), (WIDTH - 20, mid_y)], fill=0, width=1)
 
-    by_name = {m.who: m for m in missions}
-    for i, name in enumerate(KID_ORDER):
-        m = by_name.get(name)
-        if m is None:
-            continue
+    for i, m in enumerate(_ordered_missions(missions, order)):
         row, col = divmod(i, 2)
         qx = col * cell_w
         qy = grid_top + row * cell_h
@@ -217,15 +228,16 @@ def render_missions(missions: list[Mission], *, source_path: Path | None = None)
 class MissionsProvider:
     name = "missions"
 
-    def __init__(self, path: Path | str = DEFAULT_PATH):
+    def __init__(self, path: Path | str = DEFAULT_PATH, order: tuple[str, ...] | list[str] | None = None):
         self.path = Path(path).expanduser()
+        self.order = tuple(order or DEFAULT_MISSION_ORDER)
 
     def fetch(self) -> list[SceneSpec]:
         if not self.path.exists():
             image = render_notice("Missions", "missions source missing", str(self.path))
         else:
             missions = parse_missions(self.path)
-            image = render_missions(missions, source_path=self.path)
+            image = render_missions(missions, source_path=self.path, order=self.order)
         return [
             SceneSpec(
                 id="missions",
@@ -240,7 +252,12 @@ class MissionsProvider:
 
 def _factory(config: Mapping[str, Any]) -> MissionsProvider:
     path = config.get("path", str(DEFAULT_PATH))
-    return MissionsProvider(path=path)
+    order = config.get("order")
+    if isinstance(order, str):
+        order = [item.strip() for item in order.split(",") if item.strip()]
+    elif not isinstance(order, (list, tuple)):
+        order = None
+    return MissionsProvider(path=path, order=order)
 
 
 register_provider("missions", _factory)

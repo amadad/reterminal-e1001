@@ -45,7 +45,7 @@ def test_manifest_round_trip(tmp_path: Path):
         json.dumps(
             {
                 "providers": [
-                    {"type": "missions", "path": "~/madad/family/missions.md"},
+                    {"type": "missions", "path": "~/reterminal-content/family/missions.md"},
                     {"type": "calendar", "calendar_id": "cal@example.com"},
                 ]
             }
@@ -53,7 +53,7 @@ def test_manifest_round_trip(tmp_path: Path):
     )
     manifest = load_manifest(path)
     assert [p.type for p in manifest.providers] == ["missions", "calendar"]
-    assert manifest.providers[0].config == {"path": "~/madad/family/missions.md"}
+    assert manifest.providers[0].config == {"path": "~/reterminal-content/family/missions.md"}
     assert manifest.providers[1].config == {"calendar_id": "cal@example.com"}
 
 

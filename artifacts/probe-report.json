@@ -1,24 +1,60 @@
 {
-  "generated_at": "2026-03-13T18:01:37.513832+00:00",
-  "host": "192.168.7.76",
-  "expected_pages": 7,
+  "generated_at": "2026-05-01T17:01:49.948038+00:00",
+  "host": "192.0.2.46",
+  "expected_pages": 4,
   "requested_slots": 8,
   "upload_pages": true,
   "status": {
-    "ip": "192.168.7.76",
-    "rssi": -41,
-    "ssid": "HORUS",
-    "uptime_ms": 533177,
-    "free_heap": 225044,
+    "ip": "192.0.2.46",
+    "rssi": -55,
+    "ssid": "ExampleWiFi",
+    "uptime_ms": 195224,
+    "free_heap": 219092,
+    "hostname": "reterminal",
+    "firmware_version": "local-dev",
+    "build_sha": "4e376cfd24d0-dirty",
+    "build_time": "May  1 2026 12:57:48",
+    "width": 800,
+    "height": 480,
+    "image_bytes": 48000,
+    "page_slots": 4,
+    "snapshot_readback": true,
+    "persistent_storage": true,
     "current_page": 0,
-    "page_name": "dashboard"
+    "current_page_name": "slot-0",
+    "current_page_loaded": true,
+    "reset_reason": "poweron",
+    "wifi_connected": true,
+    "wifi_status": 3,
+    "wifi_reconnect_attempts": 0,
+    "last_wifi_ok_ms": 195221,
+    "last_wifi_lost_ms": 0,
+    "last_wifi_reconnect_ms": 0,
+    "mdns_ready": true,
+    "ota_ready": true,
+    "free_psram": 8178791,
+    "min_free_heap": 205952,
+    "littlefs_total_bytes": 27197440,
+    "littlefs_used_bytes": 212992,
+    "loaded_pages": [
+      true,
+      true,
+      true,
+      true
+    ],
+    "slot_names": [
+      "slot-0",
+      "slot-1",
+      "slot-2",
+      "slot-3"
+    ]
   },
   "status_missing_fields": [],
   "page_info": {
     "page": 0,
-    "name": "dashboard",
+    "name": "slot-0",
     "total": 4,
-    "loaded": false
+    "loaded": true
   },
   "original_page": 0,
   "inferred_slot_count": 4,
@@ -34,7 +70,7 @@
       },
       "set_response": {
         "page": 0,
-        "name": "dashboard"
+        "name": "slot-0"
       },
       "notes": [
         "stored",
@@ -52,7 +88,7 @@
       },
       "set_response": {
         "page": 1,
-        "name": "clock"
+        "name": "slot-1"
       },
       "notes": [
         "stored",
@@ -70,7 +106,7 @@
       },
       "set_response": {
         "page": 2,
-        "name": "github"
+        "name": "slot-2"
       },
       "notes": [
         "stored",
@@ -88,7 +124,7 @@
       },
       "set_response": {
         "page": 3,
-        "name": "quote"
+        "name": "slot-3"
       },
       "notes": [
         "stored",
@@ -98,86 +134,90 @@
     {
       "slot": 4,
       "push_stored": false,
-      "push_displayed": true,
+      "push_displayed": false,
       "selected_page_matches": false,
       "push_response": {
-        "success": true,
-        "displayed": true
+        "error": "Page out of range",
+        "status_code": 400,
+        "rejected": true
       },
       "set_response": {
-        "page": 0,
-        "name": "dashboard"
+        "error": "Page out of range",
+        "status_code": 400,
+        "rejected": true
       },
       "notes": [
-        "displayed immediately instead of storing",
-        "set_page returned 0"
+        "upload rejected cleanly",
+        "set_page rejected cleanly"
       ]
     },
     {
       "slot": 5,
       "push_stored": false,
-      "push_displayed": true,
+      "push_displayed": false,
       "selected_page_matches": false,
       "push_response": {
-        "success": true,
-        "displayed": true
+        "error": "Page out of range",
+        "status_code": 400,
+        "rejected": true
       },
       "set_response": {
-        "page": 1,
-        "name": "clock"
+        "error": "Page out of range",
+        "status_code": 400,
+        "rejected": true
       },
       "notes": [
-        "displayed immediately instead of storing",
-        "set_page returned 1"
+        "upload rejected cleanly",
+        "set_page rejected cleanly"
       ]
     },
     {
       "slot": 6,
       "push_stored": false,
-      "push_displayed": true,
+      "push_displayed": false,
       "selected_page_matches": false,
       "push_response": {
-        "success": true,
-        "displayed": true
+        "error": "Page out of range",
+        "status_code": 400,
+        "rejected": true
       },
       "set_response": {
-        "page": 2,
-        "name": "github"
+        "error": "Page out of range",
+        "status_code": 400,
+        "rejected": true
       },
       "notes": [
-        "displayed immediately instead of storing",
-        "set_page returned 2"
+        "upload rejected cleanly",
+        "set_page rejected cleanly"
       ]
     },
     {
       "slot": 7,
       "push_stored": false,
-      "push_displayed": true,
+      "push_displayed": false,
       "selected_page_matches": false,
       "push_response": {
-        "success": true,
-        "displayed": true
+        "error": "Page out of range",
+        "status_code": 400,
+        "rejected": true
       },
       "set_response": {
-        "page": 3,
-        "name": "quote"
+        "error": "Page out of range",
+        "status_code": 400,
+        "rejected": true
       },
       "notes": [
-        "displayed immediately instead of storing",
-        "set_page returned 3"
+        "upload rejected cleanly",
+        "set_page rejected cleanly"
       ]
     }
   ],
-  "warnings": [
-    "Expected 7 host-side pages, but automated probe only confirmed 4 contiguous firmware slots."
-  ],
+  "warnings": [],
   "manual_checks": [
     "Visually confirm the uploaded pattern appears on every stored page slot that the probe marked as supported.",
     "Press the physical previous/next/refresh buttons and confirm they navigate the same slot range as the API.",
     "Power-cycle the device and record whether stored page buffers survive reboot.",
     "Measure full-screen refresh time and note any ghosting or partial-update artifacts.",
     "If OTA is required, test one OTA flash on the same firmware build and record success/failure."
-  ],
-  "historical": true,
-  "historical_note": "Older pre-reflash firmware probe; do not treat wraparound/display-immediate invalid-input behavior as the current live contract."
+  ]
 }

@@ -42,7 +42,7 @@ class StubDevice:
 
     def discover_capabilities(self, refresh=False):
         class Capabilities:
-            host = "192.168.7.76"
+            host = "192.0.2.76"
             page_slots = 4
             current_page = 1
 

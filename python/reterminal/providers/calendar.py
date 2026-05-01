@@ -1,19 +1,19 @@
 """SceneProvider for the calendar slot (slot 0).
 
-Reads ~/madad/family/calendar.md (## Today + ## Tomorrow), renders a
-two-column today-board. The file is machine-written by OpenClaw heartbeat
-from gws — this provider has no Google dependency and never makes a network
-call. If the file is missing or empty, the provider returns no scenes and
-the slot keeps showing whatever was last pushed.
+Reads ~/reterminal-content/family/calendar.md (## Today + ## Tomorrow),
+renders a two-column today-board. The file is usually machine-written by an
+upstream calendar exporter — this provider has no calendar API dependency and
+never makes a network call. If the file is missing or empty, the provider
+returns a visible missing/empty notice.
 
 Line format inside ## Today and ## Tomorrow (per CONVENTIONS.md):
 
     HH:MM[am|pm] Label [@who]
 
 Examples:
-    - 9:30am Hasan piano [@hasan]
+    - 9:30am Piano [@kid1]
     - 12:00pm Family lunch
-    - 4:00pm Ammar baseball practice [@ammar]
+    - 4:00pm Baseball practice [@kid2]
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from reterminal.providers.manifest import register_provider
 from reterminal.scenes import SceneSpec
 
 
-DEFAULT_PATH = Path.home() / "madad" / "family" / "calendar.md"
+DEFAULT_PATH = Path.home() / "reterminal-content" / "family" / "calendar.md"
 
 TIME_RE = re.compile(r"^(\d{1,2}(?::\d{2})?(?:am|pm)?)\s+(.*)$", re.IGNORECASE)
 WHO_RE = re.compile(r"\[@([^\]]+)\]\s*$")

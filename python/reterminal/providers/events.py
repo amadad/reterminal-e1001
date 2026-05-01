@@ -1,6 +1,6 @@
 """SceneProvider for the events slot (slot 2).
 
-Reads ~/madad/family/events.md (## Upcoming section), sorts by proximity,
+Reads ~/reterminal-content/family/events.md (## Upcoming section), sorts by proximity,
 drops past items, returns a SceneSpec carrying a prerendered 800x480 1-bit
 bitmap. The provider owns parsing and layout end-to-end.
 """
@@ -21,7 +21,7 @@ from reterminal.providers.manifest import register_provider
 from reterminal.scenes import SceneSpec
 
 
-DEFAULT_PATH = Path.home() / "madad" / "family" / "events.md"
+DEFAULT_PATH = Path.home() / "reterminal-content" / "family" / "events.md"
 
 ISO_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})\s+(.*)$")
 TAG_RE = re.compile(r"\[([^\]]+)\]\s*$")

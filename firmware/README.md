@@ -70,21 +70,24 @@ Notes:
 
 ## Flashing
 
+For the full agent access contract, including USB-vs-HTTP boundaries and Python/uv path rules, see `../docs/access.md`.
+
 ### First Time (USB)
 
 1. Connect reTerminal to your computer via USB-C
-2. Put device in bootloader mode if needed (hold BOOT while connecting)
-3. Flash:
+2. Discover the current serial path with `pio device list` (`/dev/cu.usbserial-*` or `/dev/cu.usbmodem*` on macOS; suffixes drift)
+3. Put device in bootloader mode if needed (hold BOOT while connecting)
+4. Flash:
 
 ```bash
 cd firmware
-pio run -e reterminal -t upload
+pio run -e reterminal -t upload --upload-port /dev/cu.usbserial-XXXX
 ```
 
-4. Monitor serial output:
+5. Monitor serial output:
 
 ```bash
-pio device monitor
+pio device monitor -p /dev/cu.usbserial-XXXX -b 115200
 ```
 
 You should see something like:
@@ -104,9 +107,9 @@ If Wi-Fi is not configured, the device now stops on a configuration screen inste
 After a successful Wi-Fi boot, rediscover the current DHCP lease from the host side instead of assuming an old IP:
 
 ```bash
-cd ../python
-uv run reterminal discover
-uv run reterminal doctor --host <device-ip>
+cd ..
+env -u VIRTUAL_ENV uv --directory python run reterminal discover
+env -u VIRTUAL_ENV uv --directory python run reterminal doctor --host <device-ip>
 ```
 
 ### Subsequent Updates (OTA)
@@ -136,7 +139,7 @@ Notes:
 - `/capabilities` is the richer machine-readable contract for host software.
 - `/snapshot` returns the exact stored raw bitmap for a loaded slot so host tooling can verify what the device has cached.
 - `/clear` clears one slot or the stored slot cache.
-- Stored pages are persisted to LittleFS on the current tracked firmware when the filesystem mounts successfully.
+- Stored pages are persisted to the labeled LittleFS partition on the current tracked firmware when the filesystem mounts successfully.
 - Invalid page numbers are rejected with `400 Page out of range`; older wraparound/display-immediate behavior belongs to the historical pre-reflash build.
 - If the live device still returns `404` for `/capabilities`, `/snapshot`, or `/clear`, you are still talking to the older flashed firmware and need a reflash before expecting the newer source contract.
 
@@ -192,7 +195,7 @@ Managed automatically by PlatformIO:
 - ePaper takes about 5-6 seconds for a visible full refresh on this panel
 - Check serial monitor for errors
 - Verify image is exactly 48000 bytes
-- If a power cycle returns with `loaded: false`, republish from the host and inspect LittleFS health in `/capabilities`
+- If a power cycle returns with `loaded: false`, republish from the host and inspect LittleFS health in `/capabilities`; verify the firmware is mounting the `littlefs` partition label from `partitions-32mb.csv`
 
 ## Memory
 

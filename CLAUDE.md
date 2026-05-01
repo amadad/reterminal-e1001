@@ -19,7 +19,7 @@ The older fixed-page modules remain for compatibility, but they are no longer th
 
 ## Verified hardware/firmware behavior
 
-Based on live probing plus USB bootloader interrogation on `kunst`:
+Based on live probing plus USB bootloader interrogation on a macOS host:
 
 - device now connects over Wi-Fi and exposes `/status`, `/capabilities`, `/buttons`, `/beep`, `/page`, `/snapshot`, `/imageraw`, `/clear`
 - current live contract is `800x480`, `1-bit`, `48000` bytes per raw image
@@ -29,9 +29,9 @@ Based on live probing plus USB bootloader interrogation on `kunst`:
 - on boot, firmware restores persisted slots and shows the last active page (no ready screen unless first boot)
 - display uses **full refresh on every path** — image push, navigation, manual button, boot restore. Partial refresh was tried for navigation but produced layered/ghosted artifacts because slot content is dissimilar (agenda vs list vs list vs list); the partial LUT can only handle small pixel deltas cleanly. The flash on every nav is the accepted cost. Every refresh function calls `display.hibernate()` at the end. See `docs/_solutions.md`
 - `POST /page` does **not** beep — beep is reserved for physical button presses
-- USB interrogation identified the board as `ESP32-S3` with embedded `8MB` PSRAM and `32MB` flash behind a `CH340` serial bridge on `kunst`
+- USB interrogation identified the board as `ESP32-S3` with embedded `8MB` PSRAM and `32MB` flash behind a `CH340` serial bridge
 
-The checked-in `artifacts/probe-report.json` captures the older pre-reflash firmware's invalid-input behavior. Do not assume those old wraparound semantics are still live truth until the reflashed firmware is probed again.
+The checked-in `artifacts/probe-report.json` is current sanitized probe evidence from the reflashed firmware. It confirms clean invalid-slot rejection rather than the older wraparound/display-immediate behavior.
 
 See:
 
@@ -79,6 +79,18 @@ uv run reterminal publish --feed examples/agent-feed.json --preview ./previews -
 uv run reterminal publish --feed examples/kitchen-display.json --push --watch --live
 ```
 
+## Agent access quickstart
+
+Read `docs/access.md` before debugging connectivity or Python-path problems.
+
+Key rules:
+
+- The Python project root is `python/`, not the repo root. From repo root, use `env -u VIRTUAL_ENV uv --directory python run reterminal ...`; from `python/`, use `env -u VIRTUAL_ENV uv run reterminal ...`.
+- USB serial is for boot logs, bootloader interrogation, and PlatformIO flashing. Slot status, snapshots, uploads, and page selection are HTTP-over-Wi-Fi operations.
+- Use `pio device list` to find current `/dev/cu.usbserial-*` or `/dev/cu.usbmodem*` paths. Numeric suffixes drift with USB topology.
+- If USB logs are visible but `reterminal discover` returns no hosts, the device is alive over USB but not reachable over Wi-Fi/HTTP; diagnose Wi-Fi from serial logs instead of guessing old DHCP leases.
+- On some macOS networks, Python `requests` reports `No route to host` even when `curl` works. The CLI has curl fallback for live device HTTP; prefer CLI/curl over ad hoc `requests` snippets.
+
 ## Decommissioned legacy commands
 
 The old fixed-page `refresh` / `watch` CLI commands are no longer active. Do not use `./refresh.sh market`; it now points users to the provider-driven publish flow.
@@ -96,16 +108,16 @@ The old fixed-page `refresh` / `watch` CLI commands are no longer active. Do not
 
 ## Live feed architecture
 
-The kitchen display is driven by **four markdown files in `~/madad/family/`**, watched via FSEvents by `reterminal publish --watch`. The display pipeline has zero API dependencies — no Google, no Discord, no OpenClaw.
+The kitchen display can be driven by **four local markdown files**, watched via FSEvents by `reterminal publish --watch`. The public example uses `~/reterminal-content/family/`; machine-specific paths belong in an ignored local manifest such as `python/examples/kitchen-display.local.json`. The display pipeline has zero required calendar/chat/cloud API dependencies.
 
 ```
-Discord       ─►  orb        ─►  ~/madad/family/missions.md
-Discord       ─►  orb        ─►  ~/madad/family/events.md
-Discord       ─►  orb        ─►  ~/madad/family/activities.md
-OC heartbeat  ─►  gws        ─►  ~/madad/family/calendar.md
+calendar exporter ─►  ~/reterminal-content/family/calendar.md
+local editors     ─►  ~/reterminal-content/family/missions.md
+local editors     ─►  ~/reterminal-content/family/events.md
+local editors     ─►  ~/reterminal-content/family/activities.md
                                           │
                                           ▼  (FSEvents on all 4 paths)
-                          reterminal publish --watch  (launchd-supervised)
+                          reterminal publish --watch
                                           │
                                           ▼
                                        device
@@ -113,16 +125,16 @@ OC heartbeat  ─►  gws        ─►  ~/madad/family/calendar.md
 
 4-slot layout, one provider per slot:
 
-- **slot 0**: `calendar` — today/tomorrow agenda from `calendar.md` (machine-written by OC heartbeat)
-- **slot 1**: `missions` — four-kid mission cards from `missions.md`
+- **slot 0**: `calendar` — today/tomorrow agenda from `calendar.md`
+- **slot 1**: `missions` — mission cards from `missions.md`
 - **slot 2**: `events` — upcoming events from `events.md`
 - **slot 3**: `activities` — recent + queued activities from `activities.md`
 
-The wiring lives in `python/examples/kitchen-display.json` (a provider manifest, not a scene list). `~/madad/family/CONVENTIONS.md` documents the file-format contracts (preamble, renderer-consumed sections, `## Notes` working-memory). Provider implementations are in `python/reterminal/providers/{calendar,missions,events,activities}.py`. Each returns a `SceneSpec` carrying a prerendered 800x480 1-bit bitmap; `MonoRenderer` short-circuits on prerendered scenes and just blits.
+The wiring lives in a provider manifest such as `python/examples/kitchen-display.json` (a provider manifest, not a scene list). Provider implementations are in `python/reterminal/providers/{calendar,missions,events,activities}.py`. Each returns a `SceneSpec` carrying a prerendered 800x480 1-bit bitmap; `MonoRenderer` short-circuits on prerendered scenes and just blits.
 
-The trigger loop (`python/reterminal/app/live.py`) uses `watchdog` for FSEvents on the parent directories of the four files, with a 5-minute sanity tick. It seeds its in-memory slot hashes from `/snapshot` on startup, refreshes capabilities on each tick to detect device reboots/storage loss, then marks a slot current only after a successful upload; this keeps launchd restarts, reboots, and transient upload failures from causing redundant or missed pushes. The launchd plist at `scripts/sh.reterminal.publish.plist` runs `scripts/reterminal-publish-watch.sh`, which discovers the DHCP-assigned host unless `RETERMINAL_HOST` is explicitly set.
+The trigger loop (`python/reterminal/app/live.py`) uses `watchdog` for FSEvents on the parent directories of the four files, with a 5-minute sanity tick. It seeds its in-memory slot hashes from `/snapshot` on startup, refreshes capabilities on each tick to detect device reboots/storage loss, then marks a slot current only after a successful upload; this keeps launchd restarts, reboots, and transient upload failures from causing redundant or missed pushes. The public launchd template at `scripts/sh.reterminal.publish.example.plist` runs `scripts/reterminal-publish-watch.sh`, which discovers the DHCP-assigned host unless `RETERMINAL_HOST` is explicitly set.
 
-Do **not** reintroduce legacy `ready-board` / `need-board` / `reset-board` as live slots unless Ali explicitly asks for a rollback. The legacy bash orchestrator (`~/oc-min/scripts/reterminal-{live,refresh}.sh`, `generate_reterminal_feed.py`) is no longer in the kitchen-display path; it remains in oc-min until the new pipeline has soaked.
+Do **not** reintroduce legacy `ready-board` / `need-board` / `reset-board` as live slots unless explicitly asked for a rollback.
 
 For the kitchen display, prefer low-churn, action-oriented layouts over live clocks or dense dashboard chrome so hidden-slot updates do not cause unnecessary visible refreshes. The SOP for changing live slot ownership is in `docs/kitchen-display-sop.md`.
 
@@ -154,4 +166,4 @@ uv run reterminal clear --all
 uv run reterminal probe
 ```
 
-Do not assume a prior DHCP lease is still valid. The recovered device later appeared at `.97` after earlier `.76/.77/.78` guesses failed.
+Do not assume a prior DHCP lease is still valid.

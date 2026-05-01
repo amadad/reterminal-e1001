@@ -42,10 +42,10 @@ Current providers:
 - `FileSceneProvider` (legacy `{"scenes": [...]}` feed shape)
 - `SystemSceneProvider`
 - `PaperclipSceneProvider` (remote HTTP feed adapter)
-- `CalendarProvider` — reads `~/madad/family/calendar.md`
-- `MissionsProvider` — reads `~/madad/family/missions.md`
-- `EventsProvider` — reads `~/madad/family/events.md`
-- `ActivitiesProvider` — reads `~/madad/family/activities.md`
+- `CalendarProvider` — reads `~/reterminal-content/family/calendar.md` by default
+- `MissionsProvider` — reads `~/reterminal-content/family/missions.md` by default
+- `EventsProvider` — reads `~/reterminal-content/family/events.md` by default
+- `ActivitiesProvider` — reads `~/reterminal-content/family/activities.md` by default
 
 The kitchen-display providers register themselves into a manifest registry
 (`providers/manifest.py`) so a `{"providers": [...]}` JSON config like

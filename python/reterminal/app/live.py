@@ -35,6 +35,7 @@ from watchdog.observers import Observer
 from reterminal.app.publisher import DisplayPublisher
 from reterminal.encoding import pil_to_raw
 from reterminal.device.capabilities import DeviceCapabilities
+from reterminal.exceptions import ConnectionError as DeviceConnectionError
 from reterminal.protocols import DisplayDevice
 from reterminal.providers import SceneProvider, build_providers, load_manifest
 from reterminal.providers.manifest import FeedManifest
@@ -43,6 +44,21 @@ from reterminal.scheduler import PriorityScheduler
 
 
 SANITY_TICK_SECONDS = 300
+RecoverDevice = Callable[[DisplayDevice], bool]
+
+
+def _is_connection_failure(exc: BaseException) -> bool:
+    return isinstance(exc, DeviceConnectionError)
+
+
+def _try_recover_device(device: DisplayDevice, recover_device: RecoverDevice | None) -> bool:
+    if recover_device is None:
+        return False
+    try:
+        return recover_device(device)
+    except Exception as exc:
+        logger.warning(f"live: device rediscovery failed: {exc}")
+        return False
 
 
 @dataclass(slots=True)
@@ -175,13 +191,23 @@ def _sync_cache_with_device(
     cache: _BitmapCache,
     *,
     seed_snapshots: bool = False,
+    recover_device: RecoverDevice | None = None,
 ) -> int:
     """Refresh device state and invalidate digest cache after a reboot."""
     try:
         caps = device.prepare_push_cycle()
-    except Exception:
-        logger.debug("live: could not refresh device state before publish", exc_info=True)
-        return 0
+    except Exception as exc:
+        if not _is_connection_failure(exc):
+            logger.debug("live: could not refresh device state before publish", exc_info=True)
+            return 0
+        logger.warning(f"live: device unavailable before publish: {exc}")
+        if not _try_recover_device(device, recover_device):
+            return 0
+        try:
+            caps = device.prepare_push_cycle()
+        except Exception as retry_exc:
+            logger.warning(f"live: device still unavailable after rediscovery: {retry_exc}")
+            return 0
 
     uptime_ms = caps.uptime_ms
     rebooted = (
@@ -207,13 +233,14 @@ def _publish_once(
     cache: _BitmapCache,
     *,
     push: bool,
+    recover_device: RecoverDevice | None = None,
 ) -> int:
     """Render one publish cycle and push only the slots whose bitmap changed.
 
     Returns the number of slots actually pushed.
     """
     if push and publisher.device is not None:
-        _sync_cache_with_device(publisher.device, cache)
+        _sync_cache_with_device(publisher.device, cache, recover_device=recover_device)
 
     scenes = publisher._collect_scenes()
     if not scenes:
@@ -229,7 +256,29 @@ def _publish_once(
         if not cache.changed(slot, digest):
             continue
         if push and publisher.device is not None:
-            publisher.device.push_pil(image, slot)
+            try:
+                publisher.device.push_pil(image, slot)
+            except Exception as exc:
+                if not _is_connection_failure(exc):
+                    raise
+                logger.warning(f"live: device unavailable during slot {slot} upload: {exc}")
+                if not _try_recover_device(publisher.device, recover_device):
+                    return pushed
+                _sync_cache_with_device(
+                    publisher.device,
+                    cache,
+                    seed_snapshots=True,
+                    recover_device=recover_device,
+                )
+                try:
+                    publisher.device.push_pil(image, slot)
+                except Exception as retry_exc:
+                    if not _is_connection_failure(retry_exc):
+                        raise
+                    logger.warning(
+                        f"live: slot {slot} upload still failed after rediscovery: {retry_exc}"
+                    )
+                    return pushed
             cache.mark_current(slot, digest)
             pushed += 1
         elif not push:
@@ -244,6 +293,7 @@ def run_live(
     push: bool = False,
     sanity_tick_seconds: int = SANITY_TICK_SECONDS,
     on_tick: Callable[[int], None] | None = None,
+    recover_device: RecoverDevice | None = None,
 ) -> None:
     """Start the FSEvents-driven publish loop. Runs until KeyboardInterrupt.
 
@@ -267,12 +317,17 @@ def run_live(
     )
     cache = _BitmapCache()
     if push and device is not None:
-        seeded = _sync_cache_with_device(device, cache, seed_snapshots=True)
+        seeded = _sync_cache_with_device(
+            device,
+            cache,
+            seed_snapshots=True,
+            recover_device=recover_device,
+        )
         if seeded:
             logger.info(f"live: seeded {seeded} slot digest(s) from device snapshots")
 
     def tick() -> None:
-        pushed = _publish_once(publisher, cache, push=push)
+        pushed = _publish_once(publisher, cache, push=push, recover_device=recover_device)
         if pushed:
             logger.info(f"live: pushed {pushed} slot(s)")
         if on_tick is not None:

@@ -730,7 +730,7 @@ void setup() {
   // filesystem on first boot. Without this, a corrupted or empty LittleFS
   // partition leaves slots volatile permanently, breaking the watchdog reboot
   // recovery story.
-  if (LittleFS.begin(true)) {
+  if (LittleFS.begin(true, "/littlefs", 10, "littlefs")) {
     fsReady = true;
     LittleFS.mkdir(SLOT_DIR);
     usbSerial.println("LittleFS ready");

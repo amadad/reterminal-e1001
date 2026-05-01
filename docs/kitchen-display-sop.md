@@ -1,88 +1,114 @@
 # Kitchen Display SOP
 
-This repo controls the reTerminal E1001 kitchen display. The expensive mistake
-to avoid: accidentally overwriting the designed slots with older legacy feed
-pages during the hourly refresh loop.
+This repo can run a four-slot kitchen display from local markdown files. The
+main operational risk is accidentally running multiple publishers that disagree
+about slot ownership.
 
 ## Current slot ownership
 
-| Slot | Live page | Source | Provider |
+The public example manifest uses `~/reterminal-content/family/` as the content
+root. Keep machine-specific paths in `python/examples/kitchen-display.local.json`
+(or set `RETERMINAL_FEED`) rather than editing public examples with private
+paths.
+
+| Slot | Live page | Example source | Provider |
 | --- | --- | --- | --- |
-| 0 | Today / Tomorrow agenda | `~/madad/family/calendar.md` (machine-written by OC heartbeat from gws — see `docs/oc-calendar-heartbeat.md`) | `python/reterminal/providers/calendar.py` |
-| 1 | Four-kid missions | `~/madad/family/missions.md` | `python/reterminal/providers/missions.py` |
-| 2 | Upcoming events | `~/madad/family/events.md` | `python/reterminal/providers/events.py` |
-| 3 | Activities / movies | `~/madad/family/activities.md` | `python/reterminal/providers/activities.py` |
+| 0 | Today / Tomorrow agenda | `~/reterminal-content/family/calendar.md` | `python/reterminal/providers/calendar.py` |
+| 1 | Missions | `~/reterminal-content/family/missions.md` | `python/reterminal/providers/missions.py` |
+| 2 | Upcoming events | `~/reterminal-content/family/events.md` | `python/reterminal/providers/events.py` |
+| 3 | Activities / movies | `~/reterminal-content/family/activities.md` | `python/reterminal/providers/activities.py` |
 
-All four slots are markdown-backed. The wiring lives in
-`python/examples/kitchen-display.json` (a provider manifest). File-format
-contracts are documented in `~/madad/family/CONVENTIONS.md`.
+All four slots are markdown-backed. The wiring lives in a provider manifest such
+as `python/examples/kitchen-display.json`.
 
-Legacy scenes named `ready-board`, `need-board`, `reset-board`, and the
-old slot-0 `today-board` JSON path are not live slot owners.
+Legacy scenes named `ready-board`, `need-board`, `reset-board`, and older
+fixed-page JSON feeds are not live slot owners.
 
 ## Safe refresh rule
 
-Production refresh is owned by:
+Production refresh should be owned by one watcher:
 
 ```bash
+cd python
 uv run reterminal publish --feed examples/kitchen-display.json --push --watch --live
 ```
 
-This is launchd-supervised via `scripts/sh.reterminal.publish.plist`, which
-runs `scripts/reterminal-publish-watch.sh`. The wrapper discovers the current
-DHCP-assigned host unless `RETERMINAL_HOST` is explicitly set. The loop watches
-the four markdown files via FSEvents and re-renders + pushes only the slots
-whose bitmap actually changed. It preserves the current visible slot unless an
-operator explicitly selects one. No legacy bash orchestrator, no tmux session.
+For local production, prefer an ignored manifest:
+
+```bash
+cp python/examples/kitchen-display.json python/examples/kitchen-display.local.json
+# edit paths locally
+RETERMINAL_FEED=python/examples/kitchen-display.local.json \
+  scripts/reterminal-publish-watch.sh
+```
+
+The wrapper discovers the current DHCP-assigned host unless `RETERMINAL_HOST` is
+explicitly set. If no host is reachable at startup, it waits and retries instead
+of crash-looping. Discovery and device HTTP operations fall back to `curl` when
+Python `requests` cannot open the route. During `publish --watch`, connection
+failures are logged as compact warnings; the live loop attempts rediscovery and
+retries the upload without marking a slot current until the push succeeds.
+
+The loop watches the markdown files via FSEvents and re-renders + pushes only
+the slots whose bitmap changed. It preserves the current visible slot unless an
+operator explicitly selects one.
 
 If you change slot ownership, update all of these in the same change:
 
-1. `CLAUDE.md` "Live feed architecture" section
+1. `CLAUDE.md` live-feed architecture section
 2. this SOP
-3. `python/examples/kitchen-display.json` (the manifest)
-4. `~/madad/family/CONVENTIONS.md` if the file/section format changes
-5. a verification note with readback hashes from the device
+3. the provider manifest
+4. content-file conventions, if the file/section format changes
+5. a verification note with device readback hashes, if you tested live hardware
 
-## Legacy fallback
+## Launchd example
 
-The old fixed-page CLI `refresh` / `watch` commands are not live. If the new
-pipeline misbehaves, prefer fixing or restarting the launchd watcher. Any
-external fallback should be a one-shot deterministic push only — do not restart
-a polling loop that can overwrite the designed slot ownership.
+A public-safe template lives at `scripts/sh.reterminal.publish.example.plist`.
+Copy it to `~/Library/LaunchAgents/sh.reterminal.publish.plist`, replace paths
+with your local checkout, and keep the installed/local plist out of git.
+
+## Firmware/version checklist
+
+When checking whether the physical unit is current, prefer firmware-reported
+provenance over memory:
+
+```bash
+env -u VIRTUAL_ENV uv --directory python run reterminal capabilities --host <device-ip>
+env -u VIRTUAL_ENV uv --directory python run reterminal doctor --host <device-ip> --feed python/examples/kitchen-display.json
+```
+
+`capabilities` should show firmware version, build SHA, build time, reset
+reason, reconnect counters, and uptime. `doctor` compares the firmware build SHA
+against the current checkout when both are available; if the build SHA is
+`unknown`, treat firmware currency as unverified.
 
 ## Recovery checklist
 
-When Ali says “old version,” “not refreshed,” or “where did the designed pages
-go,” do this in order:
+When the display shows stale or unexpected content, do this in order:
 
-1. Confirm the watcher is running:
+1. Confirm only one watcher/publisher is running.
+2. If the device is not reachable, inspect USB serial logs first. USB proves the
+   board is alive; HTTP over Wi-Fi is still required for slot updates.
+3. Confirm the watcher uses the intended manifest (`RETERMINAL_FEED` or the
+   default `examples/kitchen-display.local.json`/`examples/kitchen-display.json`).
+4. Touch each markdown source to force a refresh:
    ```bash
-   launchctl list | grep sh.reterminal.publish
-   tail -50 ~/Library/Logs/reterminal/publish.log
+   touch ~/reterminal-content/family/{calendar,missions,events,activities}.md
    ```
-   If it is missing or crashed, reload:
+5. If the watcher is broken, run a one-shot publish instead of starting another
+   loop:
    ```bash
-   launchctl unload ~/Library/LaunchAgents/sh.reterminal.publish.plist
-   launchctl load   ~/Library/LaunchAgents/sh.reterminal.publish.plist
+   cd python
+   uv run reterminal publish --feed examples/kitchen-display.json --push --live
    ```
-2. Touch each markdown to force a refresh:
-   ```bash
-   touch ~/madad/family/{calendar,missions,events,activities}.md
-   ```
-   The watcher should react within ~1s and push any changed slots.
-3. If the watcher is broken, fall back to a one-shot legacy push:
-   ```bash
-   ~/oc-min/scripts/reterminal-refresh.sh
-   ```
-   Single deterministic push, no loop. Then fix the watcher.
-4. Verify device readback for slots 1-3 matches what the providers render:
+6. Verify device readback for slots 0-3:
    ```bash
    for slot in 0 1 2 3; do
      curl -fsS "http://$HOST/snapshot?page=$slot" -o "/tmp/reterminal-slot-$slot-live.raw"
      shasum -a 256 "/tmp/reterminal-slot-$slot-live.raw"
    done
    ```
-5. Put the device on the page Ali is asking about:
+7. Select the requested visible slot:
    ```bash
    curl -fsS -X POST "http://$HOST/page" \
      -H 'Content-Type: application/json' \
@@ -96,6 +122,11 @@ Do not conflate content regression with firmware crashes.
 - If the device is reachable and `/snapshot` hashes match, the issue is content
   ownership or navigation state.
 - If the device disappears from discovery, ping, and `/status`, investigate
-  firmware/Wi-Fi/display refresh stability.
-- Avoid `clear --all` unless Ali explicitly wants a blank/wipe. Prefer
-  regenerate → upload → show current slot.
+  firmware/Wi-Fi/display refresh stability from USB serial logs.
+- Avoid `clear --all` unless a blank/wipe is intended. Prefer regenerate →
+  upload → show current slot.
+
+Call the freeze issue resolved for a physical unit only after a 48–72h soak with
+no manual power cycle, reachable `/status`, increasing uptime except intentional
+reboots, no watchdog/panic reset reason, and watcher logs showing retry/recovery
+rather than repeated tracebacks.

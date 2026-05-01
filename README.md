@@ -16,9 +16,7 @@ Live probe results from the current flashed firmware confirm:
 - **Raw upload size:** 48,000 bytes
 - **Physical page slots:** 4 (`0..3`)
 
-The tracked firmware rejects out-of-range `POST /page` and `POST /imageraw?page=N` requests with `400 Page out of range`; re-run the destructive probe before replacing the historical probe artifact with fresh live invalid-input evidence.
-
-The checked-in `artifacts/probe-report.json` is historical evidence from the older pre-reflash firmware; it is not the current live contract.
+The checked-in `artifacts/probe-report.json` is current sanitized probe evidence from the reflashed firmware. It confirms slots `0..3` store/select normally and invalid slots `4..7` are rejected instead of wrapping or displaying transiently.
 
 See:
 
@@ -47,6 +45,8 @@ See:
 The older fixed page modules still exist for compatibility, but they are now **legacy**. The new direction is provider-driven scenes, not a hardcoded 7-page carousel.
 
 ## Quick start
+
+For connection and troubleshooting notes, including USB-vs-HTTP and Python/uv path rules, see `docs/access.md`.
 
 ### 1. Install the Python package
 
@@ -89,7 +89,7 @@ uv run reterminal discover
 export RETERMINAL_HOST=<device-ip>
 ```
 
-The CLI no longer falls back to a baked-in IP. Set `RETERMINAL_HOST` or pass `--host` explicitly after discovery. Do not assume an old DHCP lease; during recovery the device moved from earlier `.76/.77/.78` guesses to `.97`.
+The CLI no longer falls back to a baked-in IP. Set `RETERMINAL_HOST` or pass `--host` explicitly after discovery. Do not assume an old DHCP lease remains valid.
 
 ### 3. Probe the live device
 
@@ -237,7 +237,7 @@ The repo is moving toward:
 
 ## Firmware notes
 
-The latest **verified live device** was reflashed on `2026-04-16` and now exposes the newer tracked firmware contract over Wi-Fi.
+The latest **verified live device** was reflashed on `2026-05-01` and exposes the newer tracked firmware contract over Wi-Fi.
 
 Current live truth includes:
 
@@ -246,8 +246,8 @@ Current live truth includes:
 - neutral slot names (`slot-0..slot-3`)
 - no firmware overlay chrome on stored pages
 - LittleFS-backed slot persistence across power cycles on the current flashed build
-
-The checked-in `artifacts/probe-report.json` is historical evidence from the older pre-reflash firmware. Re-run destructive probing on the current live build before replacing it with current invalid-input proof.
+- firmware build SHA exposed through `/capabilities` and compared by `reterminal doctor`
+- curl fallback in host tooling for macOS cases where Python `requests` cannot route to the device
 
 ## Legacy wrapper
 

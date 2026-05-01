@@ -13,10 +13,10 @@ A manifest file looks like:
 
     {
       "providers": [
-        {"type": "calendar",   "calendar_id": "family@group.calendar.google.com"},
-        {"type": "missions",   "path": "~/madad/family/missions.md"},
-        {"type": "events",     "path": "~/madad/family/events.md"},
-        {"type": "activities", "path": "~/madad/family/activities.md"}
+        {"type": "calendar",   "path": "~/reterminal-content/family/calendar.md"},
+        {"type": "missions",   "path": "~/reterminal-content/family/missions.md"},
+        {"type": "events",     "path": "~/reterminal-content/family/events.md"},
+        {"type": "activities", "path": "~/reterminal-content/family/activities.md"}
       ]
     }
 

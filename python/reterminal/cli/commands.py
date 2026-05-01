@@ -1,6 +1,7 @@
 """CLI commands for reterminal."""
 
 import json
+import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -46,6 +47,49 @@ def require_live_action(action: str, *, live: bool, non_interactive: bool) -> No
     if non_interactive:
         typer.echo(f"Error: --non-interactive cannot be combined with live action '{action}'.")
         raise typer.Exit(1)
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+def _discover_first_host(configured_host: str | None = None) -> str | None:
+    subnet = os.getenv("RETERMINAL_DISCOVERY_SUBNET") or None
+    candidates = build_discovery_candidates(configured_host, subnet=subnet)
+    results = discover_hosts(
+        candidates,
+        timeout=_env_float("RETERMINAL_DISCOVERY_TIMEOUT", 1.5),
+        workers=_env_int("RETERMINAL_DISCOVERY_WORKERS", 32),
+    )
+    if not results:
+        return None
+    first = results[0]
+    return first.target or (first.status or {}).get("ip")
+
+
+def _build_live_recover(device: ReTerminalDevice):
+    def recover(_device) -> bool:
+        current_host = device.client.host
+        discovered = _discover_first_host(current_host)
+        if not discovered:
+            logger.warning("live: rediscovery found no reachable reTerminal host")
+            return False
+        if discovered != current_host:
+            logger.info(f"live: rediscovered reTerminal at {discovered} (was {current_host})")
+            device.connect_host(discovered)
+        return True
+
+    return recover
 
 
 def build_publish_payload(result, target_host: str | None = None) -> dict[str, object]:
@@ -416,7 +460,7 @@ def config(
 def discover(
     host: Optional[str] = HostOption,
     candidate: list[str] = typer.Option(None, "--candidate", help="Additional host/IP candidate to probe"),
-    subnet: Optional[str] = typer.Option(None, "--subnet", help="Subnet prefix to scan, e.g. 192.168.7"),
+    subnet: Optional[str] = typer.Option(None, "--subnet", help="Subnet prefix to scan, e.g. 192.168.1"),
     start: int = typer.Option(1, "--start", min=0, max=255, help="Start of subnet scan range"),
     end: int = typer.Option(254, "--end", min=0, max=255, help="End of subnet scan range"),
     timeout: float = typer.Option(1.5, "--timeout", min=0.1, help="Per-host timeout in seconds"),
@@ -495,6 +539,8 @@ def doctor(
                 "capabilities": report.capabilities.to_dict() if report.capabilities else None,
                 "scene_count": report.scene_count,
                 "assignment_count": report.assignment_count,
+                "repo_build_sha": report.repo_build_sha,
+                "firmware_match": report.firmware_match,
                 "warnings": report.warnings,
                 "errors": report.errors,
             }
@@ -510,6 +556,14 @@ def doctor(
             typer.echo(f"  {'Resolved Host':20} {report.capabilities.host}")
             typer.echo(f"  {'Page Slots':20} {report.capabilities.page_slots}")
             typer.echo(f"  {'Current Page':20} {report.capabilities.current_page}")
+            if report.capabilities.firmware_version is not None:
+                typer.echo(f"  {'Firmware':20} {report.capabilities.firmware_version}")
+            if report.capabilities.build_sha is not None:
+                typer.echo(f"  {'Build SHA':20} {report.capabilities.build_sha}")
+            if report.repo_build_sha is not None:
+                typer.echo(f"  {'Repo SHA':20} {report.repo_build_sha}")
+            if report.firmware_match is not None:
+                typer.echo(f"  {'Firmware Match':20} {report.firmware_match}")
             typer.echo(f"  {'Scene Count':20} {report.scene_count}")
             typer.echo(f"  {'Assignments':20} {report.assignment_count}")
         if report.warnings:
@@ -598,6 +652,8 @@ def capabilities(
             typer.echo(f"  {'Hostname':20} {caps.hostname}")
         if caps.firmware_version is not None:
             typer.echo(f"  {'Firmware':20} {caps.firmware_version}")
+        if caps.build_sha is not None:
+            typer.echo(f"  {'Build SHA':20} {caps.build_sha}")
         if caps.build_time is not None:
             typer.echo(f"  {'Build Time':20} {caps.build_time}")
         if caps.snapshot_readback is not None:
@@ -607,6 +663,10 @@ def capabilities(
             typer.echo(f"  {'Loaded Slots':20} {loaded}")
         typer.echo(f"  {'WiFi SSID':20} {caps.ssid}")
         typer.echo(f"  {'RSSI':20} {caps.rssi}")
+        if caps.reset_reason is not None:
+            typer.echo(f"  {'Reset Reason':20} {caps.reset_reason}")
+        if caps.wifi_reconnect_attempts is not None:
+            typer.echo(f"  {'WiFi Reconnects':20} {caps.wifi_reconnect_attempts}")
         typer.echo(f"  {'Uptime':20} {caps.uptime_ms} ms")
         typer.echo(f"{'─' * 48}")
     except Exception as e:
@@ -711,12 +771,26 @@ def publish(
 
     if watch:
         from reterminal.app.live import run_live
-        device = ReTerminalDevice(host) if push or host else None
-        run_live(feed, device=device, push=push)
+
+        device = None
+        recover_device = None
+        if push:
+            initial_host = host or settings.host or _discover_first_host()
+            if initial_host is None:
+                typer.echo(
+                    "Error: no reachable reTerminal host found. Set RETERMINAL_HOST, "
+                    "pass --host, or set RETERMINAL_DISCOVERY_SUBNET."
+                )
+                raise typer.Exit(1)
+            device = ReTerminalDevice(initial_host)
+            recover_device = _build_live_recover(device)
+        elif host:
+            device = ReTerminalDevice(host)
+        run_live(feed, device=device, push=push, recover_device=recover_device)
         return
 
     example_feed_warning = None
-    if feed is not None and "examples" in feed.resolve().parts:
+    if feed is not None and "examples" in feed.resolve().parts and not manifest_feed:
         example_feed_warning = "example feeds are static demo content and will not update on their own"
         if output != "json":
             typer.echo("Note: example feeds are static demo content and will not update on their own.")

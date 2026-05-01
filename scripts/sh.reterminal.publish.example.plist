@@ -1,25 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Launchd agent for the kitchen-display publisher.
+  Launchd agent example for the kitchen-display publisher.
 
   Install:
-    cp scripts/sh.reterminal.publish.plist ~/Library/LaunchAgents/
-    launchctl load ~/Library/LaunchAgents/sh.reterminal.publish.plist
+    1. Copy this file to ~/Library/LaunchAgents/sh.reterminal.publish.plist
+    2. Replace /path/to/reterminal-e1001 with your local checkout path.
+    3. Optionally set RETERMINAL_HOST or RETERMINAL_DISCOVERY_SUBNET.
+    4. launchctl load ~/Library/LaunchAgents/sh.reterminal.publish.plist
 
   Tail logs:
     tail -F ~/Library/Logs/reterminal/publish.log
-
-  Reload after editing:
-    launchctl unload ~/Library/LaunchAgents/sh.reterminal.publish.plist
-    launchctl load ~/Library/LaunchAgents/sh.reterminal.publish.plist
 
   Notes:
     - KeepAlive=true restarts the publisher if it crashes.
     - RunAtLoad=true starts it immediately on load and on user login.
     - The watch loop blocks on FSEvents; no --interval needed.
     - The wrapper discovers the DHCP-assigned device unless RETERMINAL_HOST is set.
-    - Adjust paths below for your install (uv path, repo path).
+    - Keep your installed plist local; do not commit machine-specific paths or IPs.
 -->
 <plist version="1.0">
 <dict>
@@ -27,21 +25,25 @@
     <string>sh.reterminal.publish</string>
 
     <key>WorkingDirectory</key>
-    <string>/Users/amadad/projects/reterminal-e1001/python</string>
+    <string>/path/to/reterminal-e1001/python</string>
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/amadad/projects/reterminal-e1001/scripts/reterminal-publish-watch.sh</string>
+        <string>/path/to/reterminal-e1001/scripts/reterminal-publish-watch.sh</string>
     </array>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/Users/amadad/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <!-- Optional examples:
         <key>RETERMINAL_HOST</key>
-        <string>192.168.7.46</string>
+        <string>192.168.1.50</string>
         <key>RETERMINAL_DISCOVERY_SUBNET</key>
-        <string>192.168.7</string>
+        <string>192.168.1</string>
+        <key>RETERMINAL_FEED</key>
+        <string>/path/to/reterminal-e1001/python/examples/kitchen-display.local.json</string>
+        -->
     </dict>
 
     <key>RunAtLoad</key>
@@ -54,9 +56,9 @@
     <integer>10</integer>
 
     <key>StandardOutPath</key>
-    <string>/Users/amadad/Library/Logs/reterminal/publish.log</string>
+    <string>/tmp/reterminal-publish.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/amadad/Library/Logs/reterminal/publish.log</string>
+    <string>/tmp/reterminal-publish.log</string>
 </dict>
 </plist>

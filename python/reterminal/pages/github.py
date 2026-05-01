@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from typing import TypedDict
 
@@ -33,11 +34,12 @@ class GitHubPage(BasePage[GitHubPageData]):
     description = "GitHub activity from gh CLI"
 
     def get_data(self) -> GitHubPageData:
-        data: GitHubPageData = {"user": "amadad", "repos": 0, "followers": 0, "recent": []}
+        user = os.environ.get("RETERMINAL_GITHUB_USER", "octocat")
+        data: GitHubPageData = {"user": user, "repos": 0, "followers": 0, "recent": []}
 
         try:
             result = subprocess.run(
-                ["gh", "api", "users/amadad", "--jq", "{public_repos, followers}"],
+                ["gh", "api", f"users/{user}", "--jq", "{public_repos, followers}"],
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -53,7 +55,7 @@ class GitHubPage(BasePage[GitHubPageData]):
                         data["followers"] = followers
 
             result = subprocess.run(
-                ["gh", "api", "users/amadad/events", "--jq", '.[0:3] | .[] | "\\(.type)|\\(.repo.name)"'],
+                ["gh", "api", f"users/{user}/events", "--jq", '.[0:3] | .[] | "\\(.type)|\\(.repo.name)"'],
                 capture_output=True,
                 text=True,
                 timeout=10,

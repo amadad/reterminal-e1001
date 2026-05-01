@@ -39,7 +39,7 @@ def test_missions_provider_renders(tmp_path: Path):
     md = _write(
         tmp_path / "missions.md",
         "## Active\n\n"
-        "### Laila\n"
+        "### Kid 1\n"
         "kind: project\n"
         "title: STEAM Fair\n"
         "progress: 1 / 4 weeks\n"
@@ -89,7 +89,7 @@ def test_calendar_provider_renders(tmp_path: Path):
     md = _write(
         tmp_path / "calendar.md",
         "## Today\n\n"
-        "- 9:30am Hasan piano [@hasan]\n"
+        "- 9:30am Piano [@kid1]\n"
         "- 12:00pm Family lunch\n\n"
         "## Tomorrow\n\n"
         "- 8:00am School\n",

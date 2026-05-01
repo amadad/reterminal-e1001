@@ -2,7 +2,7 @@
 
 This is the cleanup plan for bringing the repo back to one truthful architecture.
 
-Current status (2026-04-27): the repo now centers on a 4-slot provider-driven kitchen-display pipeline. Firmware, host docs, and launchd tooling have been updated for clean invalid-slot rejection, LittleFS persistence, mDNS/OTA startup, snapshot-seeded live publishing, and 32MB flash configuration. Remaining closure still requires flashing/probing the current source on the live device and recording that evidence.
+Current status (2026-05-01): the repo centers on a 4-slot provider-driven kitchen-display pipeline. The current source has been USB-flashed to the live unit, `/capabilities` reports a build SHA matching the dirty checkout, the sanitized destructive probe confirms clean invalid-slot rejection, and LittleFS restore is verified after reset. Host tooling now uses discovery/retry plus curl fallback for macOS route failures. Remaining closure is operational: a 48–72h stability soak plus manual button/display checks.
 
 ## Phase 0 — freeze and secure
 
@@ -29,6 +29,8 @@ Goal: establish what the hardware/firmware actually supports.
 - manually verify buttons, visible rendering, reboot persistence, OTA behavior
 - record the verified slot count and any API mismatches
 
+Current evidence: the destructive probe has been run on the reflashed firmware and recorded in sanitized form at `artifacts/probe-report.json`. It confirms 4 slots and clean invalid-slot rejection. Reboot persistence is verified for normal reset via LittleFS restore; OTA persistence still needs a future OTA-specific check if OTA becomes a primary update path.
+
 Exit criteria:
 
 - `docs/device-profile.md` contains verified values, not just code-inspection guesses
@@ -46,7 +48,7 @@ Decision points:
 
 - if firmware supports only 4 reliable slots, host can still render more logical pages but only 4 may be cached at once
 - if firmware supports 7+ reliable slots, a native 7-page carousel is acceptable
-- if page persistence is weak, host republish remains the recovery path; current tracked source persists slots to LittleFS when mounted
+- if page persistence is weak, host republish remains the recovery path; current flashed source persists slots to the labeled LittleFS partition and has restored all four slots after reset
 
 Exit criteria:
 
@@ -116,3 +118,5 @@ The refactor is complete when:
 - one Python implementation remains
 - device capability is verified, recorded, and queryable
 - the core vertical slice is tested on real hardware
+
+Current remaining gate: 48–72h soak with reachable `/status`, increasing uptime except intentional reboots, no watchdog/panic reset reason, and watcher logs showing retry/recovery rather than crash loops.

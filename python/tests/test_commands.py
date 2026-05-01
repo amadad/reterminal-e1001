@@ -58,7 +58,7 @@ def test_clear_command_invokes_device_clear(monkeypatch):
     captured = {}
 
     class StubClient:
-        host = "192.168.7.97"
+        host = "192.0.2.97"
 
     class StubDevice:
         def __init__(self, host=None):
@@ -74,13 +74,13 @@ def test_clear_command_invokes_device_clear(monkeypatch):
 
     result = runner.invoke(
         app,
-        ["clear", "--host", "192.168.7.97", "--page", "2", "--live", "--output", "json"],
+        ["clear", "--host", "192.0.2.97", "--page", "2", "--live", "--output", "json"],
     )
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert payload["result"]["page"] == 2
-    assert captured == {"host": "192.168.7.97", "slot": 2, "all": False}
+    assert captured == {"host": "192.0.2.97", "slot": 2, "all": False}
 
 
 
@@ -112,7 +112,7 @@ def test_push_transient_invokes_direct_display(monkeypatch):
     captured = {}
 
     class StubClient:
-        host = "192.168.7.32"
+        host = "192.0.2.32"
 
         def __init__(self, host=None):
             captured["host"] = host
@@ -142,10 +142,10 @@ def test_snapshot_command_writes_png_and_raw(monkeypatch, tmp_path):
     png_path = tmp_path / "slot-0.png"
 
     class StubClient:
-        host = "192.168.7.32"
+        host = "192.0.2.32"
 
     class StubSnapshot:
-        host = "192.168.7.32"
+        host = "192.0.2.32"
         page = 0
         page_name = "slot-0"
         width = 800
@@ -192,7 +192,7 @@ def test_snapshot_command_writes_png_and_raw(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
-    assert payload["host"] == "192.168.7.32"
+    assert payload["host"] == "192.0.2.32"
     assert payload["page"] == 0
     assert payload["raw_path"] == str(raw_path)
     assert payload["png_path"] == str(png_path)

@@ -1,1 +1,0 @@
-/Users/amadad/agents/_rules/general/git.md

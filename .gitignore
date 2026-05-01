@@ -20,8 +20,15 @@ build/
 .venv/
 venv/
 
-# Agent scratch/worktrees
-.claude/worktrees/
+# Local agent wiring
+.claude/
+
+# Local runtime/config overrides
+python/examples/*.local.json
+scripts/*.local.plist
+scripts/sh.reterminal.publish.plist
+artifacts/local/
+artifacts/snapshots/
 
 # IDE
 .idea/

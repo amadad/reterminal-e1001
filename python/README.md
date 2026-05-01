@@ -18,9 +18,11 @@ The live device currently behaves as:
 - current tracked firmware rejects invalid `imageraw?page=N` uploads with `400 Page out of range`
 - current flashed firmware persists loaded slots in LittleFS across normal power cycles
 
-Use `reterminal probe` and `reterminal capabilities` before assuming anything else. On newer firmware builds, `reterminal capabilities` reads the firmware-reported contract from `/capabilities`, `reterminal snapshot` can read back the exact stored slot bitmap, and `reterminal clear --all` can blank the stored slot cache for ghosting/recovery workflows.
+Use `reterminal probe`, `reterminal capabilities`, and `reterminal doctor` before assuming anything else. On newer firmware builds, `reterminal capabilities` reads the firmware-reported contract from `/capabilities`, `reterminal snapshot` can read back the exact stored slot bitmap, and `reterminal clear --all` can blank the stored slot cache for ghosting/recovery workflows. `doctor` compares firmware build SHA to the current checkout when possible. The HTTP client falls back to `curl` on macOS route failures where Python `requests` cannot reach a device that `curl` can.
 
 ## Install
+
+If running from repo root, either `cd python` first or use `env -u VIRTUAL_ENV uv --directory python run ...`. See `../docs/access.md` for the full agent access contract.
 
 ```bash
 uv sync
@@ -50,7 +52,7 @@ uv run reterminal publish --feed examples/agent-feed.json --preview ./previews -
 uv run reterminal publish --feed examples/kitchen-display.json --push --watch --live
 ```
 
-The CLI no longer falls back to a baked-in host IP. Set `RETERMINAL_HOST` or pass `--host` explicitly after discovery. Use `reterminal discover` and `reterminal doctor` when DHCP or network behavior is unclear; earlier `.76/.77/.78` guesses are not stable identity.
+The CLI no longer falls back to a baked-in host IP. Set `RETERMINAL_HOST` or pass `--host` explicitly after discovery. Use `reterminal discover` and `reterminal doctor` when DHCP or network behavior is unclear; earlier leases are not stable identity.
 
 ## Package layout
 

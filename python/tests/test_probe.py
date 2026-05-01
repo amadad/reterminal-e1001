@@ -10,7 +10,7 @@ from reterminal.probe import (
 
 def test_missing_status_fields_reports_only_missing_items():
     status = {
-        "ip": "192.168.7.77",
+        "ip": "192.0.2.77",
         "rssi": -40,
         "ssid": "lab",
         "uptime_ms": 1234,
@@ -21,7 +21,7 @@ def test_missing_status_fields_reports_only_missing_items():
 
 def test_missing_status_fields_accepts_current_page_name_alias():
     status = {
-        "ip": "192.168.7.77",
+        "ip": "192.0.2.77",
         "rssi": -40,
         "ssid": "lab",
         "uptime_ms": 1234,

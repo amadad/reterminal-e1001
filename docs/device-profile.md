@@ -14,13 +14,26 @@ The repo has drifted in three places:
 
 The refactor should converge those three into one canonical device profile.
 
-## Latest verified live results (2026-04-16)
+## Latest verified live results (2026-05-01)
 
-The device was physically attached to `kunst` over USB-C, interrogated through the ESP bootloader, reflashed from `firmware/`, and then re-verified over Wi-Fi.
+The device was reflashed over USB from `firmware/` and re-verified over Wi-Fi. Network and serial identifiers below are intentionally public-safe and should be rediscovered per session.
 
-- **Observed IP after reflash:** `192.168.7.32`
-- **Live SSID:** `HORUS`
-- **USB serial path on `kunst`:** `/dev/cu.usbserial-1410`
+- **USB flash:** succeeded via `/dev/cu.usbserial-*` using PlatformIO `env:reterminal`
+- **Firmware provenance:** `/capabilities` reports `firmware_version: local-dev`, build time for the flash, and a `build_sha` matching the current dirty checkout
+- **Firmware match check:** `reterminal doctor --host <device-ip> --feed <manifest> --no-include-system --output json` reports `firmware_match: match`
+- **Wi-Fi/HTTP:** `/status`, `/capabilities`, `/page`, `/snapshot`, and `/imageraw` reachable over HTTP; CLI falls back to curl on hosts where Python `requests` reports `No route to host`
+- **LittleFS persistence:** live boot log shows `LittleFS ready`, `Loaded slot 0..3 from flash`, and `Restored 4 slots from flash`; `/capabilities` reports LittleFS total/used bytes and all four slots loaded after reboot
+- **Launchd watcher:** local watcher runs `publish --watch --live`, discovers the DHCP host, seeds 4 slot digests from `/snapshot`, and preserves the visible slot
+- **Destructive slot probe:** current sanitized `artifacts/probe-report.json` confirms slots `0..3` store/select normally and invalid slots `4..7` are rejected cleanly
+- **Stability status:** freeze hardening is flashed, but the final closure gate is still a 48–72h soak with reachable `/status`, increasing uptime, no watchdog/panic reset reason, and clean watcher logs
+
+## Earlier verified live results (2026-04-16)
+
+The device was physically attached to a macOS host over USB-C, interrogated through the ESP bootloader, reflashed from `firmware/`, and then re-verified over Wi-Fi. Network and serial identifiers below are intentionally public-safe and should be rediscovered per session.
+
+- **Observed IP after reflash:** DHCP-assigned private address (session-specific; sanitized)
+- **Live SSID:** configured 2.4GHz network (sanitized)
+- **USB serial path:** `/dev/cu.usbserial-*` or `/dev/cu.usbmodem*` (session-specific suffix)
 - **USB bridge identity:** `VID:PID 1A86:7523` (`CH340`-class USB serial bridge)
 - **Chip identity:** `ESP32-S3 (QFN56)` revision `v0.2`
 - **Clock:** `40MHz`
@@ -43,25 +56,24 @@ The device was physically attached to `kunst` over USB-C, interrogated through t
 Evidence artifacts:
 
 - serial bootloader interrogation via `esptool.py read_mac` / `flash_id`
-- serial boot logs on `kunst`
-- `artifacts/snapshots/slot-0-live.raw`
-- `artifacts/snapshots/slot-0-live.png`
+- serial boot logs on the macOS host
+- local `/snapshot` readback captures (not committed; keep live snapshots under ignored `artifacts/snapshots/` or `artifacts/local/`)
 
 Operational notes:
 
-- DHCP lease is not a stable identity signal for this device. Earlier sessions saw `.76` and `.97`; this reflashed session came back at `.32`. Treat observed IPs as session evidence, not as part of the device contract, and prefer discovery/doctor before making network assumptions.
-- On `kunst`, plain `curl` remains more reliable than Python `requests` for live device transport, so the `oc-min` curl bridge is still the preferred mutation path on that machine.
+- DHCP lease is not a stable identity signal for this device. Treat observed IPs as session evidence, not as part of the device contract, and prefer discovery/doctor before making network assumptions.
+- On some macOS hosts, plain `curl` has been more reliable than Python `requests` for live device transport.
 - As of this session, `/capabilities`, `/clear`, `/snapshot`, neutral slot names, and no firmware overlay chrome are now **live truth**, not just tracked-source intent.
 - The practical performance model is: hidden-slot staging is cheap, visible-slot changes are slow. Design for preloading plus infrequent visible flips, not animation or second-by-second interaction.
-- A fresh destructive probe is still required before treating the reflashed firmware's invalid-input semantics as fully re-verified live behavior.
+- Current invalid-input semantics are re-verified by the sanitized destructive probe report. Repeat the probe only after firmware changes that touch slot validation/storage.
 
 ## Historical live results before reflash (2026-03-13 / 2026-04-01)
 
-These results describe the older flashed firmware that was replaced on `2026-04-16`. Keep them as historical evidence when interpreting older notes and `artifacts/probe-report.json`.
+These results describe the older flashed firmware that was replaced on `2026-04-16`. Keep them as historical context when interpreting older notes; the checked-in probe report now reflects the current reflashed firmware.
 
-- **Observed IP during the older probe:** `192.168.7.76`
-- **Later recovered IP on the same hardware:** `192.168.7.97`
-- **Live SSID on the older build:** `HORUS`
+- **Observed IP during the older probe:** DHCP-assigned private address (sanitized)
+- **Later recovered IP on the same hardware:** different DHCP-assigned private address (sanitized)
+- **Live SSID on the older build:** configured 2.4GHz network (sanitized)
 - **Firmware-reported page total:** `4`
 - **Verified contiguous storable/selectable slots:** `0..3`
 - **Out-of-range upload behavior:** `POST /imageraw?page=4..7` returned `{"success": true, "displayed": true}` and displayed immediately instead of storing
@@ -71,9 +83,7 @@ These results describe the older flashed firmware that was replaced on `2026-04-
 - **Invalid image size behavior:** short raw upload returned `400 Bad Request` with expected and received byte counts
 - **Visible older-firmware quirks:** `Page X/4` overlay chrome, no `/capabilities`, no `/clear`, and cache state that could come back effectively unloaded after power cycle
 
-Historical evidence artifact:
-
-- `artifacts/probe-report.json`
+Historical evidence was replaced by the current sanitized `artifacts/probe-report.json`; older wraparound/display-immediate behavior survives only in this historical notes section.
 
 ## Measured operating constraints (2026-04-16)
 
@@ -127,31 +137,23 @@ Until hardware verification says otherwise, the refactor should assume this mode
    - no Schwab/GitHub/weather logic on the ESP32
    - no page-specific network logic in firmware
 
-## Open questions that require live hardware verification
+## Remaining live verification questions
 
-These still need fresh measurement on the reflashed device before major architecture claims are considered safe:
+These are the remaining checks before calling the physical deployment fully closed:
 
-1. **Current-firmware invalid page behavior**
-   - Tracked source rejects `POST /page {"page": 4}` or `{"page": -1}` with `400 Page out of range`.
-   - A fresh destructive probe should still record this against the live flashed unit before replacing historical artifacts.
-
-2. **Current-firmware invalid upload behavior**
-   - Tracked source rejects `POST /imageraw?page=4` with `400 Page out of range`.
-   - A fresh destructive probe should still record this against the live flashed unit before replacing historical artifacts.
-
-3. **Stored page persistence**
-   - Normal reboot/power-cycle persistence is now supported via LittleFS on the current build.
+1. **Stored page persistence beyond USB flash/reboot**
+   - Normal reboot persistence is verified on the current build: all four slots restored from LittleFS after reset.
    - OTA persistence should still be rechecked after the next OTA-capable flash.
 
-4. **Button parity with API**
+2. **Button parity with API**
    - Do physical buttons navigate exactly the same slot range and naming as `/page` on the reflashed build?
 
-5. **Refresh characteristics**
+3. **Refresh characteristics**
    - Preliminary live timing is now known: visible refreshes are about `5–6s`, hidden-slot staging about `0.2s`
    - visual artifacts / ghosting still need manual optical verification
    - whether partial updates are worth supporting later remains open
 
-6. **OTA viability in repeated use**
+4. **OTA viability in repeated use**
    - Is OTA reliable enough to keep in the default workflow over time?
    - Does it preserve expected cache behavior?
 
@@ -204,10 +206,9 @@ The device should eventually expose enough information for the host to adapt wit
 
 We are closer, but **not done yet**. The repo is only ready for structural closure after:
 
-1. a fresh probe report is captured against the reflashed firmware
-2. manual button/reboot/display checks are recorded on that reflashed firmware
-3. the remaining invalid-input / persistence questions above are answered with evidence
-4. the chosen architecture is updated in `docs/refactor-plan.md`
+1. manual button/display checks are recorded on the reflashed firmware
+2. the 48–72h stability soak passes without unreachable `/status` or watchdog/panic reset reason
+3. the chosen architecture is updated in `docs/refactor-plan.md` if it changes again
 
 ## Related docs
 

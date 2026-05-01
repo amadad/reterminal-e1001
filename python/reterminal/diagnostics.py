@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+import json
 from pathlib import Path
+import subprocess
 from time import perf_counter
 
 import requests
@@ -13,7 +15,7 @@ from reterminal.app import DisplayPublisher
 from reterminal.config import settings
 from reterminal.device import DeviceCapabilities, ReTerminalDevice
 from reterminal.payloads import PageInfoPayload, StatusPayload
-from reterminal.providers import build_scene_providers
+from reterminal.providers import build_providers, build_scene_providers, is_manifest_shape, load_manifest
 from reterminal.render import MonoRenderer
 from reterminal.scheduler import PriorityScheduler
 
@@ -40,11 +42,54 @@ class DoctorReport:
     capabilities: DeviceCapabilities | None = None
     scene_count: int = 0
     assignment_count: int = 0
+    repo_build_sha: str | None = None
+    firmware_match: str | None = None
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
 
 DEFAULT_DISCOVERY_HOSTNAMES = ("reterminal.local", "reterminal")
+
+
+def current_repo_sha(repo_root: Path | None = None) -> str | None:
+    """Return the current git commit SHA when running from a checkout."""
+    root = repo_root or Path(__file__).resolve().parents[2]
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--short=12", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=True,
+        )
+        status = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    sha = result.stdout.strip()
+    if not sha:
+        return None
+    return f"{sha}-dirty" if status.stdout.strip() else sha
+
+
+def firmware_match_status(caps: DeviceCapabilities, repo_sha: str | None = None) -> str:
+    """Compare firmware-reported build SHA with the current checkout.
+
+    Returns one of: match, mismatch, unknown.
+    """
+    build_sha = (caps.build_sha or "").strip()
+    if not build_sha or build_sha == "unknown":
+        return "unknown"
+    if repo_sha is None:
+        return "unknown"
+    if build_sha.endswith("-dirty") or repo_sha.endswith("-dirty"):
+        return "match" if build_sha == repo_sha else "mismatch"
+    return "match" if repo_sha.startswith(build_sha) or build_sha.startswith(repo_sha) else "mismatch"
 
 
 def build_discovery_candidates(
@@ -78,6 +123,22 @@ def build_discovery_candidates(
     return ordered
 
 
+def _get_json(url: str, timeout: float) -> dict:
+    try:
+        response = requests.get(url, timeout=timeout)
+        response.raise_for_status()
+        return response.json()
+    except (requests.Timeout, requests.ConnectionError):
+        result = subprocess.run(
+            ["curl", "-fsS", "--max-time", str(timeout), url],
+            capture_output=True,
+            text=True,
+            timeout=timeout + 2,
+            check=True,
+        )
+        return json.loads(result.stdout)
+
+
 def probe_candidate(target: str, timeout: float = 1.5) -> DiscoveryResult:
     """Probe one candidate host without the normal retry budget."""
     started = perf_counter()
@@ -85,19 +146,17 @@ def probe_candidate(target: str, timeout: float = 1.5) -> DiscoveryResult:
     page_url = f"http://{target}/page"
 
     try:
-        status_response = requests.get(status_url, timeout=timeout)
-        status_response.raise_for_status()
-        page_response = requests.get(page_url, timeout=timeout)
-        page_response.raise_for_status()
+        status = _get_json(status_url, timeout)
+        page_info = _get_json(page_url, timeout)
         latency_ms = int((perf_counter() - started) * 1000)
         return DiscoveryResult(
             target=target,
             reachable=True,
-            status=status_response.json(),
-            page_info=page_response.json(),
+            status=status,
+            page_info=page_info,
             latency_ms=latency_ms,
         )
-    except (requests.RequestException, ValueError) as exc:
+    except (requests.RequestException, ValueError, subprocess.SubprocessError) as exc:
         latency_ms = int((perf_counter() - started) * 1000)
         return DiscoveryResult(
             target=target,
@@ -156,15 +215,37 @@ def run_doctor(
     report.reachable = True
     report.resolved_host = capabilities.host
     report.capabilities = capabilities
+    report.repo_build_sha = current_repo_sha()
+    report.firmware_match = firmware_match_status(capabilities, report.repo_build_sha)
+    if report.firmware_match == "unknown":
+        report.warnings.append("Firmware build SHA is unknown; cannot compare device firmware to this checkout.")
+    elif report.firmware_match == "mismatch":
+        report.warnings.append(
+            f"Firmware build SHA {capabilities.build_sha} does not match checkout {report.repo_build_sha}."
+        )
 
-    if feed is not None and "examples" in feed.resolve().parts:
+    if feed is not None:
+        try:
+            manifest_feed = is_manifest_shape(json.loads(feed.read_text()))
+        except (json.JSONDecodeError, OSError):
+            manifest_feed = False
+    else:
+        manifest_feed = False
+
+    if feed is not None and "examples" in feed.resolve().parts and not manifest_feed:
         report.warnings.append("The selected feed is static demo content and will not update on its own.")
 
-    providers = build_scene_providers(
-        feed=feed,
-        paperclip_url=paperclip_url,
-        include_system=include_system,
-    )
+    if manifest_feed and feed is not None:
+        providers = build_providers(load_manifest(feed))
+        if include_system:
+            from reterminal.providers.system import SystemSceneProvider
+            providers.append(SystemSceneProvider())
+    else:
+        providers = build_scene_providers(
+            feed=feed,
+            paperclip_url=paperclip_url,
+            include_system=include_system,
+        )
     if not providers:
         report.warnings.append("No publish providers selected; skipped pipeline dry run.")
         return report

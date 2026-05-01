@@ -45,7 +45,7 @@ def test_renderer_supports_grouped_agenda_scene():
                 {
                     "label": "Fri",
                     "rows": [
-                        {"chip": "H", "icon": "faith", "time": "4:00 PM", "title": "Quran"},
+                        {"chip": "H", "icon": "faith", "time": "4:00 PM", "title": "Practice"},
                     ],
                 },
                 {

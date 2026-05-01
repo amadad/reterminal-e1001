@@ -1,6 +1,6 @@
 """SceneProvider for the activities slot (slot 3).
 
-Reads ~/madad/family/activities.md (## Recent + ## Queue), renders a 1-bit
+Reads ~/reterminal-content/family/activities.md (## Recent + ## Queue), renders a 1-bit
 800x480 layout: recent activities on the left, next-up hero on the lower
 left, optional poster on the right.
 """
@@ -21,7 +21,7 @@ from reterminal.providers.manifest import register_provider
 from reterminal.scenes import SceneSpec
 
 
-DEFAULT_PATH = Path.home() / "madad" / "family" / "activities.md"
+DEFAULT_PATH = Path.home() / "reterminal-content" / "family" / "activities.md"
 POSTERS_DIR = Path("/tmp/reterminal-review/posters")
 
 ISO_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})\s+(.*)$")

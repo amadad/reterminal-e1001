@@ -33,9 +33,9 @@ Do not center new work around the legacy fixed-page system unless explicitly ask
 - Live slot names are neutral: `slot-0..slot-3`
 - `snapshot_readback` is live and can return the exact stored raw bitmap for a loaded slot
 - loaded slots persist to LittleFS across normal reboot/power cycle; host republish is still the recovery path after reflash, empty storage, or filesystem failure
-- on `kunst`, curl-based transport remains more reliable than Python `requests` for live device mutations
+- on some macOS hosts, curl-based transport can be more reliable than Python `requests` for live device mutations
 
-The checked-in `artifacts/probe-report.json` describes the older pre-reflash firmware. Do not assume its old invalid-input wraparound behavior is still the current live contract until the reflashed device is probed again.
+The checked-in `artifacts/probe-report.json` is current sanitized evidence from the reflashed firmware. It confirms a 4-slot device and clean rejection for invalid slots.
 
 ## Active Python modules
 
@@ -54,10 +54,18 @@ python/reterminal/
 └── probe.py        # verification tooling
 ```
 
+## Agent access quickstart
+
+See `docs/access.md` before debugging connectivity or Python-path issues.
+The Python project root is `python/`; from repo root, use
+`env -u VIRTUAL_ENV uv --directory python run reterminal ...`.
+USB serial is for logs/flashing only; status/snapshot/upload/page control is
+HTTP over Wi-Fi after discovery.
+
 ## Core commands
 
 ```bash
-cd ~/projects/reterminal-e1001/python
+cd python
 
 uv run reterminal discover
 uv run reterminal doctor
@@ -117,4 +125,4 @@ uv run reterminal clear --all
 uv run reterminal probe
 ```
 
-DHCP leases are not stable identity. Do not hardcode earlier `.76/.77/.78` guesses; a later recovery session rediscovered the device at `.97`.
+DHCP leases are not stable identity. Do not hardcode addresses from older sessions.

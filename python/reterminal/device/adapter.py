@@ -50,6 +50,15 @@ class ReTerminalDevice:
         self._last_seen_uptime_ms: int | None = None
         self._slot_hashes: dict[int, str] = {}
 
+    def connect_host(self, host: str) -> None:
+        """Point this adapter at a newly discovered host and clear host-local caches."""
+        if host == self.client.host:
+            return
+        self.client = ReTerminal(host, timeout=self.client.timeout)
+        self._capabilities = None
+        self._last_seen_uptime_ms = None
+        self._slot_hashes.clear()
+
     def discover_capabilities(self, refresh: bool = False) -> DeviceCapabilities:
         if self._capabilities is not None and not refresh:
             return self._capabilities

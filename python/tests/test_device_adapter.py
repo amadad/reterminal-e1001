@@ -8,7 +8,7 @@ from reterminal.device.adapter import ReTerminalDevice
 
 class FakeClient:
     def __init__(self):
-        self.host = "192.168.7.76"
+        self.host = "192.0.2.76"
         self.status_payload = {"uptime_ms": 1000, "page_name": "dashboard"}
         self.page_payload = {"total": 4, "page": 0, "name": "dashboard"}
         self.capabilities_payload = {
@@ -99,7 +99,7 @@ def test_device_prefers_firmware_capabilities_endpoint_when_available():
         "page_slots": 4,
         "current_page": 2,
         "current_page_name": "slot-2",
-        "ssid": "HORUS",
+        "ssid": "ExampleWiFi",
         "rssi": -55,
         "uptime_ms": 4321,
         "firmware_version": "test-fw",

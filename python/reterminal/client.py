@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import io
+import json
+import subprocess
+import tempfile
+from pathlib import Path
 
 import requests
 from loguru import logger
@@ -75,15 +79,86 @@ class ReTerminal:
             response = self._session.request(method, url, **kwargs)
             response.raise_for_status()
             return response
-        except requests.Timeout as exc:
-            logger.error(f"Request timeout: {url}")
-            raise ConnectionError(f"Timeout connecting to {self.host}") from exc
-        except requests.ConnectionError as exc:
-            logger.error(f"Connection failed: {url}")
-            raise ConnectionError(f"Cannot connect to {self.host}") from exc
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            logger.debug(f"Requests transport failed for {url}; retrying with curl")
+            try:
+                return self._curl_request(method, url, **kwargs)
+            except requests.HTTPError:
+                raise
+            except Exception as curl_exc:
+                logger.error(f"Connection failed: {url}")
+                message = "Timeout connecting to" if isinstance(exc, requests.Timeout) else "Cannot connect to"
+                raise ConnectionError(f"{message} {self.host}") from curl_exc
         except requests.HTTPError as exc:
             logger.error(f"HTTP error {exc.response.status_code}: {url}")
             raise
+
+    def _curl_request(self, method: str, url: str, **kwargs: object) -> requests.Response:
+        timeout = str(kwargs.get("timeout", self.timeout))
+        temp_paths: list[Path] = []
+        try:
+            with tempfile.NamedTemporaryFile(delete=False) as body_file:
+                body_path = Path(body_file.name)
+            temp_paths.append(body_path)
+
+            cmd = [
+                "curl",
+                "-sS",
+                "--max-time",
+                timeout,
+                "-X",
+                method,
+                "-o",
+                str(body_path),
+                "-w",
+                "%{http_code}",
+            ]
+            json_payload = kwargs.get("json")
+            if json_payload is not None:
+                cmd.extend(["-H", "Content-Type: application/json", "-d", json.dumps(json_payload)])
+
+            files = kwargs.get("files")
+            if isinstance(files, dict):
+                for field, value in files.items():
+                    filename = field
+                    content_type = "application/octet-stream"
+                    fileobj = value
+                    if isinstance(value, tuple):
+                        filename = str(value[0])
+                        fileobj = value[1]
+                        if len(value) > 2:
+                            content_type = str(value[2])
+                    if hasattr(fileobj, "seek"):
+                        fileobj.seek(0)
+                    data = fileobj.read() if hasattr(fileobj, "read") else bytes(fileobj)
+                    with tempfile.NamedTemporaryFile(delete=False) as upload_file:
+                        upload_file.write(data)
+                        upload_path = Path(upload_file.name)
+                    temp_paths.append(upload_path)
+                    cmd.extend([
+                        "-F",
+                        f"{field}=@{upload_path};filename={filename};type={content_type}",
+                    ])
+
+            cmd.append(url)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=float(timeout) + 2)
+            if result.returncode != 0:
+                raise requests.ConnectionError(result.stderr.strip() or f"curl exited {result.returncode}")
+
+            response = requests.Response()
+            response.status_code = int(result.stdout.strip() or "0")
+            response.url = url
+            response._content = body_path.read_bytes()
+            response.encoding = "utf-8"
+            response.request = requests.Request(method=method, url=url).prepare()
+            response.raise_for_status()
+            return response
+        finally:
+            for path in temp_paths:
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
 
     @_get_retry_decorator()
     def status(self) -> StatusPayload:
