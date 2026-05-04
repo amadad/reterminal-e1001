@@ -1,8 +1,8 @@
-"""SceneProvider for the activities slot (slot 3).
+"""SceneProvider for the activities kitchen page.
 
 Reads ~/reterminal-content/family/activities.md (## Recent + ## Queue), renders a 1-bit
 800x480 layout: recent activities on the left, next-up hero on the lower
-left, optional poster on the right.
+left, optional poster on the right. Slot pinning is owned by the provider manifest.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageEnhance, ImageOps
 
-from reterminal.providers.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, render_notice, to_1bit
+from reterminal.render.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, render_notice, to_1bit
 from reterminal.providers.manifest import register_provider
 from reterminal.scenes import SceneSpec
 
@@ -193,7 +193,6 @@ class ActivitiesProvider:
                 kind="prerendered",
                 title="Activities",
                 priority=70,
-                preferred_slot=3,
                 prerendered=image,
             )
         ]

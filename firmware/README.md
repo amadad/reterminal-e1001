@@ -55,7 +55,6 @@ build_flags =
     -DRETERMINAL_HOSTNAME=\"reterminal\"
     -DRETERMINAL_OTA_PASSWORD=\"set-a-real-password\"
     -DRETERMINAL_FIRMWARE_VERSION=\"local-dev\"
-    -DRETERMINAL_BUILD_SHA=\"unknown\"
 
 [env:ota]
 upload_port = reterminal.local
@@ -65,6 +64,10 @@ Notes:
 
 - Wi-Fi is now configured via build flags, not hardcoded in source.
 - OTA is **disabled by default** and only starts when `RETERMINAL_OTA_PASSWORD` is set.
+- Wi-Fi self-recovery restarts the firmware after a sustained post-boot outage
+  (`RETERMINAL_WIFI_SELF_RESTART_MS`, default 600000 ms). Set it to `0` only for
+  bench debugging when you want the device to stay wedged for inspection.
+- Build SHA is injected automatically by `tools/git_build_flags.py`; do not hand-maintain `RETERMINAL_BUILD_SHA` in local config.
 - `platformio.local.ini` is gitignored, but build flags can still appear in `pio project config` output; avoid pasting local config output into logs.
 - The example file repeats the base build flags intentionally. Do not reference `${env:reterminal.build_flags}` from `platformio.local.ini`; PlatformIO can recurse when loading it as an `extra_config`.
 
@@ -140,6 +143,9 @@ Notes:
 - `/snapshot` returns the exact stored raw bitmap for a loaded slot so host tooling can verify what the device has cached.
 - `/clear` clears one slot or the stored slot cache.
 - Stored pages are persisted to the labeled LittleFS partition on the current tracked firmware when the filesystem mounts successfully.
+- `/capabilities` reports Wi-Fi outage duration, the self-restart threshold,
+  self-restart reason/count, and loop-watchdog arm status. These fields are the
+  first place to check after a stale-screen incident.
 - Invalid page numbers are rejected with `400 Page out of range`; older wraparound/display-immediate behavior belongs to the historical pre-reflash build.
 - If the live device still returns `404` for `/capabilities`, `/snapshot`, or `/clear`, you are still talking to the older flashed firmware and need a reflash before expecting the newer source contract.
 

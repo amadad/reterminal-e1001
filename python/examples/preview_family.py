@@ -9,30 +9,40 @@ Outputs:
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
-from reterminal.providers.activities import ActivitiesProvider
-from reterminal.providers.events import EventsProvider
+from _common import OUT_DIR, load_kitchen_scenes
 
-OUT_DIR = Path("/tmp/reterminal-review")
+FALLBACK_SLOTS = {"events": 2, "activities": 3}
 
 
-def _save_provider_preview(provider, path: Path) -> bool:
-    scenes = provider.fetch()
-    if not scenes or scenes[0].prerendered is None:
-        print(f"{provider.name} provider produced no preview")
+def _save_scene_preview(scene, path: Path) -> bool:
+    if scene.prerendered is None:
+        print(f"{scene.id} provider produced no preview")
         return False
-    scenes[0].prerendered.save(path)
+    scene.prerendered.save(path)
     print(f"Wrote {path}")
     return True
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--feed", type=Path, help="Provider manifest to preview")
+    args = parser.parse_args(argv)
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    by_id = {scene.id: scene for scene in load_kitchen_scenes(args.feed)}
     ok = True
-    ok &= _save_provider_preview(EventsProvider(), OUT_DIR / "slot-2-events.png")
-    ok &= _save_provider_preview(ActivitiesProvider(), OUT_DIR / "slot-3-activities.png")
+    for scene_id in ("events", "activities"):
+        scene = by_id.get(scene_id)
+        if scene is None:
+            print(f"{scene_id} provider produced no preview")
+            ok = False
+            continue
+        slot = scene.preferred_slot if scene.preferred_slot is not None else FALLBACK_SLOTS[scene_id]
+        ok &= _save_scene_preview(scene, OUT_DIR / f"slot-{slot}-{scene_id}.png")
     return 0 if ok else 1
 
 

@@ -18,6 +18,7 @@ from reterminal.app.publisher import DisplayPublisher
 from reterminal.providers.activities import ActivitiesProvider
 from reterminal.providers.events import EventsProvider
 from reterminal.providers.missions import MissionsProvider
+from reterminal.providers.manifest import SlottedProvider
 from reterminal.exceptions import ConnectionError as DeviceConnectionError
 from reterminal.scenes import SceneSpec
 
@@ -113,6 +114,10 @@ def _write_real_files(tmp_path: Path) -> tuple[Path, Path, Path]:
     return missions, events, activities
 
 
+def _slotted(provider, slot: int):
+    return SlottedProvider(provider=provider, slot=slot)
+
+
 def test_seed_cache_from_device_uses_loaded_slot_snapshots():
     device = _FakeDevice()
     device.snapshots = {
@@ -135,9 +140,9 @@ def test_publish_once_pushes_only_changed_slots(tmp_path: Path):
     device = _FakeDevice()
     publisher = DisplayPublisher(
         providers=[
-            MissionsProvider(path=missions),
-            EventsProvider(path=events),
-            ActivitiesProvider(path=activities),
+            _slotted(MissionsProvider(path=missions), 1),
+            _slotted(EventsProvider(path=events), 2),
+            _slotted(ActivitiesProvider(path=activities), 3),
         ],
         device=device,
     )
@@ -165,7 +170,7 @@ def test_publish_once_retries_after_failed_push(tmp_path: Path):
     missions, _events, _activities = _write_real_files(tmp_path)
     device = _FakeDevice()
     publisher = DisplayPublisher(
-        providers=[MissionsProvider(path=missions)],
+        providers=[_slotted(MissionsProvider(path=missions), 1)],
         device=device,
     )
     cache = _BitmapCache()
@@ -189,7 +194,7 @@ def test_publish_once_recovers_connection_failure_during_push(tmp_path: Path):
     missions, _events, _activities = _write_real_files(tmp_path)
     device = _FakeDevice()
     publisher = DisplayPublisher(
-        providers=[MissionsProvider(path=missions)],
+        providers=[_slotted(MissionsProvider(path=missions), 1)],
         device=device,
     )
     cache = _BitmapCache()
@@ -212,7 +217,7 @@ def test_publish_once_keeps_cache_stale_when_connection_recovery_fails(tmp_path:
     missions, _events, _activities = _write_real_files(tmp_path)
     device = _FakeDevice()
     publisher = DisplayPublisher(
-        providers=[MissionsProvider(path=missions)],
+        providers=[_slotted(MissionsProvider(path=missions), 1)],
         device=device,
     )
     cache = _BitmapCache()
@@ -230,7 +235,7 @@ def test_publish_once_reuploads_after_device_uptime_reset(tmp_path: Path):
     device = _FakeDevice()
     device.prepare_uptimes = [1000, 10]
     publisher = DisplayPublisher(
-        providers=[MissionsProvider(path=missions)],
+        providers=[_slotted(MissionsProvider(path=missions), 1)],
         device=device,
     )
     cache = _BitmapCache()
@@ -246,7 +251,7 @@ def test_publish_once_with_push_false_does_no_uploads(tmp_path: Path):
     missions, _events, _activities = _write_real_files(tmp_path)
     device = _FakeDevice()
     publisher = DisplayPublisher(
-        providers=[MissionsProvider(path=missions)],
+        providers=[_slotted(MissionsProvider(path=missions), 1)],
         device=device,
     )
     cache = _BitmapCache()

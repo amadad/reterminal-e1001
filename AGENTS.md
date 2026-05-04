@@ -21,7 +21,7 @@ Treat this repo as a small publishing system for a monochrome ePaper target.
 - **Host SDK**: capability discovery, safe slot operations
 - **Scene pipeline**: providers -> scenes -> scheduler -> renderer -> device
 
-Do not center new work around the legacy fixed-page system unless explicitly asked.
+Do not reintroduce the removed legacy fixed-page system unless explicitly asked.
 
 ## Verified constraints
 
@@ -50,7 +50,6 @@ python/reterminal/
 ├── render/         # monochrome layouts, bitmap generators, art handling, viz primitives (see docs/visualizations.md)
 ├── scheduler/      # logical scenes -> 4 slots
 ├── scenes/         # scene schema
-├── pages/          # legacy fixed page flow
 └── probe.py        # verification tooling
 ```
 
@@ -81,7 +80,7 @@ uv run reterminal publish --feed examples/kitchen-display.json --push --watch --
 
 ## Decommissioned legacy commands
 
-The old fixed-page `refresh` / `watch` CLI commands are no longer part of the active interface. Use `reterminal publish` with provider manifests instead. `refresh.sh` is retained only as a decommissioning pointer.
+The old fixed-page `refresh` / `watch` CLI commands and `reterminal/pages/*` modules are gone. Use `reterminal publish` with provider manifests instead. `refresh.sh` is retained only as a decommissioning pointer.
 
 ## Design direction
 

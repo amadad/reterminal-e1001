@@ -18,8 +18,10 @@ paths.
 | 2 | Upcoming events | `~/reterminal-content/family/events.md` | `python/reterminal/providers/events.py` |
 | 3 | Activities / movies | `~/reterminal-content/family/activities.md` | `python/reterminal/providers/activities.py` |
 
-All four slots are markdown-backed. The wiring lives in a provider manifest such
-as `python/examples/kitchen-display.json`.
+All four slots are markdown-backed. Slot pins live in the provider manifest
+(`slot: 0..3`) rather than in provider code. The public manifest is
+`python/examples/kitchen-display.json`; machine-specific paths belong in the
+ignored `python/examples/kitchen-display.local.json`.
 
 Legacy scenes named `ready-board`, `need-board`, `reset-board`, and older
 fixed-page JSON feeds are not live slot owners.
@@ -91,7 +93,7 @@ When the display shows stale or unexpected content, do this in order:
    board is alive; HTTP over Wi-Fi is still required for slot updates.
 3. Confirm the watcher uses the intended manifest (`RETERMINAL_FEED` or the
    default `examples/kitchen-display.local.json`/`examples/kitchen-display.json`).
-4. Touch each markdown source to force a refresh:
+4. Touch the markdown sources named by the active manifest to force a refresh. For the public example:
    ```bash
    touch ~/reterminal-content/family/{calendar,missions,events,activities}.md
    ```
@@ -128,5 +130,7 @@ Do not conflate content regression with firmware crashes.
 
 Call the freeze issue resolved for a physical unit only after a 48–72h soak with
 no manual power cycle, reachable `/status`, increasing uptime except intentional
-reboots, no watchdog/panic reset reason, and watcher logs showing retry/recovery
-rather than repeated tracebacks.
+or firmware self-recovery reboots, no panic reset reason, and watcher logs
+showing retry/recovery rather than repeated tracebacks. If a self-recovery
+reboot occurs, `/capabilities` should report `last_self_restart_reason` so the
+event is attributed instead of guessed from the stale ePaper image.

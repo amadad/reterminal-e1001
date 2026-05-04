@@ -40,9 +40,9 @@ See:
 - render editorial monochrome layouts
 - preview locally or push to the device
 
-### Legacy page system
+### Removed legacy page system
 
-The older fixed page modules still exist for compatibility, but they are now **legacy**. The new direction is provider-driven scenes, not a hardcoded 7-page carousel.
+The older fixed page modules have been removed. The active direction is provider-driven scenes, not a hardcoded carousel.
 
 ## Quick start
 
@@ -104,7 +104,7 @@ uv run reterminal probe
 Destructive slot verification:
 
 ```bash
-uv run reterminal probe --upload-pages --slots 8 --expected-pages 4 --output ../artifacts/probe-report.json
+uv run reterminal probe --upload-pages --live --slots 8 --expected-pages 4 --output ../artifacts/probe-report.json
 ```
 
 ### 4. Preview the new scene pipeline
@@ -222,7 +222,6 @@ python/reterminal/
 ├── render/         # monochrome renderer, layout primitives, bitmap generators
 ├── scheduler/      # logical scenes -> physical slots
 ├── scenes/         # scene data model
-├── pages/          # legacy fixed page modules
 └── probe.py        # hardware verification tooling
 ```
 
@@ -237,7 +236,7 @@ The repo is moving toward:
 
 ## Firmware notes
 
-The latest **verified live device** was reflashed on `2026-05-01` and exposes the newer tracked firmware contract over Wi-Fi.
+The latest **verified live device** was reflashed on `2026-05-04` and exposes the newer tracked firmware contract plus Wi-Fi self-restart/watchdog health over Wi-Fi.
 
 Current live truth includes:
 
@@ -251,7 +250,7 @@ Current live truth includes:
 
 ## Legacy wrapper
 
-The old fixed-page `refresh` / `watch` CLI commands are not part of the active interface. `refresh.sh` is kept only as a decommissioning pointer to the provider-driven publish flow.
+The old fixed-page `refresh` / `watch` CLI commands and `reterminal/pages/*` modules are not part of the active interface. `refresh.sh` is kept only as a decommissioning pointer to the provider-driven publish flow.
 
 ## Development
 

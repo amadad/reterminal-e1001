@@ -2,7 +2,7 @@
 
 This is the cleanup plan for bringing the repo back to one truthful architecture.
 
-Current status (2026-05-01): the repo centers on a 4-slot provider-driven kitchen-display pipeline. The current source has been USB-flashed to the live unit, `/capabilities` reports a build SHA matching the dirty checkout, the sanitized destructive probe confirms clean invalid-slot rejection, and LittleFS restore is verified after reset. Host tooling now uses discovery/retry plus curl fallback for macOS route failures. Remaining closure is operational: a 48–72h stability soak plus manual button/display checks.
+Current status (2026-05-04): the repo centers on a 4-slot provider-driven kitchen-display pipeline. The current source has been USB-flashed to the live unit, `/capabilities` reports a build SHA matching the dirty checkout plus Wi-Fi self-restart/watchdog health fields, the sanitized destructive probe confirms clean invalid-slot rejection, and LittleFS restore is verified after reset. Host tooling now uses discovery/retry plus curl fallback for macOS route failures. Remaining closure is operational: a 48–72h stability soak plus manual button/display checks.
 
 ## Phase 0 — freeze and secure
 
@@ -25,7 +25,7 @@ Exit criteria:
 Goal: establish what the hardware/firmware actually supports.
 
 - run `reterminal probe`
-- run the destructive slot probe with `--upload-pages`
+- run the destructive slot probe with `--upload-pages --live`
 - manually verify buttons, visible rendering, reboot persistence, OTA behavior
 - record the verified slot count and any API mismatches
 
@@ -68,7 +68,7 @@ Archived/decommissioned after migration:
 
 - root-level legacy direct scripts (`python/reterminal.py`, `python/refresh.py`) are gone
 - fixed-page `refresh` / `watch` CLI commands are no longer active
-- `python/reterminal/pages/*` remains only as compatibility code, not as the design center
+- `python/reterminal/pages/*` has been removed
 - stale docs that describe the legacy Python flow as current should be rewritten or removed
 
 Exit criteria:
@@ -119,4 +119,4 @@ The refactor is complete when:
 - device capability is verified, recorded, and queryable
 - the core vertical slice is tested on real hardware
 
-Current remaining gate: 48–72h soak with reachable `/status`, increasing uptime except intentional reboots, no watchdog/panic reset reason, and watcher logs showing retry/recovery rather than crash loops.
+Current remaining gate: run a 48–72h soak on the flashed bounded Wi-Fi self-restart firmware with reachable `/status`, increasing uptime except intentional/self-recovery reboots, no panic reset reason, and watcher logs showing retry/recovery rather than crash loops.

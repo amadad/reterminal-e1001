@@ -39,6 +39,7 @@ From the `python/` directory:
 mkdir -p ../artifacts
 uv run reterminal probe \
   --upload-pages \
+  --live \
   --slots 8 \
   --expected-pages 4 \
   --output ../artifacts/probe-report.json

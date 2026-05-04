@@ -35,7 +35,12 @@ Responsibilities:
 
 - fetch structured content from a source
 - return `SceneSpec` objects
-- avoid rendering or slot logic
+- avoid physical-slot logic
+
+Most providers should also avoid rendering. The current kitchen markdown
+providers are the exception: they use shared render helpers for bespoke 800x480
+layouts and return `prerendered` scenes until those layouts graduate into
+first-class renderer templates.
 
 Current providers:
 
@@ -51,7 +56,9 @@ The kitchen-display providers register themselves into a manifest registry
 (`providers/manifest.py`) so a `{"providers": [...]}` JSON config like
 `python/examples/kitchen-display.json` can wire them up declaratively.
 Provider factories receive their per-entry config dict (typically `path`)
-and return a SceneProvider instance.
+and return a SceneProvider instance. The manifest may also include `slot` to
+pin returned scenes to a physical slot; that pin is applied by the manifest
+builder, not by provider code.
 
 Additional providers worth adding:
 
@@ -79,7 +86,7 @@ Current strategy:
 
 Behavior:
 
-- honor preferred slots first
+- honor manifest/scene preferred slots first
 - resolve conflicts by priority
 - fill remaining slots by descending priority
 
@@ -92,6 +99,7 @@ Current renderer stack:
 - `MonoRenderer`
 - `layout.py` for measured regions and text fitting
 - `bitmap.py` for deterministic generated poster art
+- `kitchen.py` for shared drawing helpers used by the markdown-backed kitchen layouts
 
 Supported scene kinds:
 

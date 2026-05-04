@@ -1,7 +1,8 @@
-"""SceneProvider for the calendar slot (slot 0).
+"""SceneProvider for the calendar kitchen page.
 
 Reads ~/reterminal-content/family/calendar.md (## Today + ## Tomorrow),
-renders a two-column today-board. The file is usually machine-written by an
+renders a two-column today-board. Slot pinning is owned by the provider
+manifest. The file is usually machine-written by an
 upstream calendar exporter — this provider has no calendar API dependency and
 never makes a network call. If the file is missing or empty, the provider
 returns a visible missing/empty notice.
@@ -26,7 +27,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw
 
-from reterminal.providers.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, render_notice, to_1bit
+from reterminal.render.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, render_notice, to_1bit
 from reterminal.providers.manifest import register_provider
 from reterminal.scenes import SceneSpec
 
@@ -181,7 +182,6 @@ class CalendarProvider:
                 kind="prerendered",
                 title="Agenda",
                 priority=100,
-                preferred_slot=0,
                 prerendered=image,
             )
         ]

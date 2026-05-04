@@ -32,8 +32,17 @@ class DeviceCapabilities:
     last_wifi_ok_ms: int | None = None
     last_wifi_lost_ms: int | None = None
     last_wifi_reconnect_ms: int | None = None
+    wifi_down_ms: int | None = None
+    wifi_self_restart_ms: int | None = None
+    self_restart_count: int | None = None
+    last_self_restart_reason: str | None = None
+    last_self_restart_uptime_ms: int | None = None
     mdns_ready: bool | None = None
     ota_ready: bool | None = None
+    loop_watchdog_armed: bool | None = None
+    loop_watchdog_timeout_s: int | None = None
+    loop_watchdog_init_status: int | None = None
+    loop_watchdog_add_status: int | None = None
     free_psram: int | None = None
     min_free_heap: int | None = None
     littlefs_total_bytes: int | None = None

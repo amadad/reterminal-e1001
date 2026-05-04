@@ -519,7 +519,7 @@ def doctor(
     host: Optional[str] = HostOption,
     feed: Optional[Path] = typer.Option(None, "--feed", "-f", help="Optional scene feed JSON to validate"),
     paperclip_url: Optional[str] = typer.Option(None, "--paperclip-url", help="Optional Paperclip-compatible feed URL to validate"),
-    include_system: bool = typer.Option(True, "--include-system/--no-include-system", help="Include the built-in system scene in the dry run"),
+    include_system: bool = typer.Option(False, "--include-system/--no-include-system", help="Include the built-in system scene in the dry run"),
     output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
 ):
     """Run operational checks for connectivity, slot truth, and publish-pipeline readiness."""
@@ -603,8 +603,13 @@ def probe(
         help=f"Probe pattern: {', '.join(VALID_PATTERNS)}",
     ),
     output: Optional[Path] = typer.Option(None, "--output", help="Write full JSON report to file"),
+    live: bool = typer.Option(False, "--live", help="Confirm a destructive live device mutation"),
+    non_interactive: bool = typer.Option(False, "--non-interactive", help="Fail instead of mutating the live device"),
 ):
     """Probe device capabilities before refactoring architecture."""
+    if upload_pages:
+        require_live_action("probe --upload-pages", live=live, non_interactive=non_interactive)
+
     if pattern not in VALID_PATTERNS:
         typer.echo(f"Invalid pattern. Choose from: {', '.join(VALID_PATTERNS)}")
         raise typer.Exit(1)
@@ -667,6 +672,14 @@ def capabilities(
             typer.echo(f"  {'Reset Reason':20} {caps.reset_reason}")
         if caps.wifi_reconnect_attempts is not None:
             typer.echo(f"  {'WiFi Reconnects':20} {caps.wifi_reconnect_attempts}")
+        if caps.wifi_down_ms is not None:
+            typer.echo(f"  {'WiFi Down':20} {caps.wifi_down_ms} ms")
+        if caps.self_restart_count is not None:
+            typer.echo(f"  {'Self Restarts':20} {caps.self_restart_count}")
+        if caps.last_self_restart_reason is not None:
+            typer.echo(f"  {'Last Self Restart':20} {caps.last_self_restart_reason}")
+        if caps.loop_watchdog_armed is not None:
+            typer.echo(f"  {'Loop Watchdog':20} {'armed' if caps.loop_watchdog_armed else 'not armed'}")
         typer.echo(f"  {'Uptime':20} {caps.uptime_ms} ms")
         typer.echo(f"{'─' * 48}")
     except Exception as e:
@@ -723,7 +736,7 @@ def publish(
     host: Optional[str] = HostOption,
     preview: Optional[Path] = typer.Option(None, "--preview", help="Directory for rendered previews"),
     push: bool = typer.Option(False, "--push", help="Push rendered scenes to the device"),
-    include_system: bool = typer.Option(True, "--include-system/--no-include-system", help="Include a built-in ambient system scene"),
+    include_system: bool = typer.Option(False, "--include-system/--no-include-system", help="Include a built-in ambient system scene"),
     slot_count: Optional[int] = typer.Option(None, "--slots", min=1, help="Override physical slot count"),
     show_slot: Optional[int] = typer.Option(None, "--show-slot", min=0, help="Select a visible slot after pushing; omitted preserves the current visible slot"),
     interval: Optional[int] = typer.Option(None, "--interval", min=1, help="Repeat publish every N seconds"),
@@ -741,35 +754,19 @@ def publish(
         except (json.JSONDecodeError, OSError):
             manifest_feed = False
 
-    if watch and not manifest_feed:
-        typer.echo("Error: --watch requires --feed pointing at a provider manifest")
-        raise typer.Exit(1)
-
-    if manifest_feed:
-        providers = build_providers(load_manifest(feed))
-        if include_system:
-            from reterminal.providers.system import SystemSceneProvider
-            providers.append(SystemSceneProvider())
-    else:
-        providers = build_scene_providers(
-            feed=feed,
-            paperclip_url=paperclip_url,
-            include_system=include_system,
-        )
-
-    if not providers:
-        typer.echo("Error: provide --feed, --paperclip-url, or enable --include-system")
-        raise typer.Exit(1)
-    if watch and show_slot is not None:
-        typer.echo("Error: --show-slot is not supported with --watch; watch preserves the current visible slot")
-        raise typer.Exit(1)
-    if show_slot is not None and not push:
-        typer.echo("Error: --show-slot requires --push")
-        raise typer.Exit(1)
-    if push:
-        require_live_action("publish --push", live=live, non_interactive=non_interactive)
-
     if watch:
+        if not manifest_feed or feed is None:
+            typer.echo("Error: --watch requires --feed pointing at a provider manifest")
+            raise typer.Exit(1)
+        if show_slot is not None:
+            typer.echo("Error: --show-slot is not supported with --watch; watch preserves the current visible slot")
+            raise typer.Exit(1)
+        if include_system:
+            typer.echo("Error: --include-system is not supported with --watch; add providers to the manifest")
+            raise typer.Exit(1)
+        if push:
+            require_live_action("publish --push", live=live, non_interactive=non_interactive)
+
         from reterminal.app.live import run_live
 
         device = None
@@ -788,6 +785,28 @@ def publish(
             device = ReTerminalDevice(host)
         run_live(feed, device=device, push=push, recover_device=recover_device)
         return
+
+    if show_slot is not None and not push:
+        typer.echo("Error: --show-slot requires --push")
+        raise typer.Exit(1)
+    if push:
+        require_live_action("publish --push", live=live, non_interactive=non_interactive)
+
+    if manifest_feed:
+        providers = build_providers(load_manifest(feed))
+        if include_system:
+            from reterminal.providers.system import SystemSceneProvider
+            providers.append(SystemSceneProvider())
+    else:
+        providers = build_scene_providers(
+            feed=feed,
+            paperclip_url=paperclip_url,
+            include_system=include_system,
+        )
+
+    if not providers:
+        typer.echo("Error: provide --feed, --paperclip-url, or enable --include-system")
+        raise typer.Exit(1)
 
     example_feed_warning = None
     if feed is not None and "examples" in feed.resolve().parts and not manifest_feed:
@@ -839,5 +858,4 @@ def publish(
     except Exception as e:
         logger.error(f"Failed to publish scenes: {e}")
         raise typer.Exit(1)
-
 

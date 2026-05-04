@@ -1,8 +1,8 @@
-"""SceneProvider for the events slot (slot 2).
+"""SceneProvider for the events kitchen page.
 
 Reads ~/reterminal-content/family/events.md (## Upcoming section), sorts by proximity,
 drops past items, returns a SceneSpec carrying a prerendered 800x480 1-bit
-bitmap. The provider owns parsing and layout end-to-end.
+bitmap. Slot pinning is owned by the provider manifest.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw
 
-from reterminal.providers.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, render_notice, to_1bit
+from reterminal.render.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, render_notice, to_1bit
 from reterminal.providers.manifest import register_provider
 from reterminal.scenes import SceneSpec
 
@@ -183,7 +183,6 @@ class EventsProvider:
                 kind="prerendered",
                 title="Upcoming",
                 priority=80,
-                preferred_slot=2,
                 prerendered=image,
             )
         ]

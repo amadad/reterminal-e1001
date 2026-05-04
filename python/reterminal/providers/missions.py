@@ -1,8 +1,8 @@
-"""SceneProvider for the missions slot (slot 1).
+"""SceneProvider for the missions kitchen page.
 
 Reads ~/reterminal-content/family/missions.md and returns a SceneSpec carrying
-a prerendered 800x480 1-bit bitmap. The provider owns parsing and layout
-end-to-end; MonoRenderer just blits the bitmap.
+a prerendered 800x480 1-bit bitmap. Slot pinning is owned by the provider
+manifest; MonoRenderer just blits the bitmap.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw
 
-from reterminal.providers.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, render_notice, to_1bit
+from reterminal.render.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, render_notice, to_1bit
 from reterminal.providers.manifest import register_provider
 from reterminal.render.viz import dots, heatmap, progress_bar
 from reterminal.scenes import SceneSpec
@@ -244,7 +244,6 @@ class MissionsProvider:
                 kind="prerendered",
                 title="Missions",
                 priority=90,
-                preferred_slot=1,
                 prerendered=image,
             )
         ]

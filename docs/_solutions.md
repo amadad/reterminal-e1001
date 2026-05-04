@@ -2,6 +2,19 @@
 
 Newest first. Keep entries short, dated, and evidence-oriented.
 
+## 2026-05-04 — Kitchen ownership is manifest-first and legacy fixed pages are removed
+
+- **Symptoms:** layout ownership still had multiple weaker truths: preview scripts hardcoded local content paths, kitchen providers hardcoded physical slots, `include_system` made manifest doctor/publish report an extra scene, the old fixed-page package still suggested a 7-page app model, destructive probe upload lacked the common `--live` guard, and local firmware config could carry a stale `RETERMINAL_BUILD_SHA`.
+- **Fix:** make provider manifests own content paths and `slot: 0..3` pins; make previews resolve the same local/public manifest as the watcher; default `include_system` off; apply manifest slot pins outside provider code; move shared kitchen drawing helpers under `render/`; remove `python/reterminal/pages/*`; require `--live` for `probe --upload-pages`; inject git build SHA from a PlatformIO extra script instead of local config.
+- **Evidence:** `uv --directory python run --extra dev pytest -q` passes (`85 passed`), `uv --directory python run --extra dev ruff check reterminal tests examples` passes, `platformio run -e reterminal` passes and prints `reTerminal build_sha=<checkout>-dirty`, USB flash succeeds, `doctor --feed examples/kitchen-display.local.json` reports `firmware_match: match` with 4 scenes/4 assignments, preview scripts render expected slot PNGs, manifest preview assigns `calendar/missions/events/activities` to slots `0/1/2/3`, and the sanitized destructive probe report was regenerated from the May 4 firmware.
+
+## 2026-05-04 — Wi-Fi liveness now escalates on-device instead of relying on host retries
+
+- **Symptoms:** the kitchen display could still become unreachable after long uptime even though the host watcher kept retrying and the loop-task watchdog was present.
+- **Root cause:** the previous hardening only rebooted a blocked `loop()`. A device that was still looping but stuck in Wi-Fi reconnect attempts kept feeding the watchdog forever, so the host saw the same stale ePaper image and unreachable HTTP API until external power recovery.
+- **Fix:** treat sustained Wi-Fi loss as a firmware health failure: configure STA mode with Wi-Fi sleep disabled, reset mDNS/OTA service state on link loss, retry normally during a grace window, then perform a controlled `ESP.restart()` after `RETERMINAL_WIFI_SELF_RESTART_MS` (default 10 min). `/capabilities` now reports Wi-Fi down duration, self-restart threshold, self-restart reason/count, and loop-watchdog arm status. Watchdog setup now still attempts to subscribe `loopTask` if the ESP framework already initialized the watchdog.
+- **Evidence:** source-level regression coverage updated for the new capability fields; USB flash succeeded on the live unit and `/capabilities` reports `WiFi Down`, `Self Restarts`, `Last Self Restart`, and `Loop Watchdog: armed`. Final closure still requires a 48–72h soak on the flashed unit.
+
 ## 2026-05-01 — Live updater became DHCP-safe, curl-backed, and persistence-verified
 
 - **Symptoms:** the launchd watcher had a stale fixed host, Python `requests` could not reach the device even when `curl` worked, firmware provenance was ambiguous, and after USB flash the device reported volatile slots because LittleFS failed to mount/format.

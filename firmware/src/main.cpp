@@ -50,6 +50,10 @@
 #define RETERMINAL_BUILD_SHA "unknown"
 #endif
 
+#ifndef RETERMINAL_WIFI_SELF_RESTART_MS
+#define RETERMINAL_WIFI_SELF_RESTART_MS 600000UL
+#endif
+
 const char* WIFI_SSID = RETERMINAL_WIFI_SSID;
 const char* WIFI_PASS = RETERMINAL_WIFI_PASS;
 const char* HOSTNAME = RETERMINAL_HOSTNAME;
@@ -107,6 +111,7 @@ bool mdnsReady = false;
 bool otaReady = false;
 const unsigned long WIFI_GRACE_MS = 30000;
 const unsigned long WIFI_RETRY_INTERVAL_MS = 30000;
+const unsigned long WIFI_SELF_RESTART_MS = RETERMINAL_WIFI_SELF_RESTART_MS;
 
 // Loop-task watchdog: reboots the device if loop() stops iterating for this
 // long. Catches synchronous WebServer wedges on half-open TCP, SPI hangs, and
@@ -114,6 +119,18 @@ const unsigned long WIFI_RETRY_INTERVAL_MS = 30000;
 // loops only fed the IDLE task watchdog; nothing armed a watchdog on loopTask
 // itself, so an indefinitely-blocked loop never recovered.
 const uint32_t LOOP_WDT_TIMEOUT_S = 60;
+bool loopWatchdogArmed = false;
+esp_err_t loopWatchdogInitStatus = ESP_OK;
+esp_err_t loopWatchdogAddStatus = ESP_OK;
+
+enum SelfRestartReason : uint32_t {
+  SELF_RESTART_NONE = 0,
+  SELF_RESTART_WIFI_STALE = 1,
+};
+
+RTC_DATA_ATTR uint32_t selfRestartCount = 0;
+RTC_DATA_ATTR uint32_t lastSelfRestartReasonCode = SELF_RESTART_NONE;
+RTC_DATA_ATTR uint32_t lastSelfRestartUptimeMs = 0;
 
 GxEPD2_BW<GxEPD2_750_GDEY075T7, GxEPD2_750_GDEY075T7::HEIGHT> display(
     GxEPD2_750_GDEY075T7(EPD_CS_PIN, EPD_DC_PIN, EPD_RES_PIN, EPD_BUSY_PIN));
@@ -324,7 +341,25 @@ const char* resetReasonName(esp_reset_reason_t reason) {
   }
 }
 
+const char* selfRestartReasonName(uint32_t reason) {
+  switch (reason) {
+    case SELF_RESTART_NONE: return "none";
+    case SELF_RESTART_WIFI_STALE: return "wifi_stale";
+    default: return "unknown";
+  }
+}
+
+bool wifiLinkUp() {
+  return WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0);
+}
+
+unsigned long wifiDownDurationMs(unsigned long now) {
+  if (lastWifiLostMs == 0) return 0;
+  return now - lastWifiLostMs;
+}
+
 void appendCapabilityFields(JsonDocument& doc) {
+  unsigned long now = millis();
   doc["hostname"] = HOSTNAME;
   doc["firmware_version"] = FIRMWARE_VERSION;
   doc["build_sha"] = BUILD_SHA;
@@ -339,14 +374,23 @@ void appendCapabilityFields(JsonDocument& doc) {
   doc["current_page_name"] = PAGE_NAMES[currentPage];
   doc["current_page_loaded"] = pageLoaded[currentPage];
   doc["reset_reason"] = resetReasonName(esp_reset_reason());
-  doc["wifi_connected"] = WiFi.status() == WL_CONNECTED;
+  doc["wifi_connected"] = wifiLinkUp();
   doc["wifi_status"] = WiFi.status();
   doc["wifi_reconnect_attempts"] = wifiReconnectAttempts;
   doc["last_wifi_ok_ms"] = lastWifiOkMs;
   doc["last_wifi_lost_ms"] = lastWifiLostMs;
   doc["last_wifi_reconnect_ms"] = lastWifiReconnectMs;
+  doc["wifi_down_ms"] = wifiDownDurationMs(now);
+  doc["wifi_self_restart_ms"] = WIFI_SELF_RESTART_MS;
+  doc["self_restart_count"] = selfRestartCount;
+  doc["last_self_restart_reason"] = selfRestartReasonName(lastSelfRestartReasonCode);
+  doc["last_self_restart_uptime_ms"] = lastSelfRestartUptimeMs;
   doc["mdns_ready"] = mdnsReady;
   doc["ota_ready"] = otaReady;
+  doc["loop_watchdog_armed"] = loopWatchdogArmed;
+  doc["loop_watchdog_timeout_s"] = LOOP_WDT_TIMEOUT_S;
+  doc["loop_watchdog_init_status"] = static_cast<int>(loopWatchdogInitStatus);
+  doc["loop_watchdog_add_status"] = static_cast<int>(loopWatchdogAddStatus);
   doc["free_psram"] = ESP.getFreePsram();
   doc["min_free_heap"] = ESP.getMinFreeHeap();
   if (fsReady) {
@@ -709,11 +753,37 @@ void startOta() {
   usbSerial.println("OTA ready");
 }
 
+void resetNetworkServices() {
+  if (mdnsReady) {
+    MDNS.end();
+  }
+  mdnsReady = false;
+  otaReady = false;
+}
+
+void restartForHealth(SelfRestartReason reason) {
+  lastSelfRestartReasonCode = static_cast<uint32_t>(reason);
+  lastSelfRestartUptimeMs = millis();
+  selfRestartCount++;
+  usbSerial.printf(
+    "Self-restarting: reason=%s uptime_ms=%lu count=%lu\n",
+    selfRestartReasonName(lastSelfRestartReasonCode),
+    static_cast<unsigned long>(lastSelfRestartUptimeMs),
+    static_cast<unsigned long>(selfRestartCount)
+  );
+  delay(100);
+  ESP.restart();
+}
+
 void setup() {
   // reTerminal routes USB-serial through GPIO 44/43, not the default pins.
   usbSerial.begin(115200, SERIAL_8N1, 44, 43);
   delay(500);
   usbSerial.println("\n\nreTerminal E1001 Starting...");
+  if (esp_reset_reason() != ESP_RST_SW) {
+    lastSelfRestartReasonCode = SELF_RESTART_NONE;
+    lastSelfRestartUptimeMs = 0;
+  }
 
   pinMode(BTN_LEFT, INPUT_PULLUP);
   pinMode(BTN_MIDDLE, INPUT_PULLUP);
@@ -774,6 +844,10 @@ void setup() {
   }
 
   if (strlen(WIFI_SSID) > 0) {
+    WiFi.persistent(false);
+    WiFi.mode(WIFI_STA);
+    WiFi.setSleep(false);
+    WiFi.setAutoReconnect(true);
     WiFi.setHostname(HOSTNAME);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
     usbSerial.print("Connecting to WiFi");
@@ -823,13 +897,20 @@ void setup() {
 
   // Arduino-ESP32 v2.x / IDF v5.1 exposes the legacy 2-arg form. The struct-
   // based esp_task_wdt_config_t API is IDF v5.2+ and not available here.
-  esp_err_t wdt_init_err = esp_task_wdt_init(LOOP_WDT_TIMEOUT_S, true);
-  if (wdt_init_err == ESP_OK) {
-    esp_task_wdt_add(NULL);
+  loopWatchdogInitStatus = esp_task_wdt_init(LOOP_WDT_TIMEOUT_S, true);
+  if (loopWatchdogInitStatus == ESP_OK || loopWatchdogInitStatus == ESP_ERR_INVALID_STATE) {
+    loopWatchdogAddStatus = esp_task_wdt_add(NULL);
+    loopWatchdogArmed = loopWatchdogAddStatus == ESP_OK || esp_task_wdt_status(NULL) == ESP_OK;
+  }
+  if (loopWatchdogArmed) {
     usbSerial.printf("Loop watchdog armed: %us, panic=true\n",
                      (unsigned)LOOP_WDT_TIMEOUT_S);
   } else {
-    usbSerial.printf("Loop watchdog setup failed: %d\n", (int)wdt_init_err);
+    usbSerial.printf(
+      "Loop watchdog setup failed: init=%d add=%d\n",
+      (int)loopWatchdogInitStatus,
+      (int)loopWatchdogAddStatus
+    );
   }
 
   usbSerial.println("Setup complete!");
@@ -838,7 +919,7 @@ void setup() {
 void maintainWifi() {
   if (strlen(WIFI_SSID) == 0) return;
   unsigned long now = millis();
-  if (WiFi.status() == WL_CONNECTED) {
+  if (wifiLinkUp()) {
     lastWifiOkMs = now;
     if (lastWifiLostMs != 0) {
       usbSerial.println("WiFi restored: " + WiFi.localIP().toString());
@@ -848,19 +929,37 @@ void maintainWifi() {
     startOta();
     return;
   }
-  if (lastWifiLostMs == 0) lastWifiLostMs = now;
+
+  if (lastWifiLostMs == 0) {
+    lastWifiLostMs = now;
+    resetNetworkServices();
+    usbSerial.printf("WiFi link lost: status=%d\n", WiFi.status());
+  }
+
+  if (
+    lastWifiOkMs > 0
+    && WIFI_SELF_RESTART_MS > 0
+    && wifiDownDurationMs(now) >= WIFI_SELF_RESTART_MS
+  ) {
+    restartForHealth(SELF_RESTART_WIFI_STALE);
+  }
+
   if (now - lastWifiOkMs < WIFI_GRACE_MS) return;
   if (now - lastWifiRetryMs < WIFI_RETRY_INTERVAL_MS) return;
   lastWifiRetryMs = now;
   lastWifiReconnectMs = now;
   wifiReconnectAttempts++;
   usbSerial.printf("WiFi down for %lu ms, reconnecting\n", now - lastWifiOkMs);
-  WiFi.disconnect();
+  WiFi.disconnect(false, false);
+  delay(100);
+  WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
 }
 
 void loop() {
-  esp_task_wdt_reset();
+  if (loopWatchdogArmed) {
+    esp_task_wdt_reset();
+  }
   maintainWifi();
   if (otaReady) ArduinoOTA.handle();
   server.handleClient();

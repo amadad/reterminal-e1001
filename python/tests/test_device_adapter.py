@@ -105,6 +105,15 @@ def test_device_prefers_firmware_capabilities_endpoint_when_available():
         "firmware_version": "test-fw",
         "hostname": "reterminal",
         "build_time": "Apr 01 2026 14:30:00",
+        "wifi_down_ms": 0,
+        "wifi_self_restart_ms": 600000,
+        "self_restart_count": 1,
+        "last_self_restart_reason": "wifi_stale",
+        "last_self_restart_uptime_ms": 123456,
+        "loop_watchdog_armed": True,
+        "loop_watchdog_timeout_s": 60,
+        "loop_watchdog_init_status": 0,
+        "loop_watchdog_add_status": 0,
         "snapshot_readback": True,
         "loaded_pages": [True, False, True, True],
         "slot_names": ["slot-0", "slot-1", "slot-2", "slot-3"],
@@ -120,6 +129,15 @@ def test_device_prefers_firmware_capabilities_endpoint_when_available():
     assert caps.current_page_name == "slot-2"
     assert caps.hostname == "reterminal"
     assert caps.build_time == "Apr 01 2026 14:30:00"
+    assert caps.wifi_down_ms == 0
+    assert caps.wifi_self_restart_ms == 600000
+    assert caps.self_restart_count == 1
+    assert caps.last_self_restart_reason == "wifi_stale"
+    assert caps.last_self_restart_uptime_ms == 123456
+    assert caps.loop_watchdog_armed is True
+    assert caps.loop_watchdog_timeout_s == 60
+    assert caps.loop_watchdog_init_status == 0
+    assert caps.loop_watchdog_add_status == 0
     assert caps.snapshot_readback is True
     assert caps.loaded_pages == [True, False, True, True]
     assert caps.slot_names == ["slot-0", "slot-1", "slot-2", "slot-3"]

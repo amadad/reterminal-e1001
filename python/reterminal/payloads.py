@@ -49,8 +49,17 @@ class CapabilitiesPayload(TypedDict, total=False):
     last_wifi_ok_ms: int
     last_wifi_lost_ms: int
     last_wifi_reconnect_ms: int
+    wifi_down_ms: int
+    wifi_self_restart_ms: int
+    self_restart_count: int
+    last_self_restart_reason: str
+    last_self_restart_uptime_ms: int
     mdns_ready: bool
     ota_ready: bool
+    loop_watchdog_armed: bool
+    loop_watchdog_timeout_s: int
+    loop_watchdog_init_status: int
+    loop_watchdog_add_status: int
     free_psram: int
     min_free_heap: int
     littlefs_total_bytes: int

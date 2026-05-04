@@ -13,27 +13,29 @@ A manifest file looks like:
 
     {
       "providers": [
-        {"type": "calendar",   "path": "~/reterminal-content/family/calendar.md"},
-        {"type": "missions",   "path": "~/reterminal-content/family/missions.md"},
-        {"type": "events",     "path": "~/reterminal-content/family/events.md"},
-        {"type": "activities", "path": "~/reterminal-content/family/activities.md"}
+        {"type": "calendar",   "path": "~/reterminal-content/family/calendar.md",   "slot": 0},
+        {"type": "missions",   "path": "~/reterminal-content/family/missions.md",   "slot": 1},
+        {"type": "events",     "path": "~/reterminal-content/family/events.md",     "slot": 2},
+        {"type": "activities", "path": "~/reterminal-content/family/activities.md", "slot": 3}
       ]
     }
 
 Providers register themselves into PROVIDER_REGISTRY; load_manifest +
 build_providers turn a manifest file into a list[SceneProvider] the existing
-DisplayPublisher can consume unchanged.
+DisplayPublisher can consume unchanged. Manifest-level `slot` pins are applied
+outside the provider so source adapters do not need physical-slot knowledge.
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 from reterminal.providers.base import SceneProvider
+from reterminal.scenes import SceneSpec
 
 
 ProviderFactory = Callable[[Mapping[str, Any]], SceneProvider]
@@ -50,6 +52,7 @@ def register_provider(type_name: str, factory: ProviderFactory) -> None:
 class ProviderEntry:
     type: str
     config: dict[str, Any] = field(default_factory=dict)
+    slot: int | None = None
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> ProviderEntry:
@@ -58,8 +61,17 @@ class ProviderEntry:
         type_name = data["type"]
         if not isinstance(type_name, str) or not type_name:
             raise ValueError("Provider 'type' must be a non-empty string")
-        config = {k: v for k, v in data.items() if k != "type"}
-        return cls(type=type_name, config=config)
+
+        raw_slot = data.get("slot")
+        if raw_slot is not None:
+            if not isinstance(raw_slot, int) or isinstance(raw_slot, bool) or raw_slot < 0:
+                raise ValueError("Provider 'slot' must be a non-negative integer")
+            slot = raw_slot
+        else:
+            slot = None
+
+        config = {k: v for k, v in data.items() if k not in {"type", "slot"}}
+        return cls(type=type_name, config=config, slot=slot)
 
 
 @dataclass(slots=True)
@@ -89,6 +101,21 @@ def load_manifest(path: Path | str) -> FeedManifest:
     return FeedManifest.from_dict(json.loads(p.read_text()))
 
 
+@dataclass(slots=True)
+class SlottedProvider:
+    """Provider wrapper that pins every returned scene to a manifest slot."""
+
+    provider: SceneProvider
+    slot: int
+
+    @property
+    def name(self) -> str:
+        return self.provider.name
+
+    def fetch(self) -> list[SceneSpec]:
+        return [replace(scene, preferred_slot=self.slot) for scene in self.provider.fetch()]
+
+
 def build_providers(manifest: FeedManifest) -> list[SceneProvider]:
     """Resolve manifest entries to SceneProvider instances via the registry.
 
@@ -104,5 +131,8 @@ def build_providers(manifest: FeedManifest) -> list[SceneProvider]:
                 f"Unknown provider type {entry.type!r}. "
                 f"Registered types: {sorted(PROVIDER_REGISTRY)}"
             )
-        providers.append(factory(entry.config))
+        provider = factory(entry.config)
+        if entry.slot is not None:
+            provider = SlottedProvider(provider=provider, slot=entry.slot)
+        providers.append(provider)
     return providers

@@ -1,4 +1,4 @@
-"""Shared drawing helpers for markdown-backed kitchen-display providers."""
+"""Shared drawing helpers for markdown-backed kitchen-display renderers."""
 
 from __future__ import annotations
 

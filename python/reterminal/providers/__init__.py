@@ -6,6 +6,7 @@ from reterminal.providers.file_feed import FileSceneProvider
 from reterminal.providers.manifest import (
     FeedManifest,
     ProviderEntry,
+    SlottedProvider,
     build_providers,
     is_manifest_shape,
     load_manifest,
@@ -29,6 +30,7 @@ __all__ = [
     "build_scene_providers",
     "FeedManifest",
     "ProviderEntry",
+    "SlottedProvider",
     "build_providers",
     "is_manifest_shape",
     "load_manifest",

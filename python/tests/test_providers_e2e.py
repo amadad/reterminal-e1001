@@ -50,7 +50,7 @@ def test_missions_provider_renders(tmp_path: Path):
     s = scenes[0]
     assert s.id == "missions"
     assert s.kind == "prerendered"
-    assert s.preferred_slot == 1
+    assert s.preferred_slot is None
     _assert_bitmap(s.prerendered)
 
 
@@ -65,7 +65,7 @@ def test_events_provider_renders(tmp_path: Path):
     assert len(scenes) == 1
     s = scenes[0]
     assert s.id == "events"
-    assert s.preferred_slot == 2
+    assert s.preferred_slot is None
     _assert_bitmap(s.prerendered)
 
 
@@ -81,7 +81,7 @@ def test_activities_provider_renders(tmp_path: Path):
     assert len(scenes) == 1
     s = scenes[0]
     assert s.id == "activities"
-    assert s.preferred_slot == 3
+    assert s.preferred_slot is None
     _assert_bitmap(s.prerendered)
 
 
@@ -98,7 +98,7 @@ def test_calendar_provider_renders(tmp_path: Path):
     assert len(scenes) == 1
     s = scenes[0]
     assert s.id == "calendar"
-    assert s.preferred_slot == 0
+    assert s.preferred_slot is None
     _assert_bitmap(s.prerendered)
 
 
@@ -141,8 +141,24 @@ def test_manifest_builds_all_four_providers(tmp_path: Path):
     assert [p.name for p in providers] == ["calendar", "missions", "events", "activities"]
 
 
+def test_manifest_pins_slots_without_provider_slot_knowledge(tmp_path: Path):
+    md = _write(tmp_path / "missions.md", "## Active\n\n### Kid 1\nkind: project\ntitle: STEAM\n")
+    manifest_path = _write(
+        tmp_path / "kitchen.json",
+        json.dumps({"providers": [{"type": "missions", "path": str(md), "slot": 1}]}),
+    )
+
+    provider = build_providers(load_manifest(manifest_path))[0]
+    scene = provider.fetch()[0]
+
+    assert provider.name == "missions"
+    assert scene.id == "missions"
+    assert scene.preferred_slot == 1
+
+
 def test_example_kitchen_display_manifest_resolves():
-    """The shipped example file must reference only registered provider types."""
+    """The shipped example file must reference only registered provider types and slot pins."""
     example = Path(__file__).resolve().parent.parent / "examples" / "kitchen-display.json"
     providers = build_providers(load_manifest(example))
     assert len(providers) == 4
+    assert [provider.fetch()[0].preferred_slot for provider in providers] == [0, 1, 2, 3]

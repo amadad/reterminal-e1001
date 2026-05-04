@@ -228,6 +228,23 @@ def test_publish_watch_rejects_show_slot(tmp_path):
     assert "--show-slot is not supported with --watch" in result.stdout
 
 
+def test_publish_watch_rejects_include_system(tmp_path):
+    feed = tmp_path / "manifest.json"
+    feed.write_text('{"providers": []}')
+
+    result = runner.invoke(app, ["publish", "--feed", str(feed), "--watch", "--include-system"])
+
+    assert result.exit_code == 1
+    assert "--include-system is not supported with --watch" in result.stdout
+
+
+def test_probe_upload_pages_requires_live_flag():
+    result = runner.invoke(app, ["probe", "--upload-pages"])
+
+    assert result.exit_code == 1
+    assert "Use --live to confirm" in result.stdout
+
+
 def test_page_set_requires_live_flag():
     result = runner.invoke(app, ["page", "next"])
 

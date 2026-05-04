@@ -15,7 +15,7 @@ The architecture is:
 - **render**: typography/layout/image pipeline for monochrome output
 - **app**: publish previews or push scenes to the device
 
-The older fixed-page modules remain for compatibility, but they are no longer the primary design center.
+The older fixed-page modules have been removed; provider manifests are the active source of slot ownership.
 
 ## Verified hardware/firmware behavior
 
@@ -55,7 +55,6 @@ reterminal-e1001/
 │       ├── render/              # mono renderer, layout/bitmap primitives, shared viz vocabulary (see docs/visualizations.md)
 │       ├── scheduler/
 │       ├── scenes/
-│       ├── pages/               # legacy fixed-page modules
 │       ├── payloads.py
 │       ├── protocols.py
 │       └── probe.py
@@ -93,7 +92,7 @@ Key rules:
 
 ## Decommissioned legacy commands
 
-The old fixed-page `refresh` / `watch` CLI commands are no longer active. Do not use `./refresh.sh market`; it now points users to the provider-driven publish flow.
+The old fixed-page `refresh` / `watch` CLI commands and `reterminal/pages/*` modules are gone. Do not use `./refresh.sh market`; it now points users to the provider-driven publish flow.
 
 ## Architectural rules
 
@@ -132,7 +131,7 @@ local editors     ─►  ~/reterminal-content/family/activities.md
 
 The wiring lives in a provider manifest such as `python/examples/kitchen-display.json` (a provider manifest, not a scene list). Provider implementations are in `python/reterminal/providers/{calendar,missions,events,activities}.py`. Each returns a `SceneSpec` carrying a prerendered 800x480 1-bit bitmap; `MonoRenderer` short-circuits on prerendered scenes and just blits.
 
-The trigger loop (`python/reterminal/app/live.py`) uses `watchdog` for FSEvents on the parent directories of the four files, with a 5-minute sanity tick. It seeds its in-memory slot hashes from `/snapshot` on startup, refreshes capabilities on each tick to detect device reboots/storage loss, then marks a slot current only after a successful upload; this keeps launchd restarts, reboots, and transient upload failures from causing redundant or missed pushes. The public launchd template at `scripts/sh.reterminal.publish.example.plist` runs `scripts/reterminal-publish-watch.sh`, which discovers the DHCP-assigned host unless `RETERMINAL_HOST` is explicitly set.
+The trigger loop (`python/reterminal/app/live.py`) uses `watchdog` for FSEvents on the parent directories of the four files, with a 5-minute sanity tick. It seeds its in-memory slot hashes from `/snapshot` on startup, refreshes capabilities on each tick to detect device reboots/storage loss, then marks a slot current only after a successful upload; this keeps launchd restarts, reboots, and transient upload failures from causing redundant or missed pushes. Slot pins live in the provider manifest (`slot: 0..3`), not in provider code. The public launchd template at `scripts/sh.reterminal.publish.example.plist` runs `scripts/reterminal-publish-watch.sh`, which discovers the DHCP-assigned host unless `RETERMINAL_HOST` is explicitly set.
 
 Do **not** reintroduce legacy `ready-board` / `need-board` / `reset-board` as live slots unless explicitly asked for a rollback.
 

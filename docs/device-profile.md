@@ -14,18 +14,18 @@ The repo has drifted in three places:
 
 The refactor should converge those three into one canonical device profile.
 
-## Latest verified live results (2026-05-01)
+## Latest verified live results (2026-05-04)
 
 The device was reflashed over USB from `firmware/` and re-verified over Wi-Fi. Network and serial identifiers below are intentionally public-safe and should be rediscovered per session.
 
 - **USB flash:** succeeded via `/dev/cu.usbserial-*` using PlatformIO `env:reterminal`
-- **Firmware provenance:** `/capabilities` reports `firmware_version: local-dev`, build time for the flash, and a `build_sha` matching the current dirty checkout
-- **Firmware match check:** `reterminal doctor --host <device-ip> --feed <manifest> --no-include-system --output json` reports `firmware_match: match`
+- **Firmware provenance:** `/capabilities` reports `firmware_version: local-dev`, build time `May 4 2026`, and a `build_sha` matching the current dirty checkout
+- **Firmware match check:** `reterminal doctor --host <device-ip> --feed <manifest> --output json` reports `firmware_match: match`
 - **Wi-Fi/HTTP:** `/status`, `/capabilities`, `/page`, `/snapshot`, and `/imageraw` reachable over HTTP; CLI falls back to curl on hosts where Python `requests` reports `No route to host`
 - **LittleFS persistence:** live boot log shows `LittleFS ready`, `Loaded slot 0..3 from flash`, and `Restored 4 slots from flash`; `/capabilities` reports LittleFS total/used bytes and all four slots loaded after reboot
-- **Launchd watcher:** local watcher runs `publish --watch --live`, discovers the DHCP host, seeds 4 slot digests from `/snapshot`, and preserves the visible slot
+- **Launchd watcher:** local watcher runs `publish --watch --live` from the ignored local manifest, discovers the DHCP host, seeds 4 slot digests from `/snapshot`, and preserves the visible slot
 - **Destructive slot probe:** current sanitized `artifacts/probe-report.json` confirms slots `0..3` store/select normally and invalid slots `4..7` are rejected cleanly
-- **Stability status:** freeze hardening is flashed, but the final closure gate is still a 48–72h soak with reachable `/status`, increasing uptime, no watchdog/panic reset reason, and clean watcher logs
+- **Stability status:** bounded Wi-Fi self-restart firmware is flashed and reports `wifi_down_ms`, `self_restart_count`, `last_self_restart_reason`, and `loop_watchdog_armed`; final closure gate is still a 48–72h soak with reachable `/status`, acceptable reset reasons, and clean watcher logs
 
 ## Earlier verified live results (2026-04-16)
 
@@ -106,15 +106,15 @@ These are facts supported by the current codebase, not yet by live hardware meas
 |---|---|---|---|
 | Display format | 800x480, 1-bit monochrome, 48,000-byte raw payloads | `firmware/src/main.cpp`, `python/reterminal/config.py`, `python/reterminal/encoding.py` | High |
 | Firmware page storage | Firmware allocates `NUM_PAGES = 4` page buffers | `firmware/src/main.cpp` | High |
-| Host page model | Python package registers 7 pages: market, clock, github, status, portfolio, dashboard, weather | `python/reterminal/pages/__init__.py` | High |
+| Host page model | Provider manifests select logical scenes and pin the four kitchen slots; the legacy fixed-page registry has been removed | `python/examples/kitchen-display.json`, `python/reterminal/providers/manifest.py` | High |
 | Control API | `/status`, `/capabilities`, `/buttons`, `/beep`, `/page`, `/snapshot`, `/imageraw`, `/clear` | `firmware/src/main.cpp` | High |
 | Upload semantics | Tracked firmware now rejects invalid or out-of-range `page` uploads with `400` instead of falling back to display-immediately mode | `firmware/src/main.cpp` | High |
 | Page set semantics | Tracked firmware now rejects invalid page numbers explicitly instead of wrapping them | `firmware/src/main.cpp` | High |
 | Slot naming | Tracked firmware source now uses neutral slot names (`slot-0..slot-3`) instead of legacy semantic page labels | `firmware/src/main.cpp` | High |
 | Display chrome | Tracked firmware source no longer overlays `Page X/4` on top of host-rendered bitmaps | `firmware/src/main.cpp` | High |
 | Security posture | WiFi creds are no longer hardcoded in source; OTA is disabled unless a password is configured; HTTP endpoints are still unauthenticated | `firmware/src/main.cpp`, `firmware/platformio.local.example.ini` | Medium |
-| Firmware health | Tracked source reports reset reason, Wi-Fi reconnect counters, mDNS/OTA readiness, PSRAM, and LittleFS usage through capabilities/status | `firmware/src/main.cpp` | High |
-| Shell wrapper | `refresh.sh` now requires `RETERMINAL_HOST` explicitly and points at the active CLI; legacy fixed pages are fenced to the live slot count in the CLI | `refresh.sh`, `python/reterminal/cli/commands.py` | High |
+| Firmware health | Tracked source reports reset reason, Wi-Fi reconnect/down counters, self-restart reason/count, loop-watchdog arm status, mDNS/OTA readiness, PSRAM, and LittleFS usage through capabilities/status | `firmware/src/main.cpp` | High |
+| Shell wrapper | `refresh.sh` now points at the active provider-driven publish flow; the launchd wrapper prefers the ignored local manifest when present | `refresh.sh`, `scripts/reterminal-publish-watch.sh` | High |
 
 ## Provisional architecture assumption
 
@@ -174,6 +174,7 @@ The device should eventually expose enough information for the host to adapt wit
 - loaded page map, if cheap to expose
 - optional build info / git SHA
 - whether slot snapshot readback is supported
+- Wi-Fi health, self-restart state, and watchdog arm status
 
 ### Required API behavior
 

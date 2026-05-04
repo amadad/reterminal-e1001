@@ -1,8 +1,8 @@
 {
   "providers": [
-    {"type": "calendar", "path": "~/reterminal-content/family/calendar.md"},
-    {"type": "missions", "path": "~/reterminal-content/family/missions.md"},
-    {"type": "events", "path": "~/reterminal-content/family/events.md"},
-    {"type": "activities", "path": "~/reterminal-content/family/activities.md"}
+    {"type": "calendar", "path": "~/reterminal-content/family/calendar.md", "slot": 0},
+    {"type": "missions", "path": "~/reterminal-content/family/missions.md", "slot": 1},
+    {"type": "events", "path": "~/reterminal-content/family/events.md", "slot": 2},
+    {"type": "activities", "path": "~/reterminal-content/family/activities.md", "slot": 3}
   ]
 }

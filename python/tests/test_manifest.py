@@ -45,7 +45,7 @@ def test_manifest_round_trip(tmp_path: Path):
         json.dumps(
             {
                 "providers": [
-                    {"type": "missions", "path": "~/reterminal-content/family/missions.md"},
+                    {"type": "missions", "path": "~/reterminal-content/family/missions.md", "slot": 1},
                     {"type": "calendar", "calendar_id": "cal@example.com"},
                 ]
             }
@@ -54,7 +54,9 @@ def test_manifest_round_trip(tmp_path: Path):
     manifest = load_manifest(path)
     assert [p.type for p in manifest.providers] == ["missions", "calendar"]
     assert manifest.providers[0].config == {"path": "~/reterminal-content/family/missions.md"}
+    assert manifest.providers[0].slot == 1
     assert manifest.providers[1].config == {"calendar_id": "cal@example.com"}
+    assert manifest.providers[1].slot is None
 
 
 def test_build_providers_uses_registry():
@@ -63,6 +65,23 @@ def test_build_providers_uses_registry():
     providers = build_providers(manifest)
     assert len(providers) == 1
     assert providers[0].config == {"path": "/x"}
+
+
+def test_build_providers_applies_manifest_slot_without_passing_it_to_factory():
+    register_provider("missions", _StubProvider)
+    manifest = FeedManifest(providers=[ProviderEntry(type="missions", config={"path": "/x"}, slot=1)])
+
+    provider = build_providers(manifest)[0]
+    scene = provider.fetch()[0]
+
+    assert provider.name == "stub"
+    assert scene.preferred_slot == 1
+    assert provider.provider.config == {"path": "/x"}
+
+
+def test_provider_entry_rejects_invalid_slot():
+    with pytest.raises(ValueError, match="slot"):
+        ProviderEntry.from_dict({"type": "missions", "slot": -1})
 
 
 def test_unknown_provider_type_fails_loudly():
@@ -81,4 +100,6 @@ def test_example_kitchen_display_manifest_parses():
     repo_example = Path(__file__).resolve().parent.parent / "examples" / "kitchen-display.json"
     manifest = load_manifest(repo_example)
     types = [p.type for p in manifest.providers]
+    slots = [p.slot for p in manifest.providers]
     assert types == ["calendar", "missions", "events", "activities"]
+    assert slots == [0, 1, 2, 3]

@@ -67,7 +67,6 @@ reterminal/
 ├── render/         # monochrome renderer, layout primitives, bitmap generators
 ├── scheduler/      # slot assignment strategies
 ├── scenes/         # structured scene model
-├── pages/          # legacy fixed page system
 └── probe.py        # hardware verification tooling
 ```
 
@@ -92,11 +91,7 @@ For the measured typography/layout approach behind these scenes, see `../docs/la
 
 ## Legacy code
 
-The following are still present but are no longer the architectural center:
-
-- `reterminal/pages/*`
-
-The old direct-script entrypoints (`python/reterminal.py`, `python/refresh.py`, and `python/pages/*`) plus the old fixed-page `refresh` / `watch` CLI commands are not part of the active interface. Use provider manifests and `reterminal publish` for new work.
+The old direct-script entrypoints (`python/reterminal.py`, `python/refresh.py`, and `python/pages/*`), `reterminal/pages/*`, and the old fixed-page `refresh` / `watch` CLI commands are gone from the active interface. Use provider manifests and `reterminal publish` for new work.
 
 ## Tests
 
