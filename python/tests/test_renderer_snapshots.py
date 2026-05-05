@@ -32,7 +32,17 @@ from reterminal.providers.activities import parse_activities, render_activities
 from reterminal.providers.calendar import parse_calendar, render_calendar
 from reterminal.providers.events import render_events
 from reterminal.providers.missions import parse_missions, render_missions
-from reterminal.render.kitchen import draw_source_stamp
+from reterminal.render.kitchen import HELVETICA, draw_source_stamp
+
+
+# Snapshot bitmaps are pinned to Helvetica.ttc (macOS). On Linux CI the
+# kitchen renderer falls back to PIL's default bitmap font, which produces
+# completely different pixels — so the goldens (and any ink-counting
+# assertions) are only meaningful on a host that actually has Helvetica.
+pytestmark = pytest.mark.skipif(
+    not HELVETICA.exists(),
+    reason="Helvetica.ttc not available; renderer falls back to PIL default font",
+)
 
 
 GOLDENS_FILE = Path(__file__).parent / "fixtures" / "kitchen_renderer_goldens.json"
