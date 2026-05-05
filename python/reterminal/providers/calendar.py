@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,23 @@ DEFAULT_PATH = Path.home() / "reterminal-content" / "family" / "calendar.md"
 
 TIME_RE = re.compile(r"^(\d{1,2}(?::\d{2})?(?:am|pm)?)\s+(.*)$", re.IGNORECASE)
 WHO_RE = re.compile(r"\[@([^\]]+)\]\s*$")
+
+# Helvetica.ttc has no emoji glyphs, so labels like "🏟️ Baseball" render as
+# tofu boxes on the panel. Strip emoji and variation selectors at render
+# time so the source can keep semantic emoji for upstream tooling.
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001f300-\U0001f9ff"  # symbols & pictographs, transport, supplemental
+    "\U0001fa70-\U0001faff"  # symbols and pictographs extended-A
+    "☀-➿"            # misc symbols, dingbats
+    "️"                   # variation selector-16
+    "]+",
+    flags=re.UNICODE,
+)
+
+
+def _strip_emoji(text: str) -> str:
+    return _EMOJI_RE.sub("", text).strip()
 
 
 @dataclass(frozen=True)
@@ -123,7 +141,7 @@ def _render_column(
         time_w = draw.textlength(time_str, font=time_f)
         draw.text((x, cursor), time_str, font=time_f, fill=0)
         label_x = x + max(int(time_w), 80) + 12
-        label = _truncate(draw, item.label, label_f, x + width - label_x)
+        label = _truncate(draw, _strip_emoji(item.label), label_f, x + width - label_x)
         draw.text((label_x, cursor + 2), label, font=label_f, fill=0)
         if item.who:
             who_str = f"@{item.who}"
@@ -160,7 +178,7 @@ def render_calendar(
         title="TOMORROW",
     )
 
-    draw_source_stamp(draw, source_path)
+    draw_source_stamp(draw, source_path, stale_after=timedelta(hours=2))
     return to_1bit(img)
 
 

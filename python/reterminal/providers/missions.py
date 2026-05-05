@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -221,7 +222,7 @@ def render_missions(
         qy = grid_top + row * cell_h
         _render_quadrant(draw, m, qx, qy, cell_w, cell_h)
 
-    draw_source_stamp(draw, source_path)
+    draw_source_stamp(draw, source_path, stale_after=timedelta(days=3))
     return to_1bit(img)
 
 

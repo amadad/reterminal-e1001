@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -170,7 +170,7 @@ def render_activities(
             draw.text((margin, y), rest_label, font=item_f, fill=0)
             y += 38
 
-    draw_source_stamp(draw, source_path)
+    draw_source_stamp(draw, source_path, stale_after=timedelta(days=14))
     return to_1bit(img)
 
 

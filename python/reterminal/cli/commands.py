@@ -859,3 +859,47 @@ def publish(
         logger.error(f"Failed to publish scenes: {e}")
         raise typer.Exit(1)
 
+
+@app.command()
+def lint(
+    feed: Path = typer.Option(..., "--feed", "-f", exists=True, dir_okay=False, help="Provider manifest JSON to lint"),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
+):
+    """Validate every markdown source named by a provider manifest.
+
+    Walks each file referenced by the manifest, runs the per-provider lint
+    rules (same regexes the parsers use), and reports lines that would be
+    silently dropped by the renderer. Exits non-zero if any issues are found.
+    """
+    from reterminal.providers.lint import lint_manifest_files
+
+    manifest = load_manifest(feed)
+    specs: list[tuple[str, Path]] = []
+    for entry in manifest.providers:
+        raw = entry.config.get("path")
+        if not isinstance(raw, str):
+            continue
+        specs.append((entry.type, Path(raw).expanduser()))
+
+    issues = lint_manifest_files(specs)
+
+    if output == "json":
+        emit_output(
+            {
+                "feed": str(feed),
+                "issues": [issue.to_dict() for issue in issues],
+                "ok": not issues,
+            },
+            "json",
+        )
+    else:
+        if not issues:
+            typer.echo(f"OK: no lint issues across {len(specs)} source(s)")
+        else:
+            for issue in issues:
+                typer.echo(f"{issue.file}:{issue.line}: {issue.reason}")
+                if issue.raw:
+                    typer.echo(f"    {issue.raw}")
+    if issues:
+        raise typer.Exit(1)
+

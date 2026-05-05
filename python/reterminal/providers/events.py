@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -111,7 +111,7 @@ def render_events(events: list[Event], *, source_path: Path | None = None) -> Im
     shown = events[:5]
     if not shown:
         draw.text((margin, HEIGHT // 2), "(no upcoming events)", font=font(24), fill=0)
-        draw_source_stamp(draw, source_path)
+        draw_source_stamp(draw, source_path, stale_after=timedelta(days=14))
         return to_1bit(img)
 
     row_top = margin + 42
@@ -161,7 +161,7 @@ def render_events(events: list[Event], *, source_path: Path | None = None) -> Im
             rule_y = y + row_height - 2
             draw.line([(margin, rule_y), (WIDTH - margin, rule_y)], fill=0, width=1)
 
-    draw_source_stamp(draw, source_path)
+    draw_source_stamp(draw, source_path, stale_after=timedelta(days=14))
     return to_1bit(img)
 
 
