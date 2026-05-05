@@ -23,12 +23,12 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from reterminal.providers.activities import ISO_DATE as ACTIVITY_ISO_DATE
-from reterminal.providers.activities import TAG_RE as ACTIVITY_TAG_RE
-from reterminal.providers.calendar import TIME_RE, WHO_RE
-from reterminal.providers.events import ISO_DATE as EVENT_ISO_DATE
-from reterminal.providers.events import TAG_RE as EVENT_TAG_RE
-from reterminal.providers.missions import _KEYVAL
+from reterminal.family.activities import ISO_DATE as ACTIVITY_ISO_DATE
+from reterminal.family.activities import TAG_RE as ACTIVITY_TAG_RE
+from reterminal.family.calendar import TIME_RE, WHO_RE
+from reterminal.family.events import ISO_DATE as EVENT_ISO_DATE
+from reterminal.family.events import TAG_RE as EVENT_TAG_RE
+from reterminal.family.missions import _KEYVAL
 
 
 _MISSION_KEYS = {"kind", "title", "progress", "streak", "next"}

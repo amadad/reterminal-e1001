@@ -28,10 +28,15 @@ from pathlib import Path
 import pytest
 
 from reterminal.encoding import pil_to_raw
-from reterminal.providers.activities import parse_activities, render_activities
-from reterminal.providers.calendar import parse_calendar, render_calendar
+from reterminal.family import (
+    parse_activities,
+    parse_calendar,
+    parse_missions,
+)
+from reterminal.providers.activities import render_activities
+from reterminal.providers.calendar import render_calendar
 from reterminal.providers.events import render_events
-from reterminal.providers.missions import parse_missions, render_missions
+from reterminal.providers.missions import render_missions
 from reterminal.render.kitchen import HELVETICA, draw_source_stamp
 
 
@@ -182,9 +187,9 @@ def test_events_render_snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         def today(cls) -> date:
             return FROZEN_TODAY
 
-    monkeypatch.setattr("reterminal.providers.events.date", _FrozenDate)
+    monkeypatch.setattr("reterminal.family.events.date", _FrozenDate)
     # Re-parse under the frozen date so days_until / past-event filtering match.
-    from reterminal.providers.events import parse_events
+    from reterminal.family import parse_events
     events = parse_events(md)
     image = render_events(events, source_path=md)
     _check_or_update("events", image)

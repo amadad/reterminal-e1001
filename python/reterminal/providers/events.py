@@ -1,30 +1,32 @@
-"""SceneProvider for the events kitchen page.
+"""Renderer + SceneProvider for the events kitchen page.
 
-Reads ~/reterminal-content/family/events.md (## Upcoming section), sorts by proximity,
-drops past items, returns a SceneSpec carrying a prerendered 800x480 1-bit
-bitmap. Slot pinning is owned by the provider manifest.
+Parses `events.md` via `reterminal.family.events.parse_events`; the parser
+already filters past items and sorts by proximity. Tag→shape mapping is a
+render concern and lives here so `Event` itself stays pure data.
 """
 
 from __future__ import annotations
 
-import re
+import math
 from collections.abc import Mapping
-from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageDraw
 
-from reterminal.render.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, render_notice, to_1bit
+from reterminal.family.events import DEFAULT_PATH, Event, parse_events
 from reterminal.providers.manifest import register_provider
+from reterminal.render.kitchen import (
+    HEIGHT,
+    WIDTH,
+    draw_source_stamp,
+    font,
+    render_notice,
+    to_1bit,
+)
 from reterminal.scenes import SceneSpec
 
-
-DEFAULT_PATH = Path.home() / "reterminal-content" / "family" / "events.md"
-
-ISO_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})\s+(.*)$")
-TAG_RE = re.compile(r"\[([^\]]+)\]\s*$")
 
 SHAPES = {
     "trip": "triangle",
@@ -37,44 +39,8 @@ SHAPES = {
 DEFAULT_SHAPE = "dot"
 
 
-@dataclass(frozen=True)
-class Event:
-    on: date
-    label: str
-    tag: str | None
-
-    @property
-    def days_until(self) -> int:
-        return (self.on - date.today()).days
-
-    @property
-    def shape(self) -> str:
-        return SHAPES.get(self.tag or "", DEFAULT_SHAPE)
-
-
-def parse_events(path: Path) -> list[Event]:
-    events: list[Event] = []
-    in_section = False
-    for raw in path.read_text().splitlines():
-        line = raw.strip()
-        if line.startswith("## "):
-            in_section = line[3:].strip().lower() == "upcoming"
-            continue
-        if not in_section or not line.startswith("- "):
-            continue
-        body = line[2:].strip()
-        tag = None
-        m_tag = TAG_RE.search(body)
-        if m_tag:
-            tag = m_tag.group(1).strip().lower()
-            body = body[: m_tag.start()].strip()
-        m = ISO_DATE.match(body)
-        if not m:
-            continue
-        y, mo, d, label = m.groups()
-        events.append(Event(date(int(y), int(mo), int(d)), label.strip(), tag))
-    events.sort(key=lambda e: e.on)
-    return [e for e in events if e.days_until >= 0]
+def _shape_for(event: Event) -> str:
+    return SHAPES.get(event.tag or "", DEFAULT_SHAPE)
 
 
 def _draw_shape(draw: ImageDraw.ImageDraw, kind: str, cx: int, cy: int, size: int = 16) -> None:
@@ -90,7 +56,6 @@ def _draw_shape(draw: ImageDraw.ImageDraw, kind: str, cx: int, cy: int, size: in
     elif kind == "diamond":
         draw.polygon([(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)], fill=0)
     elif kind == "star":
-        import math
         pts = []
         for i in range(10):
             angle = -math.pi / 2 + i * math.pi / 5
@@ -143,7 +108,7 @@ def render_events(events: list[Event], *, source_path: Path | None = None) -> Im
         date_str = ev.on.strftime("%b %d")
         draw.text((date_col_x, baseline - title.getbbox(date_str)[3] // 2 - 2), date_str, font=sm, fill=0)
 
-        _draw_shape(draw, ev.shape, glyph_col_x + glyph_col_w // 2 - 6, baseline, size=18)
+        _draw_shape(draw, _shape_for(ev), glyph_col_x + glyph_col_w // 2 - 6, baseline, size=18)
 
         label = ev.label
         max_w = WIDTH - label_col_x - margin

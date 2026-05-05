@@ -1,74 +1,34 @@
-"""SceneProvider for the activities kitchen page.
+"""Renderer + SceneProvider for the activities kitchen page.
 
-Reads ~/reterminal-content/family/activities.md (## Recent + ## Queue), renders a 1-bit
-800x480 layout: recent activities on the left, next-up hero on the lower
-left, optional poster on the right. Slot pinning is owned by the provider manifest.
+Parses `activities.md` via `reterminal.family.activities.parse_activities`
+and renders a 1-bit 800x480 layout: recent activities on the left, next-up
+hero on the lower left, optional dithered poster on the right when a
+matching image exists in the posters dir.
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
-from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageDraw, ImageEnhance, ImageOps
 
-from reterminal.render.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, render_notice, to_1bit
+from reterminal.family.activities import DEFAULT_PATH, Activity, parse_activities
 from reterminal.providers.manifest import register_provider
+from reterminal.render.kitchen import (
+    HEIGHT,
+    WIDTH,
+    draw_source_stamp,
+    font,
+    render_notice,
+    to_1bit,
+)
 from reterminal.scenes import SceneSpec
 
 
-DEFAULT_PATH = Path.home() / "reterminal-content" / "family" / "activities.md"
 POSTERS_DIR = Path("/tmp/reterminal-review/posters")
-
-ISO_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})\s+(.*)$")
-TAG_RE = re.compile(r"\[([^\]]+)\]\s*$")
-
-
-@dataclass(frozen=True)
-class Activity:
-    on: date | None
-    label: str
-    tag: str | None
-
-
-def parse_activity_line(line: str) -> Activity | None:
-    body = line[2:].strip() if line.startswith("- ") else line.strip()
-    if not body:
-        return None
-    tag = None
-    m = TAG_RE.search(body)
-    if m:
-        tag = m.group(1)
-        body = body[: m.start()].strip()
-    m = ISO_DATE.match(body)
-    if m:
-        y, mo, d, label = m.groups()
-        return Activity(date(int(y), int(mo), int(d)), label.strip(), tag)
-    return Activity(None, body, tag)
-
-
-def parse_activities(path: Path) -> tuple[list[Activity], list[Activity]]:
-    recent: list[Activity] = []
-    queue: list[Activity] = []
-    section: str | None = None
-    for raw in path.read_text().splitlines():
-        line = raw.strip()
-        if line.startswith("## "):
-            name = line[3:].strip().lower()
-            section = name if name in {"recent", "queue"} else None
-            continue
-        if section is None or not line.startswith("- "):
-            continue
-        item = parse_activity_line(line)
-        if item is None:
-            continue
-        (recent if section == "recent" else queue).append(item)
-    recent.sort(key=lambda a: a.on or date.min, reverse=True)
-    return recent, queue
 
 
 def _dither_poster(path: Path, target_h: int) -> Image.Image:

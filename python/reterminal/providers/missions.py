@@ -1,90 +1,41 @@
-"""SceneProvider for the missions kitchen page.
+"""Renderer + SceneProvider for the missions kitchen page.
 
-Reads ~/reterminal-content/family/missions.md and returns a SceneSpec carrying
-a prerendered 800x480 1-bit bitmap. Slot pinning is owned by the provider
-manifest; MonoRenderer just blits the bitmap.
+Parses `missions.md` via `reterminal.family.missions.parse_missions` and
+returns a SceneSpec carrying a prerendered 800x480 1-bit bitmap. Slot
+pinning is owned by the provider manifest; MonoRenderer just blits the
+bitmap.
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
-from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageDraw
 
-from reterminal.render.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, render_notice, to_1bit
+from reterminal.family.missions import (
+    DEFAULT_PATH,
+    Mission,
+    parse_days,
+    parse_fraction,
+    parse_missions,
+)
 from reterminal.providers.manifest import register_provider
+from reterminal.render.kitchen import (
+    HEIGHT,
+    WIDTH,
+    draw_source_stamp,
+    font,
+    render_notice,
+    to_1bit,
+)
 from reterminal.render.viz import dots, heatmap, progress_bar
 from reterminal.scenes import SceneSpec
 
 
-DEFAULT_PATH = Path.home() / "reterminal-content" / "family" / "missions.md"
 DEFAULT_MISSION_ORDER: tuple[str, ...] = ()
-
-
-@dataclass(slots=True)
-class Mission:
-    who: str
-    kind: str = ""
-    title: str = ""
-    progress: str = ""
-    streak: list[int] = field(default_factory=list)
-    next_action: str = ""
-
-
-_KEYVAL = re.compile(r"^([a-z_]+):\s*(.*)$")
-_NUM_OF_NUM = re.compile(r"(\d+)\s*/\s*(\d+)")
-
-
-def parse_missions(path: Path) -> list[Mission]:
-    missions: list[Mission] = []
-    current: Mission | None = None
-    in_active = False
-    for raw in path.read_text().splitlines():
-        line = raw.rstrip()
-        if line.startswith("## "):
-            in_active = line[3:].strip().lower() == "active"
-            continue
-        if not in_active:
-            continue
-        if line.startswith("### "):
-            if current:
-                missions.append(current)
-            current = Mission(who=line[4:].strip())
-            continue
-        if current is None:
-            continue
-        m = _KEYVAL.match(line.strip())
-        if not m:
-            continue
-        key, val = m.group(1), m.group(2).strip()
-        if key == "kind":
-            current.kind = val
-        elif key == "title":
-            current.title = val
-        elif key == "progress":
-            current.progress = val
-        elif key == "streak":
-            current.streak = [int(x) for x in val.split() if x in {"0", "1"}]
-        elif key == "next":
-            current.next_action = val
-    if current:
-        missions.append(current)
-    return missions
-
-
-def _parse_fraction(s: str) -> tuple[int, int] | None:
-    m = _NUM_OF_NUM.search(s)
-    return (int(m.group(1)), int(m.group(2))) if m else None
-
-
-def _parse_days(s: str) -> int | None:
-    m = re.search(r"(\d+)\s*days?", s)
-    return int(m.group(1)) if m else None
 
 
 def _wrap(draw: ImageDraw.ImageDraw, text: str, f, max_w: int) -> list[str]:
@@ -142,14 +93,14 @@ def _render_quadrant(draw: ImageDraw.ImageDraw, m: Mission, x: int, y: int, w: i
     viz_bottom = next_top - 10
 
     if m.kind == "project":
-        frac = _parse_fraction(m.progress)
+        frac = parse_fraction(m.progress)
         if frac:
             value, total = frac
             bar_y = viz_top + 6
             progress_bar(draw, cx, bar_y, inner_w, 18, value=value, total=total, segments=total, gap=4)
             draw.text((cx, bar_y + 26), f"{value} of {total} weeks", font=meta_f, fill=0)
     elif m.kind == "habit":
-        days = _parse_days(m.progress) or 0
+        days = parse_days(m.progress) or 0
         if m.streak:
             series = m.streak
         elif days > 0:
@@ -172,13 +123,13 @@ def _render_quadrant(draw: ImageDraw.ImageDraw, m: Mission, x: int, y: int, w: i
         draw.text((grid_right + 14, viz_top - 2), str(days), font=streak_big, fill=0)
         draw.text((grid_right + 14, viz_top + 28), "day streak", font=meta_f, fill=0)
     elif m.kind == "milestone":
-        frac = _parse_fraction(m.progress)
+        frac = parse_fraction(m.progress)
         if frac:
             value, total = frac
             dots(draw, cx, viz_top + 4, filled=value, total=total, size=18, gap=10)
             draw.text((cx, viz_top + 32), f"{value} of {total}", font=meta_f, fill=0)
     elif m.kind == "goal":
-        frac = _parse_fraction(m.progress)
+        frac = parse_fraction(m.progress)
         if frac:
             value, total = frac
             progress_bar(draw, cx, viz_top + 6, inner_w, 14, value=value, total=total)
