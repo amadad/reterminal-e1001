@@ -51,6 +51,7 @@ reterminal-e1001/
 │       ├── app/
 │       ├── cli/
 │       ├── device/
+│       ├── family/              # pure markdown parsers + dataclasses for the four kitchen files; PIL-free, importable by any non-display tool
 │       ├── providers/
 │       ├── render/              # mono renderer, layout/bitmap primitives, shared viz vocabulary (see docs/visualizations.md)
 │       ├── scheduler/
@@ -76,6 +77,7 @@ uv run reterminal probe
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews --push --live
 uv run reterminal publish --feed examples/kitchen-display.json --push --watch --live
+uv run reterminal lint --feed examples/kitchen-display.json
 ```
 
 ## Agent access quickstart
@@ -129,7 +131,9 @@ local editors     ─►  ~/reterminal-content/family/activities.md
 - **slot 2**: `events` — upcoming events from `events.md`
 - **slot 3**: `activities` — recent + queued activities from `activities.md`
 
-The wiring lives in a provider manifest such as `python/examples/kitchen-display.json` (a provider manifest, not a scene list). Provider implementations are in `python/reterminal/providers/{calendar,missions,events,activities}.py`. Each returns a `SceneSpec` carrying a prerendered 800x480 1-bit bitmap; `MonoRenderer` short-circuits on prerendered scenes and just blits.
+The wiring lives in a provider manifest such as `python/examples/kitchen-display.json` (a provider manifest, not a scene list). Provider implementations are in `python/reterminal/providers/{calendar,missions,events,activities}.py` — each owns a renderer + `SceneProvider` class and imports its parser/dataclasses from `reterminal.family.<name>`. The `reterminal.family` package is the pure parsing layer (markdown → dataclasses, no PIL) so non-display consumers (briefs, OC flows, recall CLIs) can `from reterminal.family import parse_calendar, parse_missions, ...` without dragging in the render pipeline. Each provider returns a `SceneSpec` carrying a prerendered 800x480 1-bit bitmap; `MonoRenderer` short-circuits on prerendered scenes and just blits.
+
+Markdown sources can be linted with `reterminal lint --feed <manifest>`, which runs the same regexes the parsers use and reports lines the renderers would silently drop. Renderers also surface a black `STALE` pill in the bottom-right corner when a source file's mtime exceeds a per-provider threshold (calendar 2h, missions 3d, events/activities 14d) — converts a dead upstream writer into a visible kitchen signal instead of a quietly frozen display.
 
 The trigger loop (`python/reterminal/app/live.py`) uses `watchdog` for FSEvents on the parent directories of the four files, with a 5-minute sanity tick. It seeds its in-memory slot hashes from `/snapshot` on startup, refreshes capabilities on each tick to detect device reboots/storage loss, then marks a slot current only after a successful upload; this keeps launchd restarts, reboots, and transient upload failures from causing redundant or missed pushes. Slot pins live in the provider manifest (`slot: 0..3`), not in provider code. The public launchd template at `scripts/sh.reterminal.publish.example.plist` runs `scripts/reterminal-publish-watch.sh`, which discovers the DHCP-assigned host unless `RETERMINAL_HOST` is explicitly set.
 

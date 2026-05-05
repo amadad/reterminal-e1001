@@ -44,9 +44,10 @@ python/reterminal/
 ├── app/            # publish scenes to previews/device slots
 ├── cli/            # active CLI
 ├── device/         # device SDK + capabilities
+├── family/         # pure parsers + dataclasses for the four kitchen markdown files (PIL-free)
 ├── payloads.py     # shared device/JSON payload types
 ├── protocols.py    # shared structural interfaces
-├── providers/      # scene adapters
+├── providers/      # scene adapters (render + SceneProvider; parsers come from reterminal.family)
 ├── render/         # monochrome layouts, bitmap generators, art handling, viz primitives (see docs/visualizations.md)
 ├── scheduler/      # logical scenes -> 4 slots
 ├── scenes/         # scene schema

@@ -40,17 +40,20 @@ Responsibilities:
 Most providers should also avoid rendering. The current kitchen markdown
 providers are the exception: they use shared render helpers for bespoke 800x480
 layouts and return `prerendered` scenes until those layouts graduate into
-first-class renderer templates.
+first-class renderer templates. Their parsing/dataclass layer lives outside
+the providers package, in `reterminal.family.<name>`, so that any non-display
+tool can read family state with `from reterminal.family import parse_calendar,
+parse_missions, parse_events, parse_activities` without pulling in PIL.
 
 Current providers:
 
 - `FileSceneProvider` (legacy `{"scenes": [...]}` feed shape)
 - `SystemSceneProvider`
 - `PaperclipSceneProvider` (remote HTTP feed adapter)
-- `CalendarProvider` — reads `~/reterminal-content/family/calendar.md` by default
-- `MissionsProvider` — reads `~/reterminal-content/family/missions.md` by default
-- `EventsProvider` — reads `~/reterminal-content/family/events.md` by default
-- `ActivitiesProvider` — reads `~/reterminal-content/family/activities.md` by default
+- `CalendarProvider` — reads `~/reterminal-content/family/calendar.md` by default; parser in `reterminal.family.calendar`
+- `MissionsProvider` — reads `~/reterminal-content/family/missions.md` by default; parser in `reterminal.family.missions`
+- `EventsProvider` — reads `~/reterminal-content/family/events.md` by default; parser in `reterminal.family.events`
+- `ActivitiesProvider` — reads `~/reterminal-content/family/activities.md` by default; parser in `reterminal.family.activities`
 
 The kitchen-display providers register themselves into a manifest registry
 (`providers/manifest.py`) so a `{"providers": [...]}` JSON config like
