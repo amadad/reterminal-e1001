@@ -112,6 +112,7 @@ def text_to_raw(
 
     img = Image.new("1", (WIDTH, HEIGHT), color=1)  # White background
     draw = ImageDraw.Draw(img)
+    draw.fontmode = "1"
 
     # Load font
     font = load_font(font_path, font_size) if font_path else load_font(size=font_size)

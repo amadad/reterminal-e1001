@@ -101,6 +101,7 @@ def render_calendar(
 ) -> Image.Image:
     img = Image.new("L", (WIDTH, HEIGHT), color=255)
     draw = ImageDraw.Draw(img)
+    draw.fontmode = "1"
     margin = 24
     gutter = 28
 

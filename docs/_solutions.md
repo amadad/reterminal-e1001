@@ -2,6 +2,30 @@
 
 Newest first. Keep entries short, dated, and evidence-oriented.
 
+## 2026-05-06 — Periodic restart ceiling reduced from 23h to 6h
+
+- **Symptoms:** device still froze overnight (8-12h) despite the 23h unconditional restart added on May 5. The 23h restart is correct in principle, but the freeze window (up to 22h before the ceiling fires) is too long for overnight use.
+- **Root cause:** zombie WiFi can enter at any point during uptime, not just at hour 23. The 23h ceiling only guarantees recovery within 23h; it does nothing for a zombie state that enters at hour 8.
+- **Failed attempt:** added a TCP health check (`probe.connect(gateway:80)`) to detect zombie state proactively. This caused a restart loop because `WiFiClient::connect()` ignores `setTimeout()` for the *connection* phase — it uses TCP retransmission timers (~20-75s) when the router silently drops SYNs. This exceeded the 60s loop-task watchdog, causing a watchdog panic and restart every ~6 minutes. Removing `WiFi.setSleep(false)` would NOT fix this; the issue is the blocking connect call, not sleep mode.
+- **Fix:** reduce `RETERMINAL_PERIODIC_RESTART_MS` default from 82800000 (23h) to 21600000 (6h). Maximum zombie window is now 6h; the display recovers transparently via LittleFS on each restart. No new code paths; firmware is identical to the May 5 build except this threshold. Override via `RETERMINAL_PERIODIC_RESTART_MS` in `platformio.local.ini` if a longer window is needed.
+- **Evidence:** build successful; firmware flashed 2026-05-06; `/capabilities` will report `periodic_restart_ms: 21600000`. Overnight soak pending.
+- **Lesson:** on ESP32 Arduino, `WiFiClient.setTimeout()` only affects read operations, not `connect()`. TCP connect timeout is controlled by LWIP retransmission config and cannot be shortened via the Arduino WiFiClient API. Any TCP-connect-based health check will block for 20-75s on silent SYN drops — longer than any reasonable loop watchdog.
+
+## 2026-05-06 — draw.fontmode = "1" applied across all render sites
+
+- **Symptoms:** text rendered on ePaper appeared with faint antialiased grey pixels around edges, visible as dot-matrix texture after 1-bit thresholding.
+- **Root cause:** Pillow's default `ImageDraw` uses antialiased font rendering (`fontmode = "L"`). For 1-bit ePaper targets, this produces sub-pixel greyscale that gets thresholded to noisy dots.
+- **Fix:** set `draw.fontmode = "1"` after every `ImageDraw.Draw()` call in the render pipeline (providers/activities, calendar, events, missions; render/bitmap, kitchen, mono; cli/commands; encoding.py). This forces 1-bit (binary) font rasterization consistently.
+- **Evidence:** `uv run --extra dev pytest -q` passes; ruff passes.
+
+## 2026-05-05 — Unconditional 23h restart added to defeat zombie Wi-Fi
+
+- **Symptoms:** device froze overnight requiring a power cycle, despite the May 4 Wi-Fi self-restart fix. `reset_reason: poweron` after each freeze confirmed the self-restart never triggered.
+- **Root cause:** all previous restart paths were conditional on `wifiLinkUp()` returning false or `loop()` blocking. The "zombie Wi-Fi" state (ESP32 LWIP stack corrupted, `WiFi.status() == WL_CONNECTED` but TCP dead) bypasses both: the link appears up so no restart fires, and the loop keeps running so the watchdog stays fed. The device is alive but unreachable indefinitely.
+- **Fix:** unconditional `millis() >= PERIODIC_RESTART_MS` check at the top of `loop()` (default 23h, overridable via `RETERMINAL_PERIODIC_RESTART_MS` in `platformio.local.ini`). `millis()` advances regardless of network state — no condition the zombie state can bypass. Also removed `WiFi.setAutoReconnect(true)` which raced with the manual reconnect logic in `maintainWifi()`. New capability field `periodic_restart_ms` confirms the threshold is armed. All 4 slots persist through the restart via LittleFS; display recovers transparently.
+- **Evidence:** flashed May 5 2026 12:44:36; `/capabilities` reports `periodic_restart_ms: 82800000`, `loop_watchdog_armed: true`, `wifi_connected: true`, all 4 slots loaded, `reset_reason: poweron`, `self_restart_count: 0`.
+- **Note:** `platformio.local.ini` is gitignored and must be created per-machine from `platformio.local.example.ini` before building. Missing local config was the cause of the intermediate no-credentials flash during this session.
+
 ## 2026-05-05 — Kitchen-display safety net + parsers lifted into `reterminal.family`
 
 - **Symptoms:** when the upstream calendar heartbeat got blocked (OC exec-approval gate denied `gws calendar events list`) the panel kept showing yesterday's `calendar.md` for ~36h with no visible signal that the writer had died. Authoring errors in any of the four markdown sources (typos in time prefixes, malformed ISO dates, unknown mission `kind:` values) silently disappeared from the render with no error anywhere — the line just didn't show up. The four parsers were also locked inside `reterminal.providers.*`, so non-display tools (briefs, recall CLIs, OC flows) could not read family state without dragging in PIL/render dependencies.

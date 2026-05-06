@@ -14,6 +14,7 @@ def generate_bitmap(spec: Mapping[str, JSONValue], width: int, height: int) -> I
     kind = str(spec.get("kind", "sparkline")).lower()
     image = Image.new("L", (width, height), color=255)
     draw = ImageDraw.Draw(image)
+    draw.fontmode = "1"
 
     if kind == "bars":
         _draw_bars(draw, spec, width, height)

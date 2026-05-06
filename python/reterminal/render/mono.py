@@ -43,6 +43,7 @@ class MonoRenderer:
             return self._finalize_prerendered(scene.prerendered)
         img = Image.new("L", (WIDTH, HEIGHT), color=255)
         draw = ImageDraw.Draw(img)
+        draw.fontmode = "1"
         frame = self._build_frame()
 
         match scene.kind:
@@ -663,6 +664,7 @@ class MonoRenderer:
     def _placeholder_art(self, width: int, height: int, scene: SceneSpec) -> Image.Image:
         img = Image.new("L", (width, height), color=240)
         draw = ImageDraw.Draw(img)
+        draw.fontmode = "1"
         label = str(self._meta(scene, "kicker") or scene.kind).upper()[:12]
         mono_font = load_mono_font(size=14)
         draw.text((12, 12), label, font=mono_font, fill=0)

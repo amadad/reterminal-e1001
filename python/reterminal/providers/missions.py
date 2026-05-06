@@ -154,6 +154,7 @@ def render_missions(
 ) -> Image.Image:
     img = Image.new("L", (WIDTH, HEIGHT), color=255)
     draw = ImageDraw.Draw(img)
+    draw.fontmode = "1"
     draw.text((24, 14), "MISSIONS", font=font(13, "bold"), fill=0)
 
     grid_top = 38

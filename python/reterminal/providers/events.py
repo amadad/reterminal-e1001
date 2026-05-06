@@ -69,6 +69,7 @@ def _draw_shape(draw: ImageDraw.ImageDraw, kind: str, cx: int, cy: int, size: in
 def render_events(events: list[Event], *, source_path: Path | None = None) -> Image.Image:
     img = Image.new("L", (WIDTH, HEIGHT), color=255)
     draw = ImageDraw.Draw(img)
+    draw.fontmode = "1"
     margin = 24
 
     draw.text((margin, margin), "UPCOMING", font=font(14, "bold"), fill=0)

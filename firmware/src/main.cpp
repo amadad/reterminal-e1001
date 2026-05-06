@@ -54,6 +54,15 @@
 #define RETERMINAL_WIFI_SELF_RESTART_MS 600000UL
 #endif
 
+// Unconditional uptime ceiling. The zombie-Wi-Fi state (stack reports
+// connected, TCP dead) bypasses every conditional restart path — this one
+// doesn't. millis() advances regardless of network state. 6h keeps the
+// maximum zombie window below a typical overnight sleep period; the display
+// recovers transparently (all slots persisted to LittleFS).
+#ifndef RETERMINAL_PERIODIC_RESTART_MS
+#define RETERMINAL_PERIODIC_RESTART_MS 21600000UL  // 6 hours
+#endif
+
 const char* WIFI_SSID = RETERMINAL_WIFI_SSID;
 const char* WIFI_PASS = RETERMINAL_WIFI_PASS;
 const char* HOSTNAME = RETERMINAL_HOSTNAME;
@@ -112,6 +121,7 @@ bool otaReady = false;
 const unsigned long WIFI_GRACE_MS = 30000;
 const unsigned long WIFI_RETRY_INTERVAL_MS = 30000;
 const unsigned long WIFI_SELF_RESTART_MS = RETERMINAL_WIFI_SELF_RESTART_MS;
+const unsigned long PERIODIC_RESTART_MS = RETERMINAL_PERIODIC_RESTART_MS;
 
 // Loop-task watchdog: reboots the device if loop() stops iterating for this
 // long. Catches synchronous WebServer wedges on half-open TCP, SPI hangs, and
@@ -126,6 +136,7 @@ esp_err_t loopWatchdogAddStatus = ESP_OK;
 enum SelfRestartReason : uint32_t {
   SELF_RESTART_NONE = 0,
   SELF_RESTART_WIFI_STALE = 1,
+  SELF_RESTART_PERIODIC = 2,
 };
 
 RTC_DATA_ATTR uint32_t selfRestartCount = 0;
@@ -345,6 +356,7 @@ const char* selfRestartReasonName(uint32_t reason) {
   switch (reason) {
     case SELF_RESTART_NONE: return "none";
     case SELF_RESTART_WIFI_STALE: return "wifi_stale";
+    case SELF_RESTART_PERIODIC: return "periodic";
     default: return "unknown";
   }
 }
@@ -382,6 +394,7 @@ void appendCapabilityFields(JsonDocument& doc) {
   doc["last_wifi_reconnect_ms"] = lastWifiReconnectMs;
   doc["wifi_down_ms"] = wifiDownDurationMs(now);
   doc["wifi_self_restart_ms"] = WIFI_SELF_RESTART_MS;
+  doc["periodic_restart_ms"] = PERIODIC_RESTART_MS;
   doc["self_restart_count"] = selfRestartCount;
   doc["last_self_restart_reason"] = selfRestartReasonName(lastSelfRestartReasonCode);
   doc["last_self_restart_uptime_ms"] = lastSelfRestartUptimeMs;
@@ -847,7 +860,7 @@ void setup() {
     WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
     WiFi.setSleep(false);
-    WiFi.setAutoReconnect(true);
+    WiFi.setAutoReconnect(false);  // manual reconnect in maintainWifi(); both together race
     WiFi.setHostname(HOSTNAME);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
     usbSerial.print("Connecting to WiFi");
@@ -960,6 +973,14 @@ void loop() {
   if (loopWatchdogArmed) {
     esp_task_wdt_reset();
   }
+
+  // Unconditional uptime ceiling. Every previous restart path has a condition
+  // the zombie-Wi-Fi state can bypass (link appears up, loop runs, watchdog
+  // feeds). millis() does not care about network state — it always advances.
+  if (PERIODIC_RESTART_MS > 0 && millis() >= PERIODIC_RESTART_MS) {
+    restartForHealth(SELF_RESTART_PERIODIC);
+  }
+
   maintainWifi();
   if (otaReady) ArduinoOTA.handle();
   server.handleClient();

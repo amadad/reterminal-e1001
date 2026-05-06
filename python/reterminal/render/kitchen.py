@@ -65,6 +65,7 @@ def draw_source_stamp(
 def render_notice(title: str, message: str, detail: str | None = None) -> Image.Image:
     img = Image.new("L", (WIDTH, HEIGHT), color=255)
     draw = ImageDraw.Draw(img)
+    draw.fontmode = "1"
     draw.text((24, 24), title.upper(), font=font(14, "bold"), fill=0)
     draw.text((24, 190), message, font=font(34, "bold"), fill=0)
     if detail:

@@ -368,6 +368,7 @@ def push(
                 from reterminal.fonts import load_font
                 img = Image.new("1", (WIDTH, HEIGHT), color=1)
                 draw = ImageDraw.Draw(img)
+                draw.fontmode = "1"
                 font = load_font(size=font_size)
                 lines = text.split("\n")
                 line_height = font_size + 10
