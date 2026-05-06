@@ -68,7 +68,8 @@ reterminal-e1001/
 ```bash
 cd python
 uv run reterminal discover
-uv run reterminal doctor
+uv run reterminal doctor                                                 # also lints manifest sources unless --skip-lint
+uv run reterminal doctor --feed examples/kitchen-display.json            # connectivity + lint in one shot
 uv run reterminal status
 uv run reterminal capabilities
 uv run reterminal snapshot --png ./current.png
@@ -78,6 +79,7 @@ uv run reterminal publish --feed examples/agent-feed.json --preview ./previews
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews --push --live
 uv run reterminal publish --feed examples/kitchen-display.json --push --watch --live
 uv run reterminal lint --feed examples/kitchen-display.json
+uv run reterminal brief --feed examples/kitchen-display.json             # sample family-state consumer (today/tomorrow/missions/next-event/queue)
 ```
 
 ## Agent access quickstart
@@ -133,7 +135,11 @@ local editors     ─►  ~/reterminal-content/family/activities.md
 
 The wiring lives in a provider manifest such as `python/examples/kitchen-display.json` (a provider manifest, not a scene list). Provider implementations are in `python/reterminal/providers/{calendar,missions,events,activities}.py` — each owns a renderer + `SceneProvider` class and imports its parser/dataclasses from `reterminal.family.<name>`. The `reterminal.family` package is the pure parsing layer (markdown → dataclasses, no PIL) so non-display consumers (briefs, OC flows, recall CLIs) can `from reterminal.family import parse_calendar, parse_missions, ...` without dragging in the render pipeline. Each provider returns a `SceneSpec` carrying a prerendered 800x480 1-bit bitmap; `MonoRenderer` short-circuits on prerendered scenes and just blits.
 
-Markdown sources can be linted with `reterminal lint --feed <manifest>`, which runs the same regexes the parsers use and reports lines the renderers would silently drop. Renderers also surface a black `STALE` pill in the bottom-right corner when a source file's mtime exceeds a per-provider threshold (calendar 2h, missions 3d, events/activities 14d) — converts a dead upstream writer into a visible kitchen signal instead of a quietly frozen display.
+Markdown sources can be linted with `reterminal lint --feed <manifest>`; `reterminal doctor --feed <manifest>` runs the same lint as part of standard health checks (use `--skip-lint` to opt out). Renderers also surface a black `STALE` pill in the bottom-right corner when a source file's mtime exceeds a per-provider threshold (calendar 2h, missions 3d, events/activities 14d) — converts a dead upstream writer into a visible kitchen signal instead of a quietly frozen display.
+
+Beyond the four markdown providers, an additional `photo` provider type can take any of the four physical slots: `{"type": "photo", "path": "<folder>", "mode": "newest"|"daily", "slot": N}`. It Floyd-Steinberg dithers a chosen image full-bleed (with optional caption from a sidecar `.txt`); see `python/reterminal/providers/photos.py`. Curating the source folder matters more than the renderer — high-contrast portraits, line art, and B&W photography survive 1-bit rendering; phone snapshots and busy color images do not.
+
+`reterminal brief --feed <manifest>` is a sample non-display consumer of `reterminal.family`: reads the manifest's calendar/missions/events/activities files and prints a daily readout. Useful as-is and as a worked example of what other tools (digests, recall CLIs, OC flows) can build on the family API.
 
 The trigger loop (`python/reterminal/app/live.py`) uses `watchdog` for FSEvents on the parent directories of the four files, with a 5-minute sanity tick. It seeds its in-memory slot hashes from `/snapshot` on startup, refreshes capabilities on each tick to detect device reboots/storage loss, then marks a slot current only after a successful upload; this keeps launchd restarts, reboots, and transient upload failures from causing redundant or missed pushes. Slot pins live in the provider manifest (`slot: 0..3`), not in provider code. The public launchd template at `scripts/sh.reterminal.publish.example.plist` runs `scripts/reterminal-publish-watch.sh`, which discovers the DHCP-assigned host unless `RETERMINAL_HOST` is explicitly set.
 

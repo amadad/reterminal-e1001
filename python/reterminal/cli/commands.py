@@ -514,15 +514,42 @@ def discover(
         raise typer.Exit(1)
 
 
+def _lint_manifest_if_present(feed: Optional[Path]) -> list[dict[str, object]]:
+    """Lint the markdown sources of a provider manifest, returning issues as dicts."""
+    if feed is None or not feed.exists():
+        return []
+    try:
+        data = json.loads(feed.read_text())
+    except (json.JSONDecodeError, OSError):
+        return []
+    if not is_manifest_shape(data):
+        return []
+    from reterminal.providers.lint import lint_manifest_files
+    manifest = load_manifest(feed)
+    specs: list[tuple[str, Path]] = []
+    for entry in manifest.providers:
+        raw = entry.config.get("path")
+        if isinstance(raw, str):
+            specs.append((entry.type, Path(raw).expanduser()))
+    return [issue.to_dict() for issue in lint_manifest_files(specs)]
+
+
 @app.command()
 def doctor(
     host: Optional[str] = HostOption,
     feed: Optional[Path] = typer.Option(None, "--feed", "-f", help="Optional scene feed JSON to validate"),
     paperclip_url: Optional[str] = typer.Option(None, "--paperclip-url", help="Optional Paperclip-compatible feed URL to validate"),
     include_system: bool = typer.Option(False, "--include-system/--no-include-system", help="Include the built-in system scene in the dry run"),
+    skip_lint: bool = typer.Option(False, "--skip-lint", help="Skip linting markdown sources of the manifest"),
     output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
 ):
-    """Run operational checks for connectivity, slot truth, and publish-pipeline readiness."""
+    """Run operational checks for connectivity, slot truth, and publish-pipeline readiness.
+
+    When `--feed` points at a provider manifest, also lints every markdown
+    source it references (same checks as `reterminal lint`). Lint findings
+    surface as warnings, not errors — bad authoring shows up here instead
+    of silently disappearing from the rendered display.
+    """
     try:
         report = run_doctor(
             host,
@@ -530,6 +557,7 @@ def doctor(
             paperclip_url=paperclip_url,
             include_system=include_system,
         )
+        lint_issues = [] if skip_lint else _lint_manifest_if_present(feed)
 
         if output == "json":
             payload = {
@@ -543,8 +571,11 @@ def doctor(
                 "firmware_match": report.firmware_match,
                 "warnings": report.warnings,
                 "errors": report.errors,
+                "lint_issues": lint_issues,
             }
             typer.echo(json.dumps(payload, indent=2))
+            if report.errors:
+                raise typer.Exit(1)
             return
 
         typer.echo(f"{'─' * 48}")
@@ -566,6 +597,12 @@ def doctor(
                 typer.echo(f"  {'Firmware Match':20} {report.firmware_match}")
             typer.echo(f"  {'Scene Count':20} {report.scene_count}")
             typer.echo(f"  {'Assignments':20} {report.assignment_count}")
+        if lint_issues:
+            typer.echo(f"\nLint ({len(lint_issues)} issue(s)):")
+            for issue in lint_issues:
+                typer.echo(f"  {issue['file']}:{issue['line']}: {issue['reason']}")
+                if issue.get("raw"):
+                    typer.echo(f"      {issue['raw']}")
         if report.warnings:
             typer.echo("\nWarnings:")
             for warning in report.warnings:
@@ -902,4 +939,116 @@ def lint(
                     typer.echo(f"    {issue.raw}")
     if issues:
         raise typer.Exit(1)
+
+
+@app.command()
+def brief(
+    feed: Path = typer.Option(..., "--feed", "-f", exists=True, dir_okay=False, help="Provider manifest JSON to read family state from"),
+    output: str = typer.Option("text", "--output", "-o", help="Output format: text, json"),
+):
+    """Print a morning summary built from the family-state files in a manifest.
+
+    Sample non-display consumer of `reterminal.family`. Reads whatever
+    calendar / missions / events / activities files the manifest names and
+    folds them into a single daily readout — today's agenda, tomorrow's,
+    each kid's next mission action, the closest upcoming event, and what's
+    next in the activities queue. Useful as-is for a kitchen morning print
+    or a Discord post; primarily a worked example for what other tools can
+    do with the family API.
+    """
+    from reterminal.family import (
+        parse_activities,
+        parse_calendar,
+        parse_events,
+        parse_missions,
+    )
+
+    manifest = load_manifest(feed)
+    paths_by_type: dict[str, Path] = {}
+    for entry in manifest.providers:
+        raw = entry.config.get("path")
+        if isinstance(raw, str):
+            paths_by_type[entry.type] = Path(raw).expanduser()
+
+    today: list = []
+    tomorrow: list = []
+    if (p := paths_by_type.get("calendar")) and p.exists():
+        today, tomorrow = parse_calendar(p)
+
+    missions: list = []
+    if (p := paths_by_type.get("missions")) and p.exists():
+        missions = parse_missions(p)
+
+    events: list = []
+    if (p := paths_by_type.get("events")) and p.exists():
+        events = parse_events(p)
+
+    queue: list = []
+    if (p := paths_by_type.get("activities")) and p.exists():
+        _recent, queue = parse_activities(p)
+
+    if output == "json":
+        payload = {
+            "today": [
+                {"time": i.time, "label": i.label, "who": i.who} for i in today
+            ],
+            "tomorrow": [
+                {"time": i.time, "label": i.label, "who": i.who} for i in tomorrow
+            ],
+            "missions": [
+                {"who": m.who, "kind": m.kind, "title": m.title, "next": m.next_action}
+                for m in missions
+            ],
+            "next_event": (
+                {
+                    "label": events[0].label,
+                    "on": events[0].on.isoformat(),
+                    "days_until": events[0].days_until,
+                    "tag": events[0].tag,
+                }
+                if events
+                else None
+            ),
+            "watching_next": (
+                {"label": queue[0].label, "tag": queue[0].tag} if queue else None
+            ),
+        }
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    def _fmt_item(i) -> str:
+        who_str = f" ({i.who})" if i.who else ""
+        return f"  {i.time or '—':>8}  {i.label}{who_str}"
+
+    typer.echo("─" * 48)
+    typer.echo("  Family brief")
+    typer.echo("─" * 48)
+
+    typer.echo(f"\nTODAY ({len(today)})")
+    for i in today:
+        typer.echo(_fmt_item(i))
+    if not today:
+        typer.echo("  (nothing scheduled)")
+
+    typer.echo(f"\nTOMORROW ({len(tomorrow)})")
+    for i in tomorrow:
+        typer.echo(_fmt_item(i))
+    if not tomorrow:
+        typer.echo("  (nothing scheduled)")
+
+    if missions:
+        typer.echo("\nMISSIONS")
+        for m in missions:
+            label = m.title or "(no title)"
+            nxt = m.next_action or "(no next)"
+            typer.echo(f"  {m.who}: {label} → {nxt}")
+
+    if events:
+        next_ev = events[0]
+        typer.echo("\nNEXT EVENT")
+        typer.echo(f"  {next_ev.label} — in {next_ev.days_until} days ({next_ev.on:%b %d})")
+
+    if queue:
+        typer.echo("\nWATCHING NEXT")
+        typer.echo(f"  {queue[0].label}")
 

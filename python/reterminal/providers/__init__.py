@@ -21,6 +21,7 @@ from reterminal.providers import activities as _activities  # noqa: F401
 from reterminal.providers import calendar as _calendar  # noqa: F401
 from reterminal.providers import events as _events  # noqa: F401
 from reterminal.providers import missions as _missions  # noqa: F401
+from reterminal.providers import photos as _photos  # noqa: F401
 
 __all__ = [
     "SceneProvider",

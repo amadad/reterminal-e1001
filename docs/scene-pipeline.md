@@ -54,6 +54,7 @@ Current providers:
 - `MissionsProvider` — reads `~/reterminal-content/family/missions.md` by default; parser in `reterminal.family.missions`
 - `EventsProvider` — reads `~/reterminal-content/family/events.md` by default; parser in `reterminal.family.events`
 - `ActivitiesProvider` — reads `~/reterminal-content/family/activities.md` by default; parser in `reterminal.family.activities`
+- `PhotoProvider` — watches a folder of images and renders one full-bleed (Floyd-Steinberg, optional `.txt` caption sidecar). Mode `newest` (default) picks newest-by-mtime; `daily` rotates deterministically by date. No markdown source — manifest `path` is the folder.
 
 The kitchen-display providers register themselves into a manifest registry
 (`providers/manifest.py`) so a `{"providers": [...]}` JSON config like

@@ -88,6 +88,7 @@ against the current checkout when both are available; if the build SHA is
 
 When the display shows stale or unexpected content, do this in order:
 
+0. **Look at the slot first.** If you see a black `STALE` pill in the bottom-right corner, the upstream writer is dead, not the display. Fix the writer, not the publisher. The calendar heartbeat is the most common offender — check OC gateway logs for `denied by exec approval timeout / allowlist miss` against `gws calendar events list`. The publisher is correctly leaving the last-good content visible until a new write arrives. Per-provider thresholds: calendar 2h, missions 3d, events/activities 14d.
 1. Confirm only one watcher/publisher is running.
 2. If the device is not reachable, inspect USB serial logs first. USB proves the
    board is alive; HTTP over Wi-Fi is still required for slot updates.
