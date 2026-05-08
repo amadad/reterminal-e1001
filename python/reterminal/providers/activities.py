@@ -11,20 +11,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
-
-from PIL import Image, ImageDraw, ImageEnhance, ImageOps
+from PIL import Image, ImageEnhance, ImageOps
 
 from reterminal.family.activities import DEFAULT_PATH, Activity, parse_activities
+from reterminal.payloads import JSONValue
 from reterminal.providers.manifest import register_provider
-from reterminal.render.kitchen import (
-    HEIGHT,
-    WIDTH,
-    draw_source_stamp,
-    font,
-    render_notice,
-    to_1bit,
-)
+from reterminal.render.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, new_canvas, render_notice, to_1bit, truncate_text
 from reterminal.scenes import SceneSpec
 
 
@@ -60,9 +52,7 @@ def render_activities(
     *,
     source_path: Path | None = None,
 ) -> Image.Image:
-    img = Image.new("L", (WIDTH, HEIGHT), color=255)
-    draw = ImageDraw.Draw(img)
-    draw.fontmode = "1"
+    img, draw = new_canvas()
     margin = 24
     gutter = 24
 
@@ -94,8 +84,7 @@ def render_activities(
         dw = draw.textlength(date_s, font=meta_f) if date_s else 0
         label = a.label
         label_budget = text_max_w - dw - 12
-        while draw.textlength(label, font=item_f) > label_budget and len(label) > 4:
-            label = label[:-2] + "…"
+        label = truncate_text(draw, label, item_f, label_budget)
         draw.text((margin, y), label, font=item_f, fill=0)
         if date_s:
             draw.text((left_right_edge - dw, y + 4), date_s, font=meta_f, fill=0)
@@ -126,8 +115,7 @@ def render_activities(
         y += 8
         for a in queue[1:3]:
             rest_label = a.label
-            while draw.textlength(rest_label, font=item_f) > text_max_w and len(rest_label) > 4:
-                rest_label = rest_label[:-2] + "…"
+            rest_label = truncate_text(draw, rest_label, item_f, text_max_w)
             draw.text((margin, y), rest_label, font=item_f, fill=0)
             y += 38
 
@@ -159,7 +147,7 @@ class ActivitiesProvider:
         ]
 
 
-def _factory(config: Mapping[str, Any]) -> ActivitiesProvider:
+def _factory(config: Mapping[str, JSONValue]) -> ActivitiesProvider:
     path = config.get("path", str(DEFAULT_PATH))
     return ActivitiesProvider(path=path)
 

@@ -1,15 +1,8 @@
 """Provider-manifest feed format.
 
-The legacy feed shape was a precomputed list of scenes:
-
-    {"scenes": [{"id": ..., "kind": ..., "preferred_slot": 0, ...}, ...]}
-
-That worked when an upstream pipeline rendered scenes and dropped them in a
-JSON file. For the live kitchen display we want the inverse: the feed names
-*providers and their inputs*, and each provider parses its source on every
-fetch. Editing the markdown is the only trigger the host pipeline needs.
-
-A manifest file looks like:
+A manifest names providers and their inputs so each provider re-parses its
+source on every fetch. This is the inverse of the older scene-list format
+({"scenes": [...]}) where an upstream pipeline pre-rendered scenes into JSON.
 
     {
       "providers": [
@@ -32,13 +25,12 @@ import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
-
+from reterminal.payloads import JSONValue
 from reterminal.providers.base import SceneProvider
 from reterminal.scenes import SceneSpec
 
 
-ProviderFactory = Callable[[Mapping[str, Any]], SceneProvider]
+ProviderFactory = Callable[[Mapping[str, JSONValue]], SceneProvider]
 
 PROVIDER_REGISTRY: dict[str, ProviderFactory] = {}
 
@@ -51,11 +43,11 @@ def register_provider(type_name: str, factory: ProviderFactory) -> None:
 @dataclass(slots=True)
 class ProviderEntry:
     type: str
-    config: dict[str, Any] = field(default_factory=dict)
+    config: dict[str, JSONValue] = field(default_factory=dict)
     slot: int | None = None
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> ProviderEntry:
+    def from_dict(cls, data: Mapping[str, JSONValue]) -> ProviderEntry:
         if "type" not in data:
             raise ValueError("Provider entry missing required 'type' field")
         type_name = data["type"]
@@ -79,7 +71,7 @@ class FeedManifest:
     providers: list[ProviderEntry]
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> FeedManifest:
+    def from_dict(cls, data: Mapping[str, JSONValue]) -> FeedManifest:
         if "providers" not in data:
             raise ValueError("Manifest missing required 'providers' list")
         raw = data["providers"]
@@ -88,7 +80,7 @@ class FeedManifest:
         return cls(providers=[ProviderEntry.from_dict(item) for item in raw])
 
 
-def is_manifest_shape(data: Any) -> bool:
+def is_manifest_shape(data: object) -> bool:
     """Return True if `data` looks like a provider manifest (vs scene list)."""
     return isinstance(data, Mapping) and "providers" in data
 

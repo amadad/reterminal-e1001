@@ -1,13 +1,13 @@
 """Configuration management using environment variables."""
 
+from __future__ import annotations
+
 import os
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Optional
 
 from dotenv import load_dotenv
 
-# Load .env file from package directory or current directory
 _env_paths = [
     Path(__file__).parent.parent / ".env",
     Path.cwd() / ".env",
@@ -17,7 +17,6 @@ for env_path in _env_paths:
         load_dotenv(env_path)
         break
 
-# Display dimensions (constants)
 WIDTH = 800
 HEIGHT = 480
 IMAGE_BYTES = WIDTH * HEIGHT // 8  # 48000 bytes
@@ -36,7 +35,6 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        """Load settings from environment variables."""
         return cls(
             host=os.getenv("RETERMINAL_HOST", "").strip(),
             timeout=int(os.getenv("RETERMINAL_TIMEOUT", "30")),
@@ -47,12 +45,10 @@ class Settings:
         )
 
 
-# Global settings instance
 settings = Settings.from_env()
 
 
-def get_host(override: Optional[str] = None) -> str:
-    """Get device host, with optional override."""
+def get_host(override: str | None = None) -> str:
     host = (override or settings.host).strip()
     if not host:
         raise ValueError("Set RETERMINAL_HOST or pass --host with the device IP")

@@ -9,7 +9,6 @@ from reterminal.device.adapter import ReTerminalDevice
 class FakeClient:
     def __init__(self):
         self.host = "192.0.2.76"
-        self.status_payload = {"uptime_ms": 1000, "page_name": "dashboard"}
         self.page_payload = {"total": 4, "page": 0, "name": "dashboard"}
         self.capabilities_payload = {
             "width": 800,
@@ -28,9 +27,6 @@ class FakeClient:
         self.shown = []
         self.clears = []
         self.snapshots = []
-
-    def status(self):
-        return dict(self.status_payload)
 
     def get_page(self):
         return dict(self.page_payload)
@@ -80,7 +76,6 @@ def test_device_clears_upload_cache_when_uptime_resets():
     device.prepare_push_cycle()
     device.push_pil(image, 0)
 
-    client.status_payload["uptime_ms"] = 50
     client.capabilities_payload["uptime_ms"] = 50
     device.prepare_push_cycle()
     result = device.push_pil(image, 0)

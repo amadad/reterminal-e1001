@@ -19,8 +19,3 @@ class ImageError(ReTerminalError):
 class PageError(ReTerminalError):
     """Invalid page number or page operation failed."""
     pass
-
-
-class DataFetchError(ReTerminalError):
-    """Failed to fetch data for a page."""
-    pass

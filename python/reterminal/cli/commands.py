@@ -23,7 +23,6 @@ from reterminal.render import MonoRenderer
 from reterminal.scheduler import PriorityScheduler
 
 
-# Common options
 HostOption = typer.Option(None, "--host", "-h", help="Device IP address")
 PageOption = typer.Option(None, "--page", help="Device slot to store/show")
 
@@ -164,7 +163,6 @@ def status(
         if output == "json":
             typer.echo(json.dumps(result, indent=2))
         else:
-            # Table output
             typer.echo(f"{'─' * 40}")
             typer.echo(f"  reTerminal Status ({client.host})")
             typer.echo(f"{'─' * 40}")

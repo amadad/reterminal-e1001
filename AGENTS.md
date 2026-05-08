@@ -33,7 +33,7 @@ Do not reintroduce the removed legacy fixed-page system unless explicitly asked.
 - Live slot names are neutral: `slot-0..slot-3`
 - `snapshot_readback` is live and can return the exact stored raw bitmap for a loaded slot
 - loaded slots persist to LittleFS across normal reboot/power cycle; host republish is still the recovery path after reflash, empty storage, or filesystem failure
-- firmware performs an unconditional restart after 6h uptime (`periodic_restart_ms: 21600000`) — defeats zombie Wi-Fi (stack reports connected, TCP dead). Slots survive via LittleFS. `/capabilities` reports `last_self_restart_reason` (`periodic` | `wifi_stale` | `none`).
+- firmware sends a gratuitous ARP every 4 min (`arp_keepalive_ms: 240000`) to keep the router's ARP table warm — primary zombie-WiFi defense. `WiFi.setAutoReconnect(true)` handles actual disconnects; `maintainWifi()` only monitors state and manages mDNS/OTA lifecycle. A full restart fires after 10 min of sustained WiFi loss (`wifi_self_restart_ms`) or after 12h uptime as a last resort (`periodic_restart_ms: 43200000`). `/capabilities` reports `arp_keepalive_ms`, `last_arp_ms`, and `last_self_restart_reason` (`periodic` | `wifi_stale` | `none`).
 - on some macOS hosts, curl-based transport can be more reliable than Python `requests` for live device mutations
 - all `ImageDraw.Draw` instances in render/provider code must set `draw.fontmode = "1"` immediately after construction — without it Pillow antialiases text into gray pixels that threshold to noise on 1-bit output
 

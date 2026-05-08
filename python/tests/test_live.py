@@ -66,6 +66,9 @@ class _FakeDevice:
         class S:
             def __init__(self, raw: bytes):
                 self.raw = raw
+        if slot not in self.snapshots:
+            from reterminal.exceptions import PageError
+            raise PageError(f"no snapshot for slot {slot}")
         return S(self.snapshots[slot])
 
 

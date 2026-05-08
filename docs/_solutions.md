@@ -2,6 +2,23 @@
 
 Newest first. Keep entries short, dated, and evidence-oriented.
 
+## 2026-05-07 — Idiomatic WiFi fixes: ARP keepalive + auto-reconnect + 12h last-resort restart
+
+- **Root cause (revised):** Two compounding mechanisms. (1) Home routers expire ARP entries after 5-30 min of silence. A quiet display device's IP becomes unroutable even though the 802.11 association is intact — this is what "zombie WiFi" looks like from the host. (2) The previous manual reconnect loop (`WiFi.setAutoReconnect(false)` + `WiFi.disconnect() + WiFi.begin()` on a 30s interval) fights the ESP32 driver's internal state machine and can itself introduce the LWIP corruption it was trying to fix.
+- **Fix 1 — Gratuitous ARP every 4 minutes:** `sendGratuitousArp()` iterates `netif_list` and calls `etharp_gratuitous()` on each ETHARP-capable interface. This keeps the router's ARP entry for the device alive indefinitely. The standard embedded mechanism; no new state, no reconnect logic.
+- **Fix 2 — `WiFi.setAutoReconnect(true)`:** The ESP32 driver's designed reconnect mechanism. Removes all manual `WiFi.disconnect() + WiFi.begin()` calls from `maintainWifi()`. The function now only monitors state transitions, manages mDNS/OTA lifecycle, and triggers `SELF_RESTART_WIFI_STALE` if the driver fails to recover within 10 min. Dead variables removed: `lastWifiRetryMs`, `WIFI_GRACE_MS`, `WIFI_RETRY_INTERVAL_MS`.
+- **Fix 3 — Periodic restart extended to 12h:** ARP keepalive + driver-managed reconnect are the primary defenses. The unconditional restart is now a genuine last resort (LWIP stack itself corrupts). 12h gives enough headroom to catch a multi-day failure without firing every night.
+- **`sdkconfig.defaults` considered and rejected:** Would reduce `CONFIG_LWIP_TCP_MSL` (TIME_WAIT) and set `CONFIG_LWIP_MAX_SOCKETS`. Doesn't apply to the Arduino ESP32 framework — LWIP config is compiled into the pre-built framework, not overridable via `sdkconfig.defaults` in PlatformIO.
+- **Evidence:** Build successful (27.8% flash, 29.8% RAM). `etharp_gratuitous()` links from Arduino ESP32's bundled LWIP. `/capabilities` reports `arp_keepalive_ms: 240000`, `last_arp_ms`. Overnight soak pending.
+
+## 2026-05-07 — Periodic restart reduced from 6h to 2h; proactive WiFi cycle rejected as overengineering
+
+- **Symptoms:** overnight freezing persisted despite 6h periodic restart.
+- **Root cause:** the maximum zombie window equals `PERIODIC_RESTART_MS`. A 6h ceiling means a zombie that enters 1 minute after a restart leaves the device unreachable for ~6h. An 8h overnight sleep can span two such windows.
+- **Fix:** reduce `PERIODIC_RESTART_MS` from 21600000 (6h) to 7200000 (2h). Max zombie window is now ≤2h; an 8h overnight sleep sees at most 3 transparent restarts (~10-20s each, display stays on LittleFS-persisted content). Override via `RETERMINAL_PERIODIC_RESTART_MS` in `platformio.local.ini`.
+- **Considered and rejected:** a proactive WiFi cycle (disconnect+reconnect every 2h even when link appears healthy). Same zombie window, but adds ~30 lines of new state and interaction with the existing reconnect logic. The "lighter than a restart" argument doesn't hold — the display shows persisted content immediately on boot; a 2s ePaper flash at 2am is not a real cost. Simpler wins.
+- **Evidence:** build successful (27.8% flash, 29.8% RAM); overnight soak pending.
+
 ## 2026-05-06 — Periodic restart ceiling reduced from 23h to 6h
 
 - **Symptoms:** device still froze overnight (8-12h) despite the 23h unconditional restart added on May 5. The 23h restart is correct in principle, but the freeze window (up to 22h before the ceiling fires) is too long for overnight use.

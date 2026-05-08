@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import urllib.request
-from typing import Optional
 
 from reterminal.providers.file_feed import FileSceneProvider
 from reterminal.scenes import SceneSpec
@@ -19,7 +18,7 @@ class PaperclipSceneProvider:
 
     name = "paperclip"
 
-    def __init__(self, url: str, *, token: Optional[str] = None, token_env: str = "PAPERCLIP_TOKEN"):
+    def __init__(self, url: str, *, token: str | None = None, token_env: str = "PAPERCLIP_TOKEN"):
         self.url = url
         self.token = token
         self.token_env = token_env

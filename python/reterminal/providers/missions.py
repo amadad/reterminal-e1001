@@ -11,8 +11,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
-
 from PIL import Image, ImageDraw
 
 from reterminal.family.missions import (
@@ -22,15 +20,10 @@ from reterminal.family.missions import (
     parse_fraction,
     parse_missions,
 )
+from reterminal.payloads import JSONValue
 from reterminal.providers.manifest import register_provider
-from reterminal.render.kitchen import (
-    HEIGHT,
-    WIDTH,
-    draw_source_stamp,
-    font,
-    render_notice,
-    to_1bit,
-)
+from reterminal.render.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, new_canvas, render_notice, to_1bit
+from reterminal.render.layout import wrap_text
 from reterminal.render.viz import dots, heatmap, progress_bar
 from reterminal.scenes import SceneSpec
 
@@ -38,21 +31,6 @@ from reterminal.scenes import SceneSpec
 DEFAULT_MISSION_ORDER: tuple[str, ...] = ()
 
 
-def _wrap(draw: ImageDraw.ImageDraw, text: str, f, max_w: int) -> list[str]:
-    words = text.split()
-    lines: list[str] = []
-    current = ""
-    for w in words:
-        candidate = f"{current} {w}".strip()
-        if draw.textlength(candidate, font=f) <= max_w:
-            current = candidate
-        else:
-            if current:
-                lines.append(current)
-            current = w
-    if current:
-        lines.append(current)
-    return lines
 
 
 def _render_quadrant(draw: ImageDraw.ImageDraw, m: Mission, x: int, y: int, w: int, h: int) -> None:
@@ -75,12 +53,12 @@ def _render_quadrant(draw: ImageDraw.ImageDraw, m: Mission, x: int, y: int, w: i
     draw.text((cx + inner_w - kw, top + 4), kind_label, font=kind_f, fill=0)
 
     title_y = top + 32
-    title_lines = _wrap(draw, m.title, title_f, inner_w)[:1]
+    title_lines = wrap_text(draw, m.title, title_f, inner_w)[:1]
     for line in title_lines:
         draw.text((cx, title_y), line, font=title_f, fill=0)
         title_y += 38
 
-    next_lines = _wrap(draw, m.next_action, next_f, inner_w)[:2]
+    next_lines = wrap_text(draw, m.next_action, next_f, inner_w)[:2]
     next_block_h = 18 + 19 * len(next_lines)
     next_top = bottom - next_block_h
     draw.text((cx, next_top), "NEXT", font=next_label_f, fill=0)
@@ -152,9 +130,7 @@ def render_missions(
     source_path: Path | None = None,
     order: tuple[str, ...] | None = None,
 ) -> Image.Image:
-    img = Image.new("L", (WIDTH, HEIGHT), color=255)
-    draw = ImageDraw.Draw(img)
-    draw.fontmode = "1"
+    img, draw = new_canvas()
     draw.text((24, 14), "MISSIONS", font=font(13, "bold"), fill=0)
 
     grid_top = 38
@@ -202,7 +178,7 @@ class MissionsProvider:
         ]
 
 
-def _factory(config: Mapping[str, Any]) -> MissionsProvider:
+def _factory(config: Mapping[str, JSONValue]) -> MissionsProvider:
     path = config.get("path", str(DEFAULT_PATH))
     order = config.get("order")
     if isinstance(order, str):

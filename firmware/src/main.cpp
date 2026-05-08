@@ -24,6 +24,8 @@
 #include <LittleFS.h>
 #include <esp_system.h>
 #include <esp_task_wdt.h>
+#include <lwip/netif.h>
+#include <lwip/etharp.h>
 #include <stdlib.h>
 
 #ifndef RETERMINAL_WIFI_SSID
@@ -54,13 +56,12 @@
 #define RETERMINAL_WIFI_SELF_RESTART_MS 600000UL
 #endif
 
-// Unconditional uptime ceiling. The zombie-Wi-Fi state (stack reports
-// connected, TCP dead) bypasses every conditional restart path — this one
-// doesn't. millis() advances regardless of network state. 6h keeps the
-// maximum zombie window below a typical overnight sleep period; the display
-// recovers transparently (all slots persisted to LittleFS).
+// Last-resort uptime ceiling. Primary zombie-WiFi defense is the gratuitous
+// ARP keepalive (prevents ARP cache expiry) and WiFi.setAutoReconnect(true)
+// (driver-managed reconnect). This fires only if both fail — e.g., the LWIP
+// stack itself corrupts. All slots survive via LittleFS.
 #ifndef RETERMINAL_PERIODIC_RESTART_MS
-#define RETERMINAL_PERIODIC_RESTART_MS 21600000UL  // 6 hours
+#define RETERMINAL_PERIODIC_RESTART_MS 43200000UL  // 12 hours
 #endif
 
 const char* WIFI_SSID = RETERMINAL_WIFI_SSID;
@@ -108,20 +109,20 @@ bool lastLeft = HIGH, lastMiddle = HIGH, lastRight = HIGH;
 unsigned long lastButtonPress = 0;
 const unsigned long DEBOUNCE_MS = 50;
 
-// WiFi liveness tracking. WiFi.begin() runs once in setup(); without these,
-// loop() never notices an AP reboot or DHCP renewal and the device goes silently
-// off-network until power-cycled.
 unsigned long lastWifiOkMs = 0;
-unsigned long lastWifiRetryMs = 0;
 unsigned long lastWifiLostMs = 0;
 unsigned long wifiReconnectAttempts = 0;
 unsigned long lastWifiReconnectMs = 0;
 bool mdnsReady = false;
 bool otaReady = false;
-const unsigned long WIFI_GRACE_MS = 30000;
-const unsigned long WIFI_RETRY_INTERVAL_MS = 30000;
 const unsigned long WIFI_SELF_RESTART_MS = RETERMINAL_WIFI_SELF_RESTART_MS;
 const unsigned long PERIODIC_RESTART_MS = RETERMINAL_PERIODIC_RESTART_MS;
+
+// Gratuitous ARP sent on this interval keeps the router's ARP table warm.
+// Home routers expire ARP entries after 5-30 min of inactivity; a silent
+// device's IP becomes unreachable even though the 802.11 link is still up.
+const unsigned long ARP_KEEPALIVE_MS = 240000UL;  // 4 minutes
+unsigned long lastArpMs = 0;
 
 // Loop-task watchdog: reboots the device if loop() stops iterating for this
 // long. Catches synchronous WebServer wedges on half-open TCP, SPI hangs, and
@@ -394,6 +395,8 @@ void appendCapabilityFields(JsonDocument& doc) {
   doc["last_wifi_reconnect_ms"] = lastWifiReconnectMs;
   doc["wifi_down_ms"] = wifiDownDurationMs(now);
   doc["wifi_self_restart_ms"] = WIFI_SELF_RESTART_MS;
+  doc["arp_keepalive_ms"] = ARP_KEEPALIVE_MS;
+  doc["last_arp_ms"] = lastArpMs;
   doc["periodic_restart_ms"] = PERIODIC_RESTART_MS;
   doc["self_restart_count"] = selfRestartCount;
   doc["last_self_restart_reason"] = selfRestartReasonName(lastSelfRestartReasonCode);
@@ -860,7 +863,7 @@ void setup() {
     WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
     WiFi.setSleep(false);
-    WiFi.setAutoReconnect(false);  // manual reconnect in maintainWifi(); both together race
+    WiFi.setAutoReconnect(true);
     WiFi.setHostname(HOSTNAME);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
     usbSerial.print("Connecting to WiFi");
@@ -875,6 +878,7 @@ void setup() {
 
     if (WiFi.status() == WL_CONNECTED) {
       lastWifiOkMs = millis();
+      lastArpMs = millis();
       usbSerial.println("Connected! IP: " + WiFi.localIP().toString());
       if (restoredCount == 0 || !pageLoaded[currentPage]) {
         showReadyScreen(WiFi.localIP().toString());
@@ -929,14 +933,29 @@ void setup() {
   usbSerial.println("Setup complete!");
 }
 
+void sendGratuitousArp() {
+  struct netif* iface;
+  for (iface = netif_list; iface != nullptr; iface = iface->next) {
+    if (netif_is_up(iface) && (iface->flags & NETIF_FLAG_ETHARP)) {
+      etharp_gratuitous(iface);
+    }
+  }
+}
+
+// WiFi.setAutoReconnect(true) handles reconnection; this function only
+// tracks state transitions, manages mDNS/OTA lifecycle, and restarts if
+// the driver fails to recover within WIFI_SELF_RESTART_MS.
 void maintainWifi() {
   if (strlen(WIFI_SSID) == 0) return;
   unsigned long now = millis();
+
   if (wifiLinkUp()) {
     lastWifiOkMs = now;
     if (lastWifiLostMs != 0) {
       usbSerial.println("WiFi restored: " + WiFi.localIP().toString());
       lastWifiLostMs = 0;
+      wifiReconnectAttempts++;
+      lastWifiReconnectMs = now;
     }
     startMdns();
     startOta();
@@ -949,24 +968,9 @@ void maintainWifi() {
     usbSerial.printf("WiFi link lost: status=%d\n", WiFi.status());
   }
 
-  if (
-    lastWifiOkMs > 0
-    && WIFI_SELF_RESTART_MS > 0
-    && wifiDownDurationMs(now) >= WIFI_SELF_RESTART_MS
-  ) {
+  if (lastWifiOkMs > 0 && WIFI_SELF_RESTART_MS > 0 && wifiDownDurationMs(now) >= WIFI_SELF_RESTART_MS) {
     restartForHealth(SELF_RESTART_WIFI_STALE);
   }
-
-  if (now - lastWifiOkMs < WIFI_GRACE_MS) return;
-  if (now - lastWifiRetryMs < WIFI_RETRY_INTERVAL_MS) return;
-  lastWifiRetryMs = now;
-  lastWifiReconnectMs = now;
-  wifiReconnectAttempts++;
-  usbSerial.printf("WiFi down for %lu ms, reconnecting\n", now - lastWifiOkMs);
-  WiFi.disconnect(false, false);
-  delay(100);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
 }
 
 void loop() {
@@ -982,6 +986,12 @@ void loop() {
   }
 
   maintainWifi();
+
+  if (wifiLinkUp() && millis() - lastArpMs >= ARP_KEEPALIVE_MS) {
+    lastArpMs = millis();
+    sendGratuitousArp();
+  }
+
   if (otaReady) ArduinoOTA.handle();
   server.handleClient();
 

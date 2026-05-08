@@ -1,15 +1,10 @@
 """1-bit visualization primitives for the monochrome ePaper display.
 
-Inspired by Chartli's visual vocabulary (block bars, sparklines, heatmaps,
-braille) but rendered with PIL directly so we do not depend on font glyph
-coverage and can tune pixel-precise.
+Rendered with PIL directly — no font glyph coverage needed, pixel-precise.
+See docs/visualizations.md for when to use each primitive.
 
-See docs/visualizations.md for the rubric — what each primitive is for,
-when to use it, and when not to.
-
-All primitives take a PIL ImageDraw and draw in place. They use `fill=0`
-(black) by default for on-pixels; the caller owns the canvas orientation
-and background.
+All primitives take a PIL ImageDraw and draw in place with `fill=0` (black);
+the caller owns the canvas and background.
 """
 
 from __future__ import annotations
@@ -18,11 +13,6 @@ import math
 from typing import Sequence
 
 from PIL import ImageDraw
-
-
-# ---------------------------------------------------------------------------
-# Progress bar: bounded progress toward a known total.
-# ---------------------------------------------------------------------------
 
 
 def progress_bar(
@@ -63,11 +53,6 @@ def progress_bar(
             draw.rectangle([x + 1, y + 1, x + 1 + inner, y + height - 1], fill=0)
 
 
-# ---------------------------------------------------------------------------
-# Sparkline: trend over time as compact columns.
-# ---------------------------------------------------------------------------
-
-
 def sparkline(
     draw: ImageDraw.ImageDraw,
     x: int,
@@ -90,11 +75,6 @@ def sparkline(
         draw.rectangle([cx, y + height - h, cx + col_w, y + height], fill=0)
 
 
-# ---------------------------------------------------------------------------
-# Heatmap: 2D grid of filled/empty cells. GitHub-contributions style.
-# ---------------------------------------------------------------------------
-
-
 def heatmap(
     draw: ImageDraw.ImageDraw,
     x: int,
@@ -106,9 +86,9 @@ def heatmap(
     gap: int = 2,
     threshold: float = 0.5,
 ) -> None:
-    """Grid of filled/empty cells laid out row-major.
+    """Row-major grid of filled/empty cells.
 
-    Each value above `threshold` renders filled; at/below renders empty box.
+    Values above `threshold` render filled; at/below render as empty box.
     Good for streak visualization (last 30 days of a habit), attendance,
     daily completion.
     """
@@ -121,11 +101,6 @@ def heatmap(
             draw.rectangle([cx, cy, cx + cell, cy + cell], fill=0)
         else:
             draw.rectangle([cx, cy, cx + cell, cy + cell], outline=0, width=1)
-
-
-# ---------------------------------------------------------------------------
-# Dots: small filled circles for counting. N of M.
-# ---------------------------------------------------------------------------
 
 
 def dots(
@@ -147,11 +122,6 @@ def dots(
             draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=0)
         else:
             draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=0, width=1)
-
-
-# ---------------------------------------------------------------------------
-# Ring: filled arc showing percentage. Single-metric glance.
-# ---------------------------------------------------------------------------
 
 
 def ring(
@@ -180,11 +150,6 @@ def ring(
         draw.arc(inset, start=-90, end=end_angle, fill=0, width=1)
 
 
-# ---------------------------------------------------------------------------
-# Scale: tick-marked horizontal line with a position marker.
-# ---------------------------------------------------------------------------
-
-
 def scale(
     draw: ImageDraw.ImageDraw,
     x: int,
@@ -210,11 +175,6 @@ def scale(
     draw.ellipse(
         [mx - marker_r, y - marker_r, mx + marker_r, y + marker_r], fill=0
     )
-
-
-# ---------------------------------------------------------------------------
-# Category shape: small filled glyphs for categorical labels.
-# ---------------------------------------------------------------------------
 
 
 SHAPE_KINDS = (

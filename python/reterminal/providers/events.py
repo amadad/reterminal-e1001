@@ -7,24 +7,16 @@ render concern and lives here so `Event` itself stays pure data.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
-
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from reterminal.family.events import DEFAULT_PATH, Event, parse_events
+from reterminal.payloads import JSONValue
 from reterminal.providers.manifest import register_provider
-from reterminal.render.kitchen import (
-    HEIGHT,
-    WIDTH,
-    draw_source_stamp,
-    font,
-    render_notice,
-    to_1bit,
-)
+from reterminal.render.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, new_canvas, render_notice, to_1bit, truncate_text
+from reterminal.render.viz import shape as _draw_viz_shape
 from reterminal.scenes import SceneSpec
 
 
@@ -43,33 +35,8 @@ def _shape_for(event: Event) -> str:
     return SHAPES.get(event.tag or "", DEFAULT_SHAPE)
 
 
-def _draw_shape(draw: ImageDraw.ImageDraw, kind: str, cx: int, cy: int, size: int = 16) -> None:
-    r = size // 2
-    if kind == "circle":
-        draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=0)
-    elif kind == "square":
-        draw.rectangle([cx - r, cy - r, cx + r, cy + r], fill=0)
-    elif kind == "triangle":
-        draw.polygon([(cx, cy - r), (cx + r, cy + r), (cx - r, cy + r)], fill=0)
-    elif kind == "triangle_outline":
-        draw.polygon([(cx, cy - r), (cx + r, cy + r), (cx - r, cy + r)], outline=0, width=2)
-    elif kind == "diamond":
-        draw.polygon([(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)], fill=0)
-    elif kind == "star":
-        pts = []
-        for i in range(10):
-            angle = -math.pi / 2 + i * math.pi / 5
-            rr = r if i % 2 == 0 else r // 2
-            pts.append((cx + rr * math.cos(angle), cy + rr * math.sin(angle)))
-        draw.polygon(pts, fill=0)
-    else:
-        draw.ellipse([cx - 3, cy - 3, cx + 3, cy + 3], fill=0)
-
-
 def render_events(events: list[Event], *, source_path: Path | None = None) -> Image.Image:
-    img = Image.new("L", (WIDTH, HEIGHT), color=255)
-    draw = ImageDraw.Draw(img)
-    draw.fontmode = "1"
+    img, draw = new_canvas()
     margin = 24
 
     draw.text((margin, margin), "UPCOMING", font=font(14, "bold"), fill=0)
@@ -109,12 +76,10 @@ def render_events(events: list[Event], *, source_path: Path | None = None) -> Im
         date_str = ev.on.strftime("%b %d")
         draw.text((date_col_x, baseline - title.getbbox(date_str)[3] // 2 - 2), date_str, font=sm, fill=0)
 
-        _draw_shape(draw, _shape_for(ev), glyph_col_x + glyph_col_w // 2 - 6, baseline, size=18)
+        _draw_viz_shape(draw, glyph_col_x + glyph_col_w // 2 - 6, baseline, _shape_for(ev), size=18)
 
-        label = ev.label
         max_w = WIDTH - label_col_x - margin
-        while draw.textlength(label, font=title) > max_w and len(label) > 4:
-            label = label[:-2] + "…"
+        label = truncate_text(draw, ev.label, title, max_w)
         label_bbox = title.getbbox(label)
         draw.text(
             (label_col_x, baseline - (label_bbox[3] - label_bbox[1]) // 2 - label_bbox[1]),
@@ -154,7 +119,7 @@ class EventsProvider:
         ]
 
 
-def _factory(config: Mapping[str, Any]) -> EventsProvider:
+def _factory(config: Mapping[str, JSONValue]) -> EventsProvider:
     path = config.get("path", str(DEFAULT_PATH))
     return EventsProvider(path=path)
 

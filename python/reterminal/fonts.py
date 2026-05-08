@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import platform
 from pathlib import Path
-from typing import Optional
 
 from PIL import ImageFont
 from loguru import logger
@@ -48,10 +47,10 @@ FONT_PATHS = {
     },
 }
 
-_font_cache: dict[tuple[Optional[str], int, str], ImageFont.FreeTypeFont] = {}
+_font_cache: dict[tuple[str | None, int, str], ImageFont.FreeTypeFont] = {}
 
 
-def find_system_font(kind: str = "sans") -> Optional[Path]:
+def find_system_font(kind: str = "sans") -> Path | None:
     """Find a suitable system font for the current platform."""
     system = platform.system()
     paths = FONT_PATHS.get(kind, {}).get(system, [])
@@ -69,7 +68,7 @@ def find_system_font(kind: str = "sans") -> Optional[Path]:
 
 
 def load_font(
-    path: Optional[str] = None,
+    path: str | None = None,
     size: int = 48,
     *,
     kind: str = "sans",
@@ -102,24 +101,7 @@ def load_font(
     return font
 
 
-def load_mono_font(path: Optional[str] = None, size: int = 18) -> ImageFont.FreeTypeFont:
+def load_mono_font(path: str | None = None, size: int = 18) -> ImageFont.FreeTypeFont:
     """Load a monospace font for folios, labels, and compact metadata."""
     return load_font(path=path, size=size, kind="mono")
 
-
-def load_font_family(
-    size_title: int = 36,
-    size_large: int = 56,
-    size_medium: int = 32,
-    size_small: int = 24,
-    *,
-    kind: str = "sans",
-) -> dict:
-    """Load a family of fonts at different sizes."""
-    return {
-        "title": load_font(size=size_title, kind=kind),
-        "large": load_font(size=size_large, kind=kind),
-        "medium": load_font(size=size_medium, kind=kind),
-        "small": load_font(size=size_small, kind=kind),
-        "mono_small": load_mono_font(size=max(12, size_small - 6)),
-    }

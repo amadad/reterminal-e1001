@@ -95,29 +95,16 @@ def text_to_raw(
     align: str = "center",
     font_path: str | None = None,
 ) -> bytes:
-    """
-    Render text to raw 1-bit bitmap.
-
-    Args:
-        text: Text to render (supports newlines)
-        font_size: Font size in pixels
-        align: Text alignment ("left", "center", "right")
-        font_path: Path to TTF font file (uses default if None)
-
-    Returns:
-        Raw bitmap data (48000 bytes)
-    """
+    """Render text to raw 1-bit bitmap."""
     from PIL import ImageDraw
     from reterminal.fonts import load_font
 
-    img = Image.new("1", (WIDTH, HEIGHT), color=1)  # White background
+    img = Image.new("1", (WIDTH, HEIGHT), color=1)
     draw = ImageDraw.Draw(img)
     draw.fontmode = "1"
 
-    # Load font
     font = load_font(font_path, font_size) if font_path else load_font(size=font_size)
 
-    # Calculate text position
     lines = text.split("\n")
     line_height = font_size + 10
     total_height = len(lines) * line_height
@@ -135,21 +122,13 @@ def text_to_raw(
             x = 20
 
         y = y_start + i * line_height
-        draw.text((x, y), line, font=font, fill=0)  # Black text
+        draw.text((x, y), line, font=font, fill=0)
 
     return pil_to_raw(img)
 
 
 def create_pattern(pattern: str = "checkerboard") -> bytes:
-    """
-    Create a test pattern.
-
-    Args:
-        pattern: Pattern type ("checkerboard", "horizontal", "vertical", "diagonal")
-
-    Returns:
-        Raw bitmap data (48000 bytes)
-    """
+    """Create a test pattern. Valid patterns: checkerboard, horizontal, vertical, diagonal."""
     raw = bytearray(IMAGE_BYTES)
 
     for y in range(HEIGHT):

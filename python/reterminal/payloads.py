@@ -17,7 +17,6 @@ class StatusPayload(TypedDict, total=False):
     free_heap: int
     current_page: int
     current_page_name: str
-    page_name: str
 
 
 class PageInfoPayload(TypedDict, total=False):
@@ -34,7 +33,6 @@ class CapabilitiesPayload(TypedDict, total=False):
     page_slots: int
     current_page: int
     current_page_name: str
-    page_name: str
     ssid: str
     rssi: int
     uptime_ms: int

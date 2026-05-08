@@ -8,8 +8,7 @@ from loguru import logger
 from reterminal.config import settings
 from reterminal.version import __version__
 
-# Configure loguru
-logger.remove()  # Remove default handler
+logger.remove()
 logger.add(
     sys.stderr,
     level=settings.log_level,
@@ -61,5 +60,4 @@ def main(
         )
 
 
-# Import commands to register them
-from reterminal.cli import commands  # noqa: F401, E402
+from reterminal.cli import commands  # noqa: F401, E402  -- import for side-effect registration

@@ -87,7 +87,7 @@ def missing_status_fields(status: StatusPayload) -> list[str]:
     return missing
 
 
-def page_name_from_status(status: StatusPayload) -> object:
+def page_name_from_status(status: StatusPayload) -> str:
     return status.get("current_page_name") or status.get("page_name", "?")
 
 

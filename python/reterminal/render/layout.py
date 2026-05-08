@@ -57,14 +57,6 @@ class Rect:
             Rect(self.x + left_width + gap, self.y, remainder_width, self.height),
         )
 
-    def split_right(self, width: int, *, gap: int = 0) -> tuple["Rect", "Rect"]:
-        right_width = max(1, min(width, self.width))
-        remainder_width = max(1, self.width - right_width - gap)
-        return (
-            Rect(self.x, self.y, remainder_width, self.height),
-            Rect(self.right - right_width, self.y, right_width, self.height),
-        )
-
     def columns(self, count: int, *, gap: int = 0) -> list["Rect"]:
         if count <= 0:
             return []

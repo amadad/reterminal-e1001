@@ -83,9 +83,15 @@ These are logical scenes. The scheduler maps them into the 4 physical slots the 
 
 Current providers include:
 
-- `FileSceneProvider`
-- `SystemSceneProvider`
-- `PaperclipSceneProvider` (remote HTTP feed adapter)
+- `CalendarProvider` — today/tomorrow agenda from a markdown file
+- `MissionsProvider` — mission cards from a markdown file
+- `EventsProvider` — upcoming events from a markdown file
+- `ActivitiesProvider` — recent and queued activities from a markdown file
+- `FileSceneProvider` — generic scene-list JSON feed
+- `PaperclipSceneProvider` — remote HTTP feed adapter
+- `SystemSceneProvider` — device health scene
+
+Providers are wired via a manifest JSON (`"providers": [{"type": "calendar", "path": "...", "slot": 0}, ...]`). Each type string maps to a factory in `providers/manifest.py::PROVIDER_REGISTRY`. Manifest-level `slot` pins are applied outside provider code so providers stay slot-agnostic.
 
 For the measured typography/layout approach behind these scenes, see `../docs/layout-system.md`.
 

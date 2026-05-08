@@ -27,6 +27,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import requests
 from loguru import logger
 from PIL import Image
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
@@ -35,7 +36,7 @@ from watchdog.observers import Observer
 from reterminal.app.publisher import DisplayPublisher
 from reterminal.encoding import pil_to_raw
 from reterminal.device.capabilities import DeviceCapabilities
-from reterminal.exceptions import ConnectionError as DeviceConnectionError
+from reterminal.exceptions import ConnectionError as DeviceConnectionError, ReTerminalError
 from reterminal.protocols import DisplayDevice
 from reterminal.providers import SceneProvider, build_providers, load_manifest
 from reterminal.providers.manifest import FeedManifest
@@ -165,7 +166,7 @@ def _seed_cache_from_device(
     if caps is None:
         try:
             caps = device.discover_capabilities(refresh=True)
-        except Exception:
+        except (DeviceConnectionError, requests.RequestException, OSError):
             logger.debug("live: could not refresh capabilities before snapshot seeding", exc_info=True)
             return 0
 
@@ -178,7 +179,7 @@ def _seed_cache_from_device(
     for slot in slots:
         try:
             slot_snapshot = snapshot(slot)
-        except Exception:
+        except (DeviceConnectionError, requests.RequestException, OSError, ReTerminalError):
             logger.debug(f"live: could not seed slot {slot} from snapshot", exc_info=True)
             continue
         cache.seed_raw(slot, slot_snapshot.raw)
@@ -196,7 +197,7 @@ def _sync_cache_with_device(
     """Refresh device state and invalidate digest cache after a reboot."""
     try:
         caps = device.prepare_push_cycle()
-    except Exception as exc:
+    except (DeviceConnectionError, requests.RequestException, ReTerminalError) as exc:
         if not _is_connection_failure(exc):
             logger.debug("live: could not refresh device state before publish", exc_info=True)
             return 0
@@ -205,7 +206,7 @@ def _sync_cache_with_device(
             return 0
         try:
             caps = device.prepare_push_cycle()
-        except Exception as retry_exc:
+        except (DeviceConnectionError, requests.RequestException, ReTerminalError) as retry_exc:
             logger.warning(f"live: device still unavailable after rediscovery: {retry_exc}")
             return 0
 
@@ -258,7 +259,7 @@ def _publish_once(
         if push and publisher.device is not None:
             try:
                 publisher.device.push_pil(image, slot)
-            except Exception as exc:
+            except (DeviceConnectionError, requests.RequestException, ReTerminalError) as exc:
                 if not _is_connection_failure(exc):
                     raise
                 logger.warning(f"live: device unavailable during slot {slot} upload: {exc}")
@@ -272,7 +273,7 @@ def _publish_once(
                 )
                 try:
                     publisher.device.push_pil(image, slot)
-                except Exception as retry_exc:
+                except (DeviceConnectionError, requests.RequestException, ReTerminalError) as retry_exc:
                     if not _is_connection_failure(retry_exc):
                         raise
                     logger.warning(
@@ -364,9 +365,3 @@ def run_live(
         observer.stop()
         observer.join()
 
-
-def manifest_paths_from_feed(feed: Path) -> list[Path]:
-    """Return the source-file paths referenced by a manifest, for callers
-    that want to display or check them without starting the loop.
-    """
-    return _provider_paths(load_manifest(feed))

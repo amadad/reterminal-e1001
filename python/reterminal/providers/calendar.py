@@ -12,20 +12,12 @@ import re
 from collections.abc import Mapping
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
-
 from PIL import Image, ImageDraw
 
 from reterminal.family.calendar import DEFAULT_PATH, CalendarItem, parse_calendar
+from reterminal.payloads import JSONValue
 from reterminal.providers.manifest import register_provider
-from reterminal.render.kitchen import (
-    HEIGHT,
-    WIDTH,
-    draw_source_stamp,
-    font,
-    render_notice,
-    to_1bit,
-)
+from reterminal.render.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, new_canvas, render_notice, to_1bit, truncate_text
 from reterminal.scenes import SceneSpec
 
 
@@ -45,13 +37,6 @@ _EMOJI_RE = re.compile(
 
 def _strip_emoji(text: str) -> str:
     return _EMOJI_RE.sub("", text).strip()
-
-
-def _truncate(draw: ImageDraw.ImageDraw, text: str, font, max_w: int) -> str:
-    label = text
-    while draw.textlength(label, font=font) > max_w and len(label) > 4:
-        label = label[:-2] + "…"
-    return label
 
 
 def _render_column(
@@ -84,7 +69,7 @@ def _render_column(
         time_w = draw.textlength(time_str, font=time_f)
         draw.text((x, cursor), time_str, font=time_f, fill=0)
         label_x = x + max(int(time_w), 80) + 12
-        label = _truncate(draw, _strip_emoji(item.label), label_f, x + width - label_x)
+        label = truncate_text(draw, _strip_emoji(item.label), label_f, x + width - label_x)
         draw.text((label_x, cursor + 2), label, font=label_f, fill=0)
         if item.who:
             who_str = f"@{item.who}"
@@ -99,9 +84,7 @@ def render_calendar(
     *,
     source_path: Path | None = None,
 ) -> Image.Image:
-    img = Image.new("L", (WIDTH, HEIGHT), color=255)
-    draw = ImageDraw.Draw(img)
-    draw.fontmode = "1"
+    img, draw = new_canvas()
     margin = 24
     gutter = 28
 
@@ -149,7 +132,7 @@ class CalendarProvider:
         ]
 
 
-def _factory(config: Mapping[str, Any]) -> CalendarProvider:
+def _factory(config: Mapping[str, JSONValue]) -> CalendarProvider:
     path = config.get("path", str(DEFAULT_PATH))
     return CalendarProvider(path=path)
 

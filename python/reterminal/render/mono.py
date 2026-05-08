@@ -83,8 +83,6 @@ class MonoRenderer:
         content, footer = outer.split_bottom(self.theme.footer_height, gap=self.theme.section_gap)
         return SceneFrame(outer=outer, content=content, footer=footer)
 
-    # === Hero: big title, optional metric sidebar, body bullets ===
-
     def _render_hero(self, draw: ImageDraw.ImageDraw, scene: SceneSpec, frame: SceneFrame) -> None:
         if self._meta(scene, "hero_style") == "focus":
             self._render_focus_hero(draw, scene, frame)
@@ -164,8 +162,6 @@ class MonoRenderer:
             valign="center",
         )
 
-    # === Metrics: dense grid with inverted label headers ===
-
     def _render_metrics(self, draw: ImageDraw.ImageDraw, scene: SceneSpec, frame: SceneFrame) -> None:
         content = frame.content
         content = self._draw_header_band(draw, content, scene)
@@ -189,8 +185,6 @@ class MonoRenderer:
         for row_rect, row_items in zip(grid_rect.rows(rows, gap=self.theme.gutter), self._chunk(display_metrics, cols)):
             for card_rect, metric in zip(row_rect.columns(len(row_items), gap=self.theme.gutter), row_items):
                 self._draw_metric_block(draw, card_rect, metric.label, metric.value, metric.detail)
-
-    # === Bulletin: single-column agenda with time/event rows ===
 
     def _render_bulletin(self, draw: ImageDraw.ImageDraw, scene: SceneSpec, frame: SceneFrame) -> None:
         content = frame.content
@@ -434,8 +428,6 @@ class MonoRenderer:
         self._fit_and_draw(draw, label_text_rect, label, max_font_size=26, min_font_size=16, max_lines=1, valign="center")
         self._fit_and_draw(draw, value_rect, value, max_font_size=30, min_font_size=16, max_lines=3, line_spacing=1, valign="center")
 
-    # === Poster: image with caption overlay ===
-
     def _render_poster(self, img: Image.Image, draw: ImageDraw.ImageDraw, scene: SceneSpec, frame: SceneFrame) -> None:
         content = self._draw_header_band(draw, frame.content, scene)
         image_rect, caption_rect = content.split_bottom(90, gap=self.theme.section_gap)
@@ -450,15 +442,11 @@ class MonoRenderer:
         if scene.subtitle:
             self._fit_and_draw(draw, subtitle_rect, scene.subtitle, max_font_size=15, min_font_size=11, max_lines=2)
 
-    # === Fallback ===
-
     def _render_fallback(self, draw: ImageDraw.ImageDraw, scene: SceneSpec, frame: SceneFrame) -> None:
         content = self._draw_header_band(draw, frame.content, scene)
         title_rect, body_rect = content.split_top(80, gap=self.theme.section_gap)
         self._fit_and_draw(draw, title_rect, scene.title, max_font_size=32, min_font_size=20, max_lines=3)
         self._draw_body_rows(draw, body_rect, scene.body or scene.items, max_items=5)
-
-    # === Shared components ===
 
     def _draw_header_band(self, draw: ImageDraw.ImageDraw, rect: Rect, scene: SceneSpec) -> Rect:
         """Inverted kicker band — white text on black bar. Compact and high-contrast."""
@@ -487,9 +475,8 @@ class MonoRenderer:
         detail: str | None,
     ) -> None:
         """Metric card with inverted label header strip and large value."""
-        # Inverted label strip at top
         label_height = 18
-        label_rect, value_region = rect.split_top(label_height, gap=0)
+        label_rect, _ = rect.split_top(label_height, gap=0)
         draw.rectangle((label_rect.x, label_rect.y, label_rect.right, label_rect.bottom), fill=0)
         mono_font = load_mono_font(size=10)
         draw.text((label_rect.x + 5, label_rect.y + 2), label.upper(), font=mono_font, fill=255)
@@ -611,8 +598,6 @@ class MonoRenderer:
             bbox = draw.textbbox((0, 0), stamp_str, font=mono_font)
             sx = rect.right - (bbox[2] - bbox[0])
             draw.text((sx, rect.y + 2), stamp_str, font=mono_font, fill=0)
-
-    # === Helpers ===
 
     def _fit_and_draw(
         self,

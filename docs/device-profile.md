@@ -113,7 +113,7 @@ These are facts supported by the current codebase, not yet by live hardware meas
 | Slot naming | Tracked firmware source now uses neutral slot names (`slot-0..slot-3`) instead of legacy semantic page labels | `firmware/src/main.cpp` | High |
 | Display chrome | Tracked firmware source no longer overlays `Page X/4` on top of host-rendered bitmaps | `firmware/src/main.cpp` | High |
 | Security posture | WiFi creds are no longer hardcoded in source; OTA is disabled unless a password is configured; HTTP endpoints are still unauthenticated | `firmware/src/main.cpp`, `firmware/platformio.local.example.ini` | Medium |
-| Firmware health | Tracked source reports reset reason, Wi-Fi reconnect/down counters, self-restart reason/count, loop-watchdog arm status, mDNS/OTA readiness, PSRAM, and LittleFS usage through capabilities/status | `firmware/src/main.cpp` | High |
+| Firmware health | Tracked source reports reset reason, Wi-Fi reconnect/down counters, self-restart reason/count, loop-watchdog arm status, mDNS/OTA readiness, PSRAM, LittleFS usage, and ARP keepalive state (`arp_keepalive_ms`, `last_arp_ms`) through capabilities/status | `firmware/src/main.cpp` | High |
 | Shell wrapper | `refresh.sh` now points at the active provider-driven publish flow; the launchd wrapper prefers the ignored local manifest when present | `refresh.sh`, `scripts/reterminal-publish-watch.sh` | High |
 
 ## Provisional architecture assumption
