@@ -93,7 +93,6 @@ def text_to_raw(
     text: str,
     font_size: int = 48,
     align: str = "center",
-    font_path: str | None = None,
 ) -> bytes:
     """Render text to raw 1-bit bitmap."""
     from PIL import ImageDraw
@@ -103,7 +102,7 @@ def text_to_raw(
     draw = ImageDraw.Draw(img)
     draw.fontmode = "1"
 
-    font = load_font(font_path, font_size) if font_path else load_font(size=font_size)
+    font = load_font(size=font_size)
 
     lines = text.split("\n")
     line_height = font_size + 10
