@@ -531,11 +531,9 @@ def _lint_manifest_if_present(feed: Optional[Path]) -> list[dict[str, str | int]
         return []
     from reterminal.providers.lint import lint_manifest_files
     manifest = load_manifest(feed)
-    specs: list[tuple[str, Path]] = []
-    for entry in manifest.providers:
-        raw = entry.config.get("path")
-        if isinstance(raw, str):
-            specs.append((entry.type, Path(raw).expanduser()))
+    specs: list[tuple[str, Path]] = [
+        (entry.type, p) for entry in manifest.providers if (p := entry.path()) is not None
+    ]
     return [issue.to_dict() for issue in lint_manifest_files(specs)]
 
 
@@ -916,12 +914,9 @@ def lint(
     from reterminal.providers.lint import lint_manifest_files
 
     manifest = load_manifest(feed)
-    specs: list[tuple[str, Path]] = []
-    for entry in manifest.providers:
-        raw = entry.config.get("path")
-        if not isinstance(raw, str):
-            continue
-        specs.append((entry.type, Path(raw).expanduser()))
+    specs: list[tuple[str, Path]] = [
+        (entry.type, p) for entry in manifest.providers if (p := entry.path()) is not None
+    ]
 
     issues = lint_manifest_files(specs)
 
@@ -976,11 +971,9 @@ def brief(
     )
 
     manifest = load_manifest(feed)
-    paths_by_type: dict[str, Path] = {}
-    for entry in manifest.providers:
-        raw = entry.config.get("path")
-        if isinstance(raw, str):
-            paths_by_type[entry.type] = Path(raw).expanduser()
+    paths_by_type: dict[str, Path] = {
+        entry.type: p for entry in manifest.providers if (p := entry.path()) is not None
+    }
 
     today: list[CalendarItem] = []
     tomorrow: list[CalendarItem] = []

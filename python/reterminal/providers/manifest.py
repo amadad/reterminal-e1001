@@ -46,6 +46,19 @@ class ProviderEntry:
     config: dict[str, JSONValue] = field(default_factory=dict)
     slot: int | None = None
 
+    def path(self) -> Path | None:
+        """Return the entry's `path` config as an expanded Path, or None.
+
+        Most provider configs name a markdown source via `path`; non-display
+        consumers (lint, brief, FSEvents watch loop) all want the expanded
+        absolute form. Returning None for missing-or-non-string keeps callers
+        from having to repeat the `isinstance(raw, str)` guard.
+        """
+        raw = self.config.get("path")
+        if isinstance(raw, str):
+            return Path(raw).expanduser()
+        return None
+
     @classmethod
     def from_dict(cls, data: Mapping[str, JSONValue]) -> ProviderEntry:
         if "type" not in data:

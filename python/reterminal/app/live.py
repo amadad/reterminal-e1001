@@ -127,12 +127,7 @@ class _BitmapCache:
 
 def _provider_paths(manifest: FeedManifest) -> list[Path]:
     """Pull `path` config values out of the manifest for FSEvents wiring."""
-    paths: list[Path] = []
-    for entry in manifest.providers:
-        raw = entry.config.get("path")
-        if isinstance(raw, str):
-            paths.append(Path(raw).expanduser())
-    return paths
+    return [p for entry in manifest.providers if (p := entry.path()) is not None]
 
 
 class _DebouncedTrigger:
