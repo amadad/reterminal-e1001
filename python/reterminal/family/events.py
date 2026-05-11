@@ -12,16 +12,16 @@ proximity.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from reterminal.family._grammar import ISO_DATE, TAG_RE
+
 
 DEFAULT_PATH = Path.home() / "reterminal-content" / "family" / "events.md"
 
-ISO_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})\s+(.*)$")
-TAG_RE = re.compile(r"\[([^\]]+)\]\s*$")
+__all__ = ["DEFAULT_PATH", "Event", "ISO_DATE", "TAG_RE", "parse_events"]
 
 
 @dataclass(frozen=True)
