@@ -64,6 +64,14 @@
 #define RETERMINAL_PERIODIC_RESTART_MS 43200000UL  // 12 hours
 #endif
 
+// HTTP-idleness detector. The publisher polls /capabilities every minute and
+// /imageraw on file changes. If the WiFi driver reports WL_CONNECTED but no
+// client has reached our HTTP server in this window, the LWIP stack is wedged
+// in a way no WiFi-level check can detect. Set to 0 to disable.
+#ifndef RETERMINAL_HTTP_IDLE_RESTART_MS
+#define RETERMINAL_HTTP_IDLE_RESTART_MS 1800000UL  // 30 minutes
+#endif
+
 const char* WIFI_SSID = RETERMINAL_WIFI_SSID;
 const char* WIFI_PASS = RETERMINAL_WIFI_PASS;
 const char* HOSTNAME = RETERMINAL_HOSTNAME;
@@ -117,12 +125,19 @@ bool mdnsReady = false;
 bool otaReady = false;
 const unsigned long WIFI_SELF_RESTART_MS = RETERMINAL_WIFI_SELF_RESTART_MS;
 const unsigned long PERIODIC_RESTART_MS = RETERMINAL_PERIODIC_RESTART_MS;
+const unsigned long HTTP_IDLE_RESTART_MS = RETERMINAL_HTTP_IDLE_RESTART_MS;
 
 // Gratuitous ARP sent on this interval keeps the router's ARP table warm.
 // Home routers expire ARP entries after 5-30 min of inactivity; a silent
 // device's IP becomes unreachable even though the 802.11 link is still up.
 const unsigned long ARP_KEEPALIVE_MS = 240000UL;  // 4 minutes
 unsigned long lastArpMs = 0;
+
+// HTTP-client liveness, used by the idle restart check. Updated at the top of
+// every HTTP handler — proves something on the LAN actually reached our TCP
+// stack and got a response back.
+volatile unsigned long lastClientMs = 0;
+volatile unsigned long httpRequestCount = 0;
 
 // Loop-task watchdog: reboots the device if loop() stops iterating for this
 // long. Catches synchronous WebServer wedges on half-open TCP, SPI hangs, and
@@ -138,11 +153,49 @@ enum SelfRestartReason : uint32_t {
   SELF_RESTART_NONE = 0,
   SELF_RESTART_WIFI_STALE = 1,
   SELF_RESTART_PERIODIC = 2,
+  SELF_RESTART_HTTP_IDLE = 3,
 };
 
 RTC_DATA_ATTR uint32_t selfRestartCount = 0;
 RTC_DATA_ATTR uint32_t lastSelfRestartReasonCode = SELF_RESTART_NONE;
 RTC_DATA_ATTR uint32_t lastSelfRestartUptimeMs = 0;
+
+// === Persistent event log ===
+// Small ring buffer in LittleFS so a freeze post-mortem can read what fired
+// (or didn't fire) across boots without serial. ts_ms uses millis() so it's
+// boot-local; restart_count gives total ordering across boots.
+enum EventCode : uint8_t {
+  EVENT_NONE = 0,
+  EVENT_BOOT = 1,
+  EVENT_WIFI_LOST = 2,
+  EVENT_WIFI_RESTORED = 3,
+  EVENT_RESTART_PERIODIC = 4,
+  EVENT_RESTART_WIFI_STALE = 5,
+  EVENT_RESTART_HTTP_IDLE = 6,
+};
+
+struct EventLogEntry {
+  uint32_t ts_ms;
+  uint8_t  event_code;
+  uint8_t  reset_reason_code;  // ESP reset reason, meaningful on boot events
+  uint16_t restart_count;       // selfRestartCount snapshot
+  uint32_t extra1;
+  uint32_t extra2;
+};  // 16 bytes
+
+const int EVENT_LOG_CAPACITY = 16;
+const char* EVENT_LOG_PATH = "/eventlog.bin";
+const uint32_t EVENT_LOG_MAGIC = 0x52454C47;  // 'RELG'
+
+struct EventLogHeader {
+  uint32_t magic;
+  uint32_t write_index;
+  uint32_t total_appended;
+  uint32_t reserved;
+};  // 16 bytes
+
+EventLogHeader eventLogHeader = {EVENT_LOG_MAGIC, 0, 0, 0};
+EventLogEntry eventLogBuffer[EVENT_LOG_CAPACITY] = {};
 
 GxEPD2_BW<GxEPD2_750_GDEY075T7, GxEPD2_750_GDEY075T7::HEIGHT> display(
     GxEPD2_750_GDEY075T7(EPD_CS_PIN, EPD_DC_PIN, EPD_RES_PIN, EPD_BUSY_PIN));
@@ -358,8 +411,78 @@ const char* selfRestartReasonName(uint32_t reason) {
     case SELF_RESTART_NONE: return "none";
     case SELF_RESTART_WIFI_STALE: return "wifi_stale";
     case SELF_RESTART_PERIODIC: return "periodic";
+    case SELF_RESTART_HTTP_IDLE: return "http_idle";
     default: return "unknown";
   }
+}
+
+const char* eventCodeName(uint8_t code) {
+  switch (code) {
+    case EVENT_NONE: return "none";
+    case EVENT_BOOT: return "boot";
+    case EVENT_WIFI_LOST: return "wifi_lost";
+    case EVENT_WIFI_RESTORED: return "wifi_restored";
+    case EVENT_RESTART_PERIODIC: return "restart_periodic";
+    case EVENT_RESTART_WIFI_STALE: return "restart_wifi_stale";
+    case EVENT_RESTART_HTTP_IDLE: return "restart_http_idle";
+    default: return "unknown";
+  }
+}
+
+void markClientActivity() {
+  lastClientMs = millis();
+  httpRequestCount++;
+}
+
+// === Event log persistence ===
+
+void eventLogLoad() {
+  if (!fsReady) return;
+  File f = LittleFS.open(EVENT_LOG_PATH, "r");
+  if (!f) return;
+  size_t expected = sizeof(eventLogHeader) + sizeof(eventLogBuffer);
+  if (f.size() != expected) {
+    f.close();
+    return;
+  }
+  EventLogHeader hdr;
+  if (f.read(reinterpret_cast<uint8_t*>(&hdr), sizeof(hdr)) != sizeof(hdr)
+      || hdr.magic != EVENT_LOG_MAGIC) {
+    f.close();
+    return;
+  }
+  if (f.read(reinterpret_cast<uint8_t*>(eventLogBuffer), sizeof(eventLogBuffer))
+      != sizeof(eventLogBuffer)) {
+    f.close();
+    return;
+  }
+  f.close();
+  eventLogHeader = hdr;
+  if (eventLogHeader.write_index >= EVENT_LOG_CAPACITY) {
+    eventLogHeader.write_index = 0;
+  }
+}
+
+void eventLogPersist() {
+  if (!fsReady) return;
+  File f = LittleFS.open(EVENT_LOG_PATH, "w");
+  if (!f) return;
+  f.write(reinterpret_cast<const uint8_t*>(&eventLogHeader), sizeof(eventLogHeader));
+  f.write(reinterpret_cast<const uint8_t*>(eventLogBuffer), sizeof(eventLogBuffer));
+  f.close();
+}
+
+void eventLogAppend(uint8_t code, uint32_t extra1 = 0, uint32_t extra2 = 0) {
+  EventLogEntry& slot = eventLogBuffer[eventLogHeader.write_index];
+  slot.ts_ms = millis();
+  slot.event_code = code;
+  slot.reset_reason_code = static_cast<uint8_t>(esp_reset_reason());
+  slot.restart_count = static_cast<uint16_t>(selfRestartCount);
+  slot.extra1 = extra1;
+  slot.extra2 = extra2;
+  eventLogHeader.write_index = (eventLogHeader.write_index + 1) % EVENT_LOG_CAPACITY;
+  eventLogHeader.total_appended++;
+  eventLogPersist();
 }
 
 bool wifiLinkUp() {
@@ -398,6 +521,12 @@ void appendCapabilityFields(JsonDocument& doc) {
   doc["arp_keepalive_ms"] = ARP_KEEPALIVE_MS;
   doc["last_arp_ms"] = lastArpMs;
   doc["periodic_restart_ms"] = PERIODIC_RESTART_MS;
+  doc["http_idle_restart_ms"] = HTTP_IDLE_RESTART_MS;
+  doc["last_client_ms"] = lastClientMs;
+  doc["http_idle_ms"] = (lastClientMs == 0) ? 0UL : (now - lastClientMs);
+  doc["http_request_count"] = httpRequestCount;
+  doc["event_log_total"] = eventLogHeader.total_appended;
+  doc["event_log_capacity"] = EVENT_LOG_CAPACITY;
   doc["self_restart_count"] = selfRestartCount;
   doc["last_self_restart_reason"] = selfRestartReasonName(lastSelfRestartReasonCode);
   doc["last_self_restart_uptime_ms"] = lastSelfRestartUptimeMs;
@@ -429,6 +558,7 @@ void sendJsonError(int status, const String& message) {
 // === HTTP Handlers ===
 
 void handleRoot() {
+  markClientActivity();
   String html = "<h1>reTerminal E1001</h1>";
   html += "<p>IP: " + WiFi.localIP().toString() + "</p>";
   html += "<p>Endpoints: /status, /capabilities, /buttons, /beep, /page, /snapshot, /imageraw, /clear</p>";
@@ -436,6 +566,7 @@ void handleRoot() {
 }
 
 void handleStatus() {
+  markClientActivity();
   JsonDocument doc;
   doc["ip"] = WiFi.localIP().toString();
   doc["rssi"] = WiFi.RSSI();
@@ -450,6 +581,7 @@ void handleStatus() {
 }
 
 void handleCapabilities() {
+  markClientActivity();
   JsonDocument doc;
   doc["ip"] = WiFi.localIP().toString();
   doc["ssid"] = WiFi.SSID();
@@ -464,6 +596,7 @@ void handleCapabilities() {
 }
 
 void handleSnapshot() {
+  markClientActivity();
   if (server.method() != HTTP_GET) {
     sendJsonError(405, "Method Not Allowed");
     return;
@@ -496,6 +629,7 @@ void handleSnapshot() {
 }
 
 void handleButtons() {
+  markClientActivity();
   JsonDocument doc;
   doc["btn_left"] = digitalRead(BTN_LEFT);
   doc["btn_middle"] = digitalRead(BTN_MIDDLE);
@@ -510,11 +644,13 @@ void handleButtons() {
 }
 
 void handleBeep() {
+  markClientActivity();
   beep(300);
   server.send(200, "application/json", "{\"beeped\": true}");
 }
 
 void handlePage() {
+  markClientActivity();
   if (server.method() == HTTP_GET) {
     JsonDocument doc;
     doc["page"] = currentPage;
@@ -589,6 +725,7 @@ void handleImageUpload() {
   HTTPUpload& upload = server.upload();
 
   if (upload.status == UPLOAD_FILE_START) {
+    markClientActivity();
     resetUploadState();
 
     String pageArg = server.arg("page");
@@ -621,6 +758,7 @@ void handleImageUpload() {
 }
 
 void handleImageRaw() {
+  markClientActivity();
   if (server.method() != HTTP_POST) {
     sendJsonError(405, "Method Not Allowed");
     return;
@@ -690,6 +828,7 @@ void handleImageRaw() {
 }
 
 void handleClear() {
+  markClientActivity();
   if (server.method() != HTTP_POST) {
     sendJsonError(405, "Method Not Allowed");
     return;
@@ -744,7 +883,36 @@ void handleClear() {
 }
 
 void handleNotFound() {
+  markClientActivity();
   server.send(404, "application/json", "{\"error\": \"Not Found\"}");
+}
+
+void handleEventLog() {
+  markClientActivity();
+  JsonDocument doc;
+  doc["magic_ok"] = (eventLogHeader.magic == EVENT_LOG_MAGIC);
+  doc["write_index"] = eventLogHeader.write_index;
+  doc["total_appended"] = eventLogHeader.total_appended;
+  doc["capacity"] = EVENT_LOG_CAPACITY;
+  JsonArray entries = doc["entries"].to<JsonArray>();
+  // Emit in chronological order: oldest entry is at write_index when buffer
+  // has wrapped; just before write_index for the most recent.
+  for (int i = 0; i < EVENT_LOG_CAPACITY; i++) {
+    int idx = (eventLogHeader.write_index + i) % EVENT_LOG_CAPACITY;
+    const EventLogEntry& e = eventLogBuffer[idx];
+    if (e.event_code == EVENT_NONE) continue;
+    JsonObject obj = entries.add<JsonObject>();
+    obj["ts_ms"] = e.ts_ms;
+    obj["event"] = eventCodeName(e.event_code);
+    obj["event_code"] = e.event_code;
+    obj["reset_reason"] = resetReasonName(static_cast<esp_reset_reason_t>(e.reset_reason_code));
+    obj["restart_count"] = e.restart_count;
+    obj["extra1"] = e.extra1;
+    obj["extra2"] = e.extra2;
+  }
+  String response;
+  serializeJson(doc, response);
+  server.send(200, "application/json", response);
 }
 
 void startMdns() {
@@ -781,6 +949,16 @@ void restartForHealth(SelfRestartReason reason) {
   lastSelfRestartReasonCode = static_cast<uint32_t>(reason);
   lastSelfRestartUptimeMs = millis();
   selfRestartCount++;
+  uint8_t evt = EVENT_NONE;
+  switch (reason) {
+    case SELF_RESTART_PERIODIC:    evt = EVENT_RESTART_PERIODIC;    break;
+    case SELF_RESTART_WIFI_STALE:  evt = EVENT_RESTART_WIFI_STALE;  break;
+    case SELF_RESTART_HTTP_IDLE:   evt = EVENT_RESTART_HTTP_IDLE;   break;
+    default: break;
+  }
+  if (evt != EVENT_NONE) {
+    eventLogAppend(evt, lastSelfRestartUptimeMs, httpRequestCount);
+  }
   usbSerial.printf(
     "Self-restarting: reason=%s uptime_ms=%lu count=%lu\n",
     selfRestartReasonName(lastSelfRestartReasonCode),
@@ -820,6 +998,9 @@ void setup() {
     fsReady = true;
     LittleFS.mkdir(SLOT_DIR);
     usbSerial.println("LittleFS ready");
+    eventLogLoad();
+    eventLogAppend(EVENT_BOOT, static_cast<uint32_t>(esp_reset_reason()),
+                   lastSelfRestartReasonCode);
   } else {
     usbSerial.println("LittleFS mount AND format failed — slots volatile this boot");
   }
@@ -902,6 +1083,7 @@ void setup() {
   server.on("/page", handlePage);
   server.on("/imageraw", HTTP_POST, handleImageRaw, handleImageUpload);
   server.on("/clear", HTTP_POST, handleClear);
+  server.on("/eventlog", HTTP_GET, handleEventLog);
   server.onNotFound(handleNotFound);
   server.begin();
   usbSerial.println("HTTP server started");
@@ -953,9 +1135,11 @@ void maintainWifi() {
     lastWifiOkMs = now;
     if (lastWifiLostMs != 0) {
       usbSerial.println("WiFi restored: " + WiFi.localIP().toString());
+      uint32_t downMs = now - lastWifiLostMs;
       lastWifiLostMs = 0;
       wifiReconnectAttempts++;
       lastWifiReconnectMs = now;
+      eventLogAppend(EVENT_WIFI_RESTORED, downMs, wifiReconnectAttempts);
     }
     startMdns();
     startOta();
@@ -966,6 +1150,7 @@ void maintainWifi() {
     lastWifiLostMs = now;
     resetNetworkServices();
     usbSerial.printf("WiFi link lost: status=%d\n", WiFi.status());
+    eventLogAppend(EVENT_WIFI_LOST, static_cast<uint32_t>(WiFi.status()), 0);
   }
 
   if (lastWifiOkMs > 0 && WIFI_SELF_RESTART_MS > 0 && wifiDownDurationMs(now) >= WIFI_SELF_RESTART_MS) {
@@ -983,6 +1168,18 @@ void loop() {
   // feeds). millis() does not care about network state — it always advances.
   if (PERIODIC_RESTART_MS > 0 && millis() >= PERIODIC_RESTART_MS) {
     restartForHealth(SELF_RESTART_PERIODIC);
+  }
+
+  // HTTP-idleness detector. WiFi.status() can lie (zombie LWIP); an actual
+  // TCP accept from a real client on the LAN cannot. Once we've seen any
+  // client, prolonged silence while WiFi reports connected means the stack
+  // is wedged below the WiFi layer. Pure millis() comparison — no blocking
+  // calls, so the loop watchdog stays happy.
+  if (HTTP_IDLE_RESTART_MS > 0
+      && lastClientMs > 0
+      && wifiLinkUp()
+      && (millis() - lastClientMs) >= HTTP_IDLE_RESTART_MS) {
+    restartForHealth(SELF_RESTART_HTTP_IDLE);
   }
 
   maintainWifi();

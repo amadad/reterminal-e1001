@@ -97,6 +97,15 @@ lsof /dev/cu.usbserial-* /dev/cu.usbmodem* 2>/dev/null || true
 
 Common ESP32 USB-serial devices appear as `/dev/cu.usbserial-*` or `/dev/cu.usbmodem*`. The suffix changes with cable, hub, and boot mode. Do not hardcode a serial path in docs or scripts; re-run `pio device list` each session.
 
+This board exposes **two USB-CDC bridges**; only one is wired to firmware serial:
+
+| Path pattern | VID:PID | Chip | Carries `Serial1`? | Use for |
+|---|---|---|---|---|
+| `/dev/cu.usbserial-*` | `1A86:7523` | CH340 | yes | flashing, `pio device monitor`, debugging |
+| `/dev/cu.usbmodem*` | `1A86:55D3` | CH343 | no | nothing useful — different bridge, no firmware output, esptool fails with `No serial data received` because RTS/DTR don't reach EN |
+
+If `pio device list` shows both, always pick the CH340 path. If only the CH343 appears, the data cable likely isn't seated on the right port.
+
 If a port is busy, `lsof` will show the owning process. Stop only monitors/loggers that you started; do not kill unrelated user processes blindly.
 
 ## Serial monitor

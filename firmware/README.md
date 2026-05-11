@@ -136,18 +136,24 @@ The tracked firmware source exposes:
 - `GET /snapshot`
 - `POST /imageraw`
 - `POST /clear`
+- `GET /eventlog`
 
 Notes:
 
 - `/capabilities` is the richer machine-readable contract for host software.
 - `/snapshot` returns the exact stored raw bitmap for a loaded slot so host tooling can verify what the device has cached.
 - `/clear` clears one slot or the stored slot cache.
+- `/eventlog` returns a small persisted ring buffer of operational events (boot, wifi_lost, wifi_restored, restart_*) read from `/eventlog.bin` on LittleFS. This is the post-mortem signal when a freeze ended in a user-initiated power-cycle — the entries survive the reset and tell you what fired (or didn't) before it.
 - Stored pages are persisted to the labeled LittleFS partition on the current tracked firmware when the filesystem mounts successfully.
 - `/capabilities` reports Wi-Fi outage duration, the self-restart threshold,
-  self-restart reason/count, and loop-watchdog arm status. These fields are the
-  first place to check after a stale-screen incident.
+  self-restart reason/count, loop-watchdog arm status, and HTTP-idle state
+  (`http_idle_restart_ms`, `last_client_ms`, `http_idle_ms`,
+  `http_request_count`). These fields are the first place to check after a
+  stale-screen incident. `http_idle_ms` climbing while `wifi_connected` stays
+  `true` is the zombie-LWIP signature.
+- HTTP-idleness restart fires (`SELF_RESTART_HTTP_IDLE`) when WiFi reports connected but no client has reached the HTTP server for `RETERMINAL_HTTP_IDLE_RESTART_MS` (default 30 min, override via `platformio.local.ini`). Set to `0` to disable for bench debugging.
 - Invalid page numbers are rejected with `400 Page out of range`; older wraparound/display-immediate behavior belongs to the historical pre-reflash build.
-- If the live device still returns `404` for `/capabilities`, `/snapshot`, or `/clear`, you are still talking to the older flashed firmware and need a reflash before expecting the newer source contract.
+- If the live device still returns `404` for `/capabilities`, `/snapshot`, `/clear`, or `/eventlog`, you are still talking to an older flashed firmware and need a reflash before expecting the newer source contract.
 
 ## Pin Mapping
 
@@ -180,6 +186,7 @@ Managed automatically by PlatformIO:
 
 - Try a different USB-C cable (some are charge-only)
 - Check port: `ls /dev/cu.usb*`
+- The board exposes two USB-CDC bridges; only one is wired to firmware serial and esptool reset. Use `/dev/cu.usbserial-*` (CH340, `VID 1A86:7523`) for both flashing and serial monitoring. `/dev/cu.usbmodem*` (CH343, `VID 1A86:55D3`) enumerates fine but is not the firmware's `Serial1` path; esptool through that port fails with `No serial data received` because RTS/DTR cannot pulse EN.
 - Hold the ESP32 module's BOOT button while connecting, or hold BOOT and tap RESET, to enter bootloader mode
 - If the normal page UI is still rendering and `esptool` says `No serial data received`, the app firmware is still running and the board likely did not enter bootloader mode
 

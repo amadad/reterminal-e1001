@@ -50,7 +50,7 @@ def _get_retry_decorator():
             max=settings.retry_max_wait,
         ),
         retry=retry_if_exception(_is_retryable_exception),
-        before_sleep=before_sleep_log(logger, "WARNING"),
+        before_sleep=before_sleep_log(logger, "DEBUG"),
         reraise=True,
     )
 
@@ -86,7 +86,11 @@ class ReTerminal:
             except requests.HTTPError:
                 raise
             except Exception as curl_exc:
-                logger.error(f"Connection failed: {url}")
+                # Demoted from error to debug: this fires once per HTTP attempt
+                # while a device is offline, which the retry decorator then
+                # multiplies. The publisher logs a single online/offline
+                # transition; the raised exception carries the failure.
+                logger.debug(f"Connection failed: {url}")
                 message = "Timeout connecting to" if isinstance(exc, requests.Timeout) else "Cannot connect to"
                 raise ConnectionError(f"{message} {self.host}") from curl_exc
         except requests.HTTPError as exc:

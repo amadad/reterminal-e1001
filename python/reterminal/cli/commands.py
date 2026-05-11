@@ -1,8 +1,11 @@
 """CLI commands for reterminal."""
 
+from __future__ import annotations
+
 import json
 import os
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -10,7 +13,8 @@ from typing import Optional
 import typer
 from loguru import logger
 
-from reterminal.app import DisplayPublisher
+from reterminal.app import DisplayPublisher, PublishResult
+from reterminal.protocols import DisplayDevice
 from reterminal.cli._typer_app import app
 from reterminal.client import ReTerminal
 from reterminal.config import settings, WIDTH, HEIGHT
@@ -76,12 +80,14 @@ def _discover_first_host(configured_host: str | None = None) -> str | None:
     return first.target or (first.status or {}).get("ip")
 
 
-def _build_live_recover(device: ReTerminalDevice):
-    def recover(_device) -> bool:
+def _build_live_recover(device: ReTerminalDevice) -> Callable[[DisplayDevice], bool]:
+    def recover(_device: DisplayDevice) -> bool:
         current_host = device.client.host
         discovered = _discover_first_host(current_host)
         if not discovered:
-            logger.warning("live: rediscovery found no reachable reTerminal host")
+            # Demoted: this fires every retry while device is offline. The
+            # live tracker logs the online/offline transition once.
+            logger.debug("live: rediscovery found no reachable reTerminal host")
             return False
         if discovered != current_host:
             logger.info(f"live: rediscovered reTerminal at {discovered} (was {current_host})")
@@ -91,7 +97,7 @@ def _build_live_recover(device: ReTerminalDevice):
     return recover
 
 
-def build_publish_payload(result, target_host: str | None = None) -> dict[str, object]:
+def build_publish_payload(result: PublishResult, target_host: str | None = None) -> dict[str, object]:
     """Build a machine-readable publish summary."""
     assignments = []
     for slot, assignment in sorted(result.assignments.items()):
@@ -127,7 +133,7 @@ def next_assigned_slot(current_slot: int | None, assigned_slots: list[int]) -> i
 
 
 
-def print_publish_result(result, target_host: str | None = None) -> None:
+def print_publish_result(result: PublishResult, target_host: str | None = None) -> None:
     """Render a consistent publish summary for one run."""
     typer.echo(f"Selected {len(result.assignments)} scene(s) for {result.slot_count} slot(s):")
     for slot, assignment in sorted(result.assignments.items()):
@@ -513,7 +519,7 @@ def discover(
         raise typer.Exit(1)
 
 
-def _lint_manifest_if_present(feed: Optional[Path]) -> list[dict[str, object]]:
+def _lint_manifest_if_present(feed: Optional[Path]) -> list[dict[str, str | int]]:
     """Lint the markdown sources of a provider manifest, returning issues as dicts."""
     if feed is None or not feed.exists():
         return []
@@ -955,7 +961,14 @@ def brief(
     or a Discord post; primarily a worked example for what other tools can
     do with the family API.
     """
+    from datetime import date, timedelta
+
     from reterminal.family import (
+        Activity,
+        CalendarItem,
+        Event,
+        Mission,
+        events_for,
         parse_activities,
         parse_calendar,
         parse_events,
@@ -969,20 +982,23 @@ def brief(
         if isinstance(raw, str):
             paths_by_type[entry.type] = Path(raw).expanduser()
 
-    today: list = []
-    tomorrow: list = []
+    today: list[CalendarItem] = []
+    tomorrow: list[CalendarItem] = []
     if (p := paths_by_type.get("calendar")) and p.exists():
-        today, tomorrow = parse_calendar(p)
+        parsed_cal = parse_calendar(p)
+        today_dt = date.today()
+        today = events_for(parsed_cal, today_dt)
+        tomorrow = events_for(parsed_cal, today_dt + timedelta(days=1))
 
-    missions: list = []
+    missions: list[Mission] = []
     if (p := paths_by_type.get("missions")) and p.exists():
         missions = parse_missions(p)
 
-    events: list = []
+    events: list[Event] = []
     if (p := paths_by_type.get("events")) and p.exists():
         events = parse_events(p)
 
-    queue: list = []
+    queue: list[Activity] = []
     if (p := paths_by_type.get("activities")) and p.exists():
         _recent, queue = parse_activities(p)
 
@@ -1015,7 +1031,7 @@ def brief(
         typer.echo(json.dumps(payload, indent=2))
         return
 
-    def _fmt_item(i) -> str:
+    def _fmt_item(i: CalendarItem) -> str:
         who_str = f" ({i.who})" if i.who else ""
         return f"  {i.time or '—':>8}  {i.label}{who_str}"
 

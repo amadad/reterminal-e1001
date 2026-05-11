@@ -52,13 +52,51 @@ def _is_connection_failure(exc: BaseException) -> bool:
     return isinstance(exc, DeviceConnectionError)
 
 
-def _try_recover_device(device: DisplayDevice, recover_device: RecoverDevice | None) -> bool:
+@dataclass(slots=True)
+class _OnlineTracker:
+    """Track online/offline transitions so we log once per state change.
+
+    Without this, a multi-hour outage produced thousands of identical
+    'device unavailable' warnings — one set per retry per slot per tick.
+    """
+
+    is_online: bool = True
+    offline_since: float | None = None
+
+    def mark_offline(self, reason: str) -> None:
+        if self.is_online:
+            self.is_online = False
+            self.offline_since = time.monotonic()
+            logger.warning(f"live: device went offline: {reason}")
+
+    def mark_online(self) -> None:
+        if not self.is_online:
+            duration = (
+                time.monotonic() - self.offline_since
+                if self.offline_since is not None
+                else 0.0
+            )
+            self.is_online = True
+            self.offline_since = None
+            logger.info(f"live: device back online after {duration:.0f}s offline")
+
+
+def _try_recover_device(
+    device: DisplayDevice,
+    recover_device: RecoverDevice | None,
+    tracker: _OnlineTracker | None = None,
+) -> bool:
     if recover_device is None:
         return False
     try:
-        return recover_device(device)
+        recovered = recover_device(device)
+        if recovered and tracker is not None:
+            tracker.mark_online()
+        return recovered
     except Exception as exc:
-        logger.warning(f"live: device rediscovery failed: {exc}")
+        logger.debug(f"live: device rediscovery failed: {exc}")
+        if tracker is not None:
+            tracker.mark_offline(f"rediscovery error: {exc}")
         return False
 
 
@@ -193,6 +231,7 @@ def _sync_cache_with_device(
     *,
     seed_snapshots: bool = False,
     recover_device: RecoverDevice | None = None,
+    tracker: _OnlineTracker | None = None,
 ) -> int:
     """Refresh device state and invalidate digest cache after a reboot."""
     try:
@@ -201,14 +240,18 @@ def _sync_cache_with_device(
         if not _is_connection_failure(exc):
             logger.debug("live: could not refresh device state before publish", exc_info=True)
             return 0
-        logger.warning(f"live: device unavailable before publish: {exc}")
-        if not _try_recover_device(device, recover_device):
+        if tracker is not None:
+            tracker.mark_offline(f"prepare_push_cycle: {exc}")
+        if not _try_recover_device(device, recover_device, tracker):
             return 0
         try:
             caps = device.prepare_push_cycle()
         except (DeviceConnectionError, requests.RequestException, ReTerminalError) as retry_exc:
-            logger.warning(f"live: device still unavailable after rediscovery: {retry_exc}")
+            logger.debug(f"live: device still unavailable after rediscovery: {retry_exc}")
             return 0
+
+    if tracker is not None:
+        tracker.mark_online()
 
     uptime_ms = caps.uptime_ms
     rebooted = (
@@ -235,13 +278,16 @@ def _publish_once(
     *,
     push: bool,
     recover_device: RecoverDevice | None = None,
+    tracker: _OnlineTracker | None = None,
 ) -> int:
     """Render one publish cycle and push only the slots whose bitmap changed.
 
     Returns the number of slots actually pushed.
     """
     if push and publisher.device is not None:
-        _sync_cache_with_device(publisher.device, cache, recover_device=recover_device)
+        _sync_cache_with_device(
+            publisher.device, cache, recover_device=recover_device, tracker=tracker
+        )
 
     scenes = publisher._collect_scenes()
     if not scenes:
@@ -262,21 +308,23 @@ def _publish_once(
             except (DeviceConnectionError, requests.RequestException, ReTerminalError) as exc:
                 if not _is_connection_failure(exc):
                     raise
-                logger.warning(f"live: device unavailable during slot {slot} upload: {exc}")
-                if not _try_recover_device(publisher.device, recover_device):
+                if tracker is not None:
+                    tracker.mark_offline(f"slot {slot} upload: {exc}")
+                if not _try_recover_device(publisher.device, recover_device, tracker):
                     return pushed
                 _sync_cache_with_device(
                     publisher.device,
                     cache,
                     seed_snapshots=True,
                     recover_device=recover_device,
+                    tracker=tracker,
                 )
                 try:
                     publisher.device.push_pil(image, slot)
                 except (DeviceConnectionError, requests.RequestException, ReTerminalError) as retry_exc:
                     if not _is_connection_failure(retry_exc):
                         raise
-                    logger.warning(
+                    logger.debug(
                         f"live: slot {slot} upload still failed after rediscovery: {retry_exc}"
                     )
                     return pushed
@@ -317,18 +365,22 @@ def run_live(
         device=device,
     )
     cache = _BitmapCache()
+    tracker = _OnlineTracker()
     if push and device is not None:
         seeded = _sync_cache_with_device(
             device,
             cache,
             seed_snapshots=True,
             recover_device=recover_device,
+            tracker=tracker,
         )
         if seeded:
             logger.info(f"live: seeded {seeded} slot digest(s) from device snapshots")
 
     def tick() -> None:
-        pushed = _publish_once(publisher, cache, push=push, recover_device=recover_device)
+        pushed = _publish_once(
+            publisher, cache, push=push, recover_device=recover_device, tracker=tracker
+        )
         if pushed:
             logger.info(f"live: pushed {pushed} slot(s)")
         if on_tick is not None:

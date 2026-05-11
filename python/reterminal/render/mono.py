@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageOps
 from reterminal.config import HEIGHT, WIDTH
 from reterminal.fonts import load_font, load_mono_font
 from reterminal.render.bitmap import generate_bitmap
-from reterminal.payloads import JSONValue
+from reterminal.payloads import JSONObject, JSONValue
 from reterminal.render.layout import Rect, TextAlign, VerticalAlign, draw_text_block, fit_text_block
 from reterminal.render.theme import DEFAULT_THEME, MonoTheme
 from reterminal.scenes import SceneSpec
@@ -288,7 +288,7 @@ class MonoRenderer:
         draw: ImageDraw.ImageDraw,
         rect: Rect,
         label: str,
-        rows: list[dict[str, object]],
+        rows: list[JSONObject],
         *,
         row_height: int | None = None,
     ) -> None:
@@ -298,14 +298,12 @@ class MonoRenderer:
             row_height = 44 if len(rows) >= 6 else 50 if len(rows) >= 5 else 52
         self._draw_agenda_rows(draw, rows_rect, rows, row_height=row_height, row_gap=0, separator_width=2)
 
-    def _draw_agenda_section(self, draw: ImageDraw.ImageDraw, rect: Rect, section: object) -> None:
-        label = "Later"
-        rows: list[dict[str, object]] = []
-        if isinstance(section, dict):
-            label = str(section.get("label") or label)
-            raw_rows = section.get("rows")
-            if isinstance(raw_rows, list):
-                rows = [row for row in raw_rows if isinstance(row, dict)]
+    def _draw_agenda_section(self, draw: ImageDraw.ImageDraw, rect: Rect, section: JSONObject) -> None:
+        label = str(section.get("label") or "Later")
+        rows: list[JSONObject] = []
+        raw_rows = section.get("rows")
+        if isinstance(raw_rows, list):
+            rows = [row for row in raw_rows if isinstance(row, dict)]
 
         label_rect, rows_rect = rect.split_top(26, gap=8)
         self._fit_and_draw(draw, label_rect, label, max_font_size=26, min_font_size=18, max_lines=1)
@@ -315,7 +313,7 @@ class MonoRenderer:
         self,
         draw: ImageDraw.ImageDraw,
         rect: Rect,
-        rows: list[dict[str, object]],
+        rows: list[JSONObject],
         *,
         row_height: int,
         row_gap: int,
@@ -327,7 +325,7 @@ class MonoRenderer:
 
         visible_rows = rows
         y = rect.y
-        rendered_rows: list[dict[str, object]] = []
+        rendered_rows: list[JSONObject] = []
         for row in visible_rows:
             remaining = rect.bottom - y
             if remaining < 28:
@@ -347,7 +345,7 @@ class MonoRenderer:
             if index < len(rendered_rows) - 1 and y < rect.bottom:
                 draw.line((rect.x, y - max(1, row_gap // 2), rect.right, y - max(1, row_gap // 2)), fill=0, width=separator_width)
 
-    def _draw_event_row(self, draw: ImageDraw.ImageDraw, rect: Rect, row: dict[str, object]) -> None:
+    def _draw_event_row(self, draw: ImageDraw.ImageDraw, rect: Rect, row: JSONObject) -> None:
         chip = str(row.get("chip") or "F")[:1].upper()
         icon = str(row.get("icon") or "event")
         time_text = str(row.get("time") or "").strip()
@@ -669,14 +667,14 @@ class MonoRenderer:
         return False
 
     @staticmethod
-    def _meta_rows(scene: SceneSpec, key: str) -> list[dict[str, object]]:
+    def _meta_rows(scene: SceneSpec, key: str) -> list[JSONObject]:
         value = scene.meta.get(key)
         if not isinstance(value, list):
             return []
         return [row for row in value if isinstance(row, dict)]
 
     @staticmethod
-    def _meta_sections(scene: SceneSpec) -> list[dict[str, object]]:
+    def _meta_sections(scene: SceneSpec) -> list[JSONObject]:
         value = scene.meta.get("sections")
         if not isinstance(value, list):
             return []

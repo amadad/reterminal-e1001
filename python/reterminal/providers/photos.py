@@ -33,10 +33,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
-from typing import Any
 
 from PIL import Image, ImageDraw, ImageEnhance, ImageOps
 
+from reterminal.payloads import JSONValue
 from reterminal.providers.manifest import register_provider
 from reterminal.render.kitchen import (
     HEIGHT,
@@ -154,11 +154,13 @@ class PhotoProvider:
         ]
 
 
-def _factory(config: Mapping[str, Any]) -> PhotoProvider:
+def _factory(config: Mapping[str, JSONValue]) -> PhotoProvider:
     folder = config.get("path") or config.get("folder")
-    if not folder:
-        raise ValueError("photo provider requires 'path' (folder) in config")
+    if not isinstance(folder, str):
+        raise ValueError("photo provider requires 'path' (folder string) in config")
     mode = config.get("mode", "newest")
+    if not isinstance(mode, str):
+        raise ValueError("photo provider 'mode' must be a string")
     return PhotoProvider(folder=folder, mode=mode)
 
 
