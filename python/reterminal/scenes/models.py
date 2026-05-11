@@ -48,11 +48,9 @@ class SceneSpec:
     image_path: str | None = None
     image_url: str | None = None
     meta: JSONObject = field(default_factory=dict)
-    # When set, MonoRenderer skips its own kind-dispatch and returns this
-    # bitmap as-is. Lets providers that own their layout (missions, events,
-    # activities, calendar) render directly without inventing new SceneRenderer
-    # kinds for each. PIL.Image.Image at runtime; typed loosely so models.py
-    # does not need to import PIL.
+    # When set, MonoRenderer returns this bitmap as-is — lets providers own
+    # their layout without inventing new SceneRenderer kinds. Typed loosely
+    # so models.py does not need to import PIL.
     prerendered: "PILImage | None" = None
 
     @classmethod

@@ -42,7 +42,6 @@ def _is_retryable_exception(exc: BaseException) -> bool:
 
 
 def _get_retry_decorator():
-    """Create retry decorator with current settings."""
     return retry(
         stop=stop_after_attempt(settings.retry_attempts),
         wait=wait_exponential(
@@ -71,7 +70,6 @@ class ReTerminal:
         endpoint: str,
         **kwargs: object,
     ) -> requests.Response:
-        """Make an HTTP request with the configured timeout."""
         url = f"{self.base_url}{endpoint}"
         kwargs.setdefault("timeout", self.timeout)
 
