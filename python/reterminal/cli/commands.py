@@ -11,7 +11,7 @@ import typer
 from loguru import logger
 
 from reterminal.app import DisplayPublisher
-from reterminal.cli.app import app
+from reterminal.cli._typer_app import app
 from reterminal.client import ReTerminal
 from reterminal.config import settings, WIDTH, HEIGHT
 from reterminal.device import ReTerminalDevice
