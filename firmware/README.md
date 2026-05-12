@@ -189,6 +189,8 @@ post-mortem inspection.
 | EPD BUSY | 13 |
 | USB Serial RX | 44 |
 | USB Serial TX | 43 |
+| Battery ADC | 1 (2× divider; sample via `analogReadMilliVolts`) |
+| Battery monitor enable | 21 (drive HIGH before sampling) |
 
 ## Dependencies
 

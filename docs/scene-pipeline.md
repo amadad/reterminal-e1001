@@ -53,7 +53,7 @@ Current providers:
 - `CalendarProvider` — reads `~/reterminal-content/family/calendar.md` by default; parser in `reterminal.family.calendar`
 - `MissionsProvider` — reads `~/reterminal-content/family/missions.md` by default; parser in `reterminal.family.missions`
 - `EventsProvider` — reads `~/reterminal-content/family/events.md` by default; parser in `reterminal.family.events`
-- `ActivitiesProvider` — reads `~/reterminal-content/family/activities.md` by default; parser in `reterminal.family.activities`
+- `ActivitiesProvider` — reads `~/reterminal-content/family/activities.md` by default; parser in `reterminal.family.activities`. The renderer composites an inset movie/series poster on the right side of the layout when the top Queue item is tagged `[movie]` or `[series]`; posters are fetched from Wikipedia's open REST API on first use (no API key) by `reterminal.providers._poster_fetcher` and cached at `~/.cache/reterminal/posters/<slug>.jpg`. Falls back to text-only when the network is unreachable or no Wikipedia article matches.
 - `PhotoProvider` — watches a folder of images and renders one full-bleed (Floyd-Steinberg, optional `.txt` caption sidecar). Mode `newest` (default) picks newest-by-mtime; `daily` rotates deterministically by date. No markdown source — manifest `path` is the folder.
 
 The kitchen-display providers register themselves into a manifest registry
