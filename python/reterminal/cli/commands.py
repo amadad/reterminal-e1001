@@ -956,14 +956,11 @@ def brief(
     or a Discord post; primarily a worked example for what other tools can
     do with the family API.
     """
-    from datetime import date, timedelta
-
     from reterminal.family import (
         Activity,
         CalendarItem,
         Event,
         Mission,
-        events_for,
         parse_activities,
         parse_calendar,
         parse_events,
@@ -978,10 +975,7 @@ def brief(
     today: list[CalendarItem] = []
     tomorrow: list[CalendarItem] = []
     if (p := paths_by_type.get("calendar")) and p.exists():
-        parsed_cal = parse_calendar(p)
-        today_dt = date.today()
-        today = events_for(parsed_cal, today_dt)
-        tomorrow = events_for(parsed_cal, today_dt + timedelta(days=1))
+        today, tomorrow = parse_calendar(p)
 
     missions: list[Mission] = []
     if (p := paths_by_type.get("missions")) and p.exists():
