@@ -21,10 +21,12 @@ log captures.
 from __future__ import annotations
 
 import hashlib
+import json
 import threading
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import requests
@@ -45,6 +47,7 @@ from reterminal.scheduler import PriorityScheduler
 
 
 SANITY_TICK_SECONDS = 300
+CONTENT_SERVER_PORT = 8765
 RecoverDevice = Callable[[DisplayDevice], bool]
 
 
@@ -102,9 +105,15 @@ def _try_recover_device(
 
 @dataclass(slots=True)
 class _BitmapCache:
-    """In-memory record of the last bitmap known to be on each slot."""
+    """In-memory record of the last bitmap known to be on each slot.
+
+    Retains the raw 48000-byte bitmap per slot so a battery-powered device
+    can poll us instead of having us push. Bitmaps live in process memory
+    only; they are reseeded from the device's /snapshot on startup.
+    """
 
     digests: dict[int, str] = field(default_factory=dict)
+    bitmaps: dict[int, bytes] = field(default_factory=dict)
     device_uptime_ms: int | None = None
 
     @staticmethod
@@ -118,16 +127,76 @@ class _BitmapCache:
     def changed(self, slot: int, digest: str) -> bool:
         return self.digests.get(slot) != digest
 
-    def mark_current(self, slot: int, digest: str) -> None:
+    def mark_current(self, slot: int, digest: str, raw: bytes | None = None) -> None:
         self.digests[slot] = digest
+        if raw is not None:
+            self.bitmaps[slot] = raw
 
     def seed_raw(self, slot: int, raw: bytes) -> None:
-        self.mark_current(slot, self.raw_digest(raw))
+        self.mark_current(slot, self.raw_digest(raw), raw)
 
 
 def _provider_paths(manifest: FeedManifest) -> list[Path]:
     """Pull `path` config values out of the manifest for FSEvents wiring."""
     return [p for entry in manifest.providers if (p := entry.path()) is not None]
+
+
+def _make_content_handler(cache: _BitmapCache) -> type[BaseHTTPRequestHandler]:
+    """Serve /content-hash and /content/slot-N so a deep-sleeping device can pull.
+
+    Lives in the publisher because the publisher is the source of truth for what
+    every slot should contain. The device polls this on each wake; only fetches
+    body bytes when the hash actually changed.
+    """
+
+    class _ContentHandler(BaseHTTPRequestHandler):
+        def log_message(self, fmt: str, *args: object) -> None:  # noqa: D401
+            logger.debug("content-server: " + fmt, *args)
+
+        def _send_json(self, code: int, body: dict[str, object]) -> None:
+            payload = json.dumps(body).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def do_GET(self) -> None:  # noqa: N802
+            if self.path == "/content-hash":
+                hashes = {f"slot-{slot}": cache.digests.get(slot) for slot in range(4)}
+                self._send_json(200, {"hashes": hashes})
+                return
+            if self.path.startswith("/content/slot-"):
+                try:
+                    slot = int(self.path.rsplit("-", 1)[-1])
+                except ValueError:
+                    self._send_json(400, {"error": "bad slot"})
+                    return
+                data = cache.bitmaps.get(slot)
+                if data is None:
+                    self._send_json(404, {"error": "no bitmap", "slot": slot})
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("X-Slot", str(slot))
+                self.send_header("X-Hash", cache.digests.get(slot, ""))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            self._send_json(404, {"error": "not found", "path": self.path})
+
+    return _ContentHandler
+
+
+def _start_content_server(cache: _BitmapCache, port: int = CONTENT_SERVER_PORT) -> ThreadingHTTPServer:
+    server = ThreadingHTTPServer(("0.0.0.0", port), _make_content_handler(cache))
+    thread = threading.Thread(target=server.serve_forever, name="content-server", daemon=True)
+    thread.start()
+    logger.info(f"live: content-server listening on 0.0.0.0:{port}")
+    return server
 
 
 class _DebouncedTrigger:
@@ -294,6 +363,7 @@ def _publish_once(
         image = publisher.renderer.render(
             assignment.scene, slot=slot, total_slots=slot_count
         )
+        raw = pil_to_raw(image)
         digest = cache.image_digest(image)
         if not cache.changed(slot, digest):
             continue
@@ -323,10 +393,10 @@ def _publish_once(
                         f"live: slot {slot} upload still failed after rediscovery: {retry_exc}"
                     )
                     return pushed
-            cache.mark_current(slot, digest)
+            cache.mark_current(slot, digest, raw)
             pushed += 1
         elif not push:
-            cache.mark_current(slot, digest)
+            cache.mark_current(slot, digest, raw)
     return pushed
 
 
@@ -361,6 +431,7 @@ def run_live(
     )
     cache = _BitmapCache()
     tracker = _OnlineTracker()
+    content_server = _start_content_server(cache)
     if push and device is not None:
         seeded = _sync_cache_with_device(
             device,
@@ -411,4 +482,6 @@ def run_live(
         trigger.cancel()
         observer.stop()
         observer.join()
+        content_server.shutdown()
+        content_server.server_close()
 

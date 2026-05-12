@@ -16,6 +16,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <HTTPClient.h>
 #include <ArduinoOTA.h>
 #include <ArduinoJson.h>
 #include <ESPmDNS.h>
@@ -24,8 +25,8 @@
 #include <LittleFS.h>
 #include <esp_system.h>
 #include <esp_task_wdt.h>
-#include <lwip/netif.h>
-#include <lwip/etharp.h>
+#include <esp_sleep.h>
+#include <driver/rtc_io.h>
 #include <stdlib.h>
 
 #ifndef RETERMINAL_WIFI_SSID
@@ -52,24 +53,46 @@
 #define RETERMINAL_BUILD_SHA "unknown"
 #endif
 
+// Legacy diagnostic-mode safety nets. The device deep-sleeps in normal
+// operation, so these only fire if you've put it in diagnostic mode and
+// left it there. They're preserved unchanged from the always-on firmware.
 #ifndef RETERMINAL_WIFI_SELF_RESTART_MS
 #define RETERMINAL_WIFI_SELF_RESTART_MS 600000UL
 #endif
-
-// Last-resort uptime ceiling. Primary zombie-WiFi defense is the gratuitous
-// ARP keepalive (prevents ARP cache expiry) and WiFi.setAutoReconnect(true)
-// (driver-managed reconnect). This fires only if both fail — e.g., the LWIP
-// stack itself corrupts. All slots survive via LittleFS.
 #ifndef RETERMINAL_PERIODIC_RESTART_MS
 #define RETERMINAL_PERIODIC_RESTART_MS 43200000UL  // 12 hours
 #endif
-
-// HTTP-idleness detector. The publisher polls /capabilities every minute and
-// /imageraw on file changes. If the WiFi driver reports WL_CONNECTED but no
-// client has reached our HTTP server in this window, the LWIP stack is wedged
-// in a way no WiFi-level check can detect. Set to 0 to disable.
 #ifndef RETERMINAL_HTTP_IDLE_RESTART_MS
-#define RETERMINAL_HTTP_IDLE_RESTART_MS 1800000UL  // 30 minutes
+#define RETERMINAL_HTTP_IDLE_RESTART_MS 1800000UL  // 30 min
+#endif
+
+// Battery-mode wake interval. The device deep-sleeps between cycles, wakes
+// briefly to poll the publisher for content changes, and sleeps again. At
+// 30min cycles with ~5s awake per cycle, average current is well under 1 mA
+// and a 750 mAh cell lasts months.
+#ifndef RETERMINAL_WAKE_INTERVAL_S
+#define RETERMINAL_WAKE_INTERVAL_S 1800UL
+#endif
+
+// Long-press of the right button at boot (i.e., held through wake from EXT1)
+// enters diagnostic mode: full HTTP server + mDNS + OTA come up for this many
+// ms, then the device returns to deep sleep.
+#ifndef RETERMINAL_DIAGNOSTIC_HOLD_MS
+#define RETERMINAL_DIAGNOSTIC_HOLD_MS 3000UL
+#endif
+
+#ifndef RETERMINAL_DIAGNOSTIC_TIMEOUT_MS
+#define RETERMINAL_DIAGNOSTIC_TIMEOUT_MS 600000UL  // 10 minutes
+#endif
+
+// host:port where the publisher serves /content-hash and /content/slot-N.
+// Empty disables the pull path (cold boot will still restore from flash).
+#ifndef RETERMINAL_PUBLISHER_HOST
+#define RETERMINAL_PUBLISHER_HOST ""
+#endif
+
+#ifndef RETERMINAL_PUBLISHER_PORT
+#define RETERMINAL_PUBLISHER_PORT 8765
 #endif
 
 const char* WIFI_SSID = RETERMINAL_WIFI_SSID;
@@ -127,11 +150,10 @@ const unsigned long WIFI_SELF_RESTART_MS = RETERMINAL_WIFI_SELF_RESTART_MS;
 const unsigned long PERIODIC_RESTART_MS = RETERMINAL_PERIODIC_RESTART_MS;
 const unsigned long HTTP_IDLE_RESTART_MS = RETERMINAL_HTTP_IDLE_RESTART_MS;
 
-// Gratuitous ARP sent on this interval keeps the router's ARP table warm.
-// Home routers expire ARP entries after 5-30 min of inactivity; a silent
-// device's IP becomes unreachable even though the 802.11 link is still up.
-const unsigned long ARP_KEEPALIVE_MS = 240000UL;  // 4 minutes
-unsigned long lastArpMs = 0;
+// ARP keepalive removed. It was added on the zombie-WiFi hypothesis that the
+// eventlog data later disproved (true failure mode is brownout cascade during
+// battery depletion). Deep sleep eliminates the always-on regime that the
+// theory required, so it no longer earns its keep.
 
 // HTTP-client liveness, used by the idle restart check. Updated at the top of
 // every HTTP handler — proves something on the LAN actually reached our TCP
@@ -159,6 +181,20 @@ enum SelfRestartReason : uint32_t {
 RTC_DATA_ATTR uint32_t selfRestartCount = 0;
 RTC_DATA_ATTR uint32_t lastSelfRestartReasonCode = SELF_RESTART_NONE;
 RTC_DATA_ATTR uint32_t lastSelfRestartUptimeMs = 0;
+
+// State that must survive deep-sleep but not poweron. RTC RAM is cleared on
+// true poweron / brownout; we use a magic check to detect first boot.
+const uint32_t RTC_STATE_MAGIC = 0x52455445;  // 'RETE'
+RTC_DATA_ATTR uint32_t rtcStateMagic = 0;
+RTC_DATA_ATTR uint32_t bootCount = 0;
+RTC_DATA_ATTR uint32_t slotHashFingerprint[NUM_PAGES] = {0};
+RTC_DATA_ATTR int rtcVisibleSlot = 0;
+
+// Diagnostic mode: full HTTP server + mDNS + OTA, like the original always-on
+// firmware. Entered by long-pressing right button while waking from EXT1.
+// Exits to deep sleep after RETERMINAL_DIAGNOSTIC_TIMEOUT_MS.
+bool diagnosticMode = false;
+unsigned long diagnosticEntryMs = 0;
 
 // === Persistent event log ===
 // Ring buffer in LittleFS for freeze post-mortems. Entries are 24 bytes so
@@ -544,8 +580,6 @@ void appendCapabilityFields(JsonDocument& doc) {
   doc["last_wifi_reconnect_ms"] = lastWifiReconnectMs;
   doc["wifi_down_ms"] = wifiDownDurationMs(now);
   doc["wifi_self_restart_ms"] = WIFI_SELF_RESTART_MS;
-  doc["arp_keepalive_ms"] = ARP_KEEPALIVE_MS;
-  doc["last_arp_ms"] = lastArpMs;
   doc["periodic_restart_ms"] = PERIODIC_RESTART_MS;
   doc["http_idle_restart_ms"] = HTTP_IDLE_RESTART_MS;
   doc["last_client_ms"] = lastClientMs;
@@ -1000,11 +1034,229 @@ void restartForHealth(SelfRestartReason reason) {
   ESP.restart();
 }
 
+// === Battery-mode wake/poll/sleep helpers ===
+
+// Decode first 8 hex chars of a sha256 string into a 32-bit fingerprint.
+// We only need fingerprint comparison; full sha256 is more than necessary.
+uint32_t hashFingerprint(const char* hex) {
+  if (hex == nullptr || strlen(hex) < 8) return 0;
+  char buf[9];
+  memcpy(buf, hex, 8);
+  buf[8] = 0;
+  return static_cast<uint32_t>(strtoul(buf, nullptr, 16));
+}
+
+bool connectWifiBlocking(unsigned long timeout_ms) {
+  if (strlen(WIFI_SSID) == 0) return false;
+  WiFi.persistent(false);
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(WIFI_PS_MIN_MODEM);
+  WiFi.setHostname(HOSTNAME);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    if (millis() - start >= timeout_ms) return false;
+    delay(100);
+  }
+  lastWifiOkMs = millis();
+  return true;
+}
+
+bool fetchSlotBitmap(int slot) {
+  if (strlen(RETERMINAL_PUBLISHER_HOST) == 0) return false;
+  if (pageStorage[slot] == nullptr) return false;
+
+  String url = String("http://") + RETERMINAL_PUBLISHER_HOST + ":" +
+               String(RETERMINAL_PUBLISHER_PORT) + "/content/slot-" + slot;
+  WiFiClient client;
+  HTTPClient http;
+  if (!http.begin(client, url)) return false;
+  http.setTimeout(10000);
+  int code = http.GET();
+  if (code != 200) {
+    http.end();
+    return false;
+  }
+  WiFiClient* stream = http.getStreamPtr();
+  size_t got = 0;
+  while (got < IMAGE_BYTES && (http.connected() || stream->available())) {
+    int n = stream->readBytes(pageStorage[slot] + got, IMAGE_BYTES - got);
+    if (n <= 0) break;
+    got += n;
+  }
+  http.end();
+  if (got != IMAGE_BYTES) return false;
+  pageLoaded[slot] = true;
+  saveSlotToFlash(slot);
+  return true;
+}
+
+// Returns slots updated, -1 on error.
+int wakePollAndUpdate() {
+  if (strlen(RETERMINAL_PUBLISHER_HOST) == 0) return 0;
+
+  String url = String("http://") + RETERMINAL_PUBLISHER_HOST + ":" +
+               String(RETERMINAL_PUBLISHER_PORT) + "/content-hash";
+  WiFiClient client;
+  HTTPClient http;
+  if (!http.begin(client, url)) return -1;
+  http.setTimeout(5000);
+  int code = http.GET();
+  if (code != 200) {
+    http.end();
+    return -1;
+  }
+  String body = http.getString();
+  http.end();
+
+  JsonDocument doc;
+  if (deserializeJson(doc, body) != DeserializationError::Ok) return -1;
+
+  int updated = 0;
+  for (int i = 0; i < NUM_PAGES; i++) {
+    String key = "slot-" + String(i);
+    const char* hash = doc["hashes"][key];
+    uint32_t fp = hashFingerprint(hash);
+    if (fp != 0 && fp != slotHashFingerprint[i]) {
+      if (fetchSlotBitmap(i)) {
+        slotHashFingerprint[i] = fp;
+        updated++;
+      }
+    }
+  }
+  return updated;
+}
+
+bool isLongRightPress() {
+  unsigned long start = millis();
+  while (millis() - start < RETERMINAL_DIAGNOSTIC_HOLD_MS) {
+    if (digitalRead(BTN_RIGHT) != LOW) return false;
+    delay(50);
+  }
+  return digitalRead(BTN_RIGHT) == LOW;
+}
+
+void enterDeepSleep() {
+  display.hibernate();
+  digitalWrite(BATTERY_ENABLE_PIN, LOW);
+
+  if (loopWatchdogArmed) {
+    esp_task_wdt_delete(NULL);
+    esp_task_wdt_deinit();
+    loopWatchdogArmed = false;
+  }
+
+  WiFi.disconnect(true, true);
+  WiFi.mode(WIFI_OFF);
+
+  esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(RETERMINAL_WAKE_INTERVAL_S) * 1000000ULL);
+
+  // EXT1 wake on any button going LOW. Each button pin is initialized as an
+  // RTC GPIO input with pullup enabled, then handed to the EXT1 wake mux.
+  // Skipping rtc_gpio_init leaves the pin in unknown state during deep sleep.
+  gpio_num_t buttonPins[] = {
+    static_cast<gpio_num_t>(BTN_LEFT),
+    static_cast<gpio_num_t>(BTN_MIDDLE),
+    static_cast<gpio_num_t>(BTN_RIGHT),
+  };
+  for (gpio_num_t pin : buttonPins) {
+    rtc_gpio_init(pin);
+    rtc_gpio_set_direction(pin, RTC_GPIO_MODE_INPUT_ONLY);
+    rtc_gpio_pulldown_dis(pin);
+    rtc_gpio_pullup_en(pin);
+    rtc_gpio_hold_en(pin);
+  }
+  uint64_t mask = (1ULL << BTN_LEFT) | (1ULL << BTN_MIDDLE) | (1ULL << BTN_RIGHT);
+  esp_sleep_enable_ext1_wakeup(mask, ESP_EXT1_WAKEUP_ANY_LOW);
+
+  usbSerial.printf("Deep sleep: %lus or button. uptime=%lums\n",
+                   static_cast<unsigned long>(RETERMINAL_WAKE_INTERVAL_S),
+                   static_cast<unsigned long>(millis()));
+  delay(50);
+  esp_deep_sleep_start();
+}
+
+void registerHttpRoutes() {
+  server.on("/", handleRoot);
+  server.on("/status", HTTP_GET, handleStatus);
+  server.on("/capabilities", HTTP_GET, handleCapabilities);
+  server.on("/snapshot", HTTP_GET, handleSnapshot);
+  server.on("/buttons", HTTP_GET, handleButtons);
+  server.on("/beep", HTTP_GET, handleBeep);
+  server.on("/page", handlePage);
+  server.on("/imageraw", HTTP_POST, handleImageRaw, handleImageUpload);
+  server.on("/clear", HTTP_POST, handleClear);
+  server.on("/eventlog", HTTP_GET, handleEventLog);
+  server.onNotFound(handleNotFound);
+}
+
+void enterDiagnosticMode() {
+  diagnosticMode = true;
+  diagnosticEntryMs = millis();
+  lastClientMs = millis();
+  beep(200);
+  WiFi.setSleep(false);
+  registerHttpRoutes();
+  server.begin();
+  startMdns();
+  startOta();
+  loopWatchdogInitStatus = esp_task_wdt_init(LOOP_WDT_TIMEOUT_S, true);
+  if (loopWatchdogInitStatus == ESP_OK || loopWatchdogInitStatus == ESP_ERR_INVALID_STATE) {
+    loopWatchdogAddStatus = esp_task_wdt_add(NULL);
+    loopWatchdogArmed = loopWatchdogAddStatus == ESP_OK || esp_task_wdt_status(NULL) == ESP_OK;
+  }
+  usbSerial.println("Diagnostic mode ON (10 min)");
+}
+
+void handleButtonWake() {
+  uint64_t mask = esp_sleep_get_ext1_wakeup_status();
+  if (mask & (1ULL << BTN_RIGHT)) {
+    if (isLongRightPress()) {
+      enterDiagnosticMode();
+      return;
+    }
+    showPage(currentPage);
+  } else if (mask & (1ULL << BTN_LEFT)) {
+    currentPage = (currentPage - 1 + NUM_PAGES) % NUM_PAGES;
+    showPage(currentPage);
+    saveState();
+    rtcVisibleSlot = currentPage;
+  } else if (mask & (1ULL << BTN_MIDDLE)) {
+    currentPage = (currentPage + 1) % NUM_PAGES;
+    showPage(currentPage);
+    saveState();
+    rtcVisibleSlot = currentPage;
+  }
+}
+
 void setup() {
   // reTerminal routes USB-serial through GPIO 44/43, not the default pins.
   usbSerial.begin(115200, SERIAL_8N1, 44, 43);
-  delay(500);
-  usbSerial.println("\n\nreTerminal E1001 Starting...");
+  delay(50);
+  setCpuFrequencyMhz(80);
+
+  esp_sleep_wakeup_cause_t wakeCause = esp_sleep_get_wakeup_cause();
+  bool firstBoot = (rtcStateMagic != RTC_STATE_MAGIC);
+
+  // Release the RTC hold we set before sleep, so pinMode / digitalRead work
+  // again on this wake. Without this the buttons read stuck values.
+  rtc_gpio_hold_dis(static_cast<gpio_num_t>(BTN_LEFT));
+  rtc_gpio_hold_dis(static_cast<gpio_num_t>(BTN_MIDDLE));
+  rtc_gpio_hold_dis(static_cast<gpio_num_t>(BTN_RIGHT));
+  rtc_gpio_deinit(static_cast<gpio_num_t>(BTN_LEFT));
+  rtc_gpio_deinit(static_cast<gpio_num_t>(BTN_MIDDLE));
+  rtc_gpio_deinit(static_cast<gpio_num_t>(BTN_RIGHT));
+  if (firstBoot) {
+    rtcStateMagic = RTC_STATE_MAGIC;
+    bootCount = 0;
+    memset((void*)slotHashFingerprint, 0, sizeof(slotHashFingerprint));
+    rtcVisibleSlot = 0;
+  }
+  bootCount++;
+  usbSerial.printf("\nreTerminal wake cause=%d firstBoot=%d bootCount=%lu\n",
+                   (int)wakeCause, firstBoot ? 1 : 0,
+                   static_cast<unsigned long>(bootCount));
+
   if (esp_reset_reason() != ESP_RST_SW) {
     lastSelfRestartReasonCode = SELF_RESTART_NONE;
     lastSelfRestartUptimeMs = 0;
@@ -1041,128 +1293,79 @@ void setup() {
     usbSerial.println("LittleFS mount AND format failed — slots volatile this boot");
   }
 
-  usbSerial.println("Allocating page storage...");
+  // Page storage. Allocate in PSRAM; only memset the buffer if its slot file
+  // is missing (loadSlotFromFlash overwrites otherwise).
   for (int i = 0; i < NUM_PAGES; i++) {
-    // Prefer PSRAM (8MB) for slot buffers; only the first ~128KB of internal
-    // RAM is free after framework init, so 4x 48000-byte buffers won't fit.
     pageStorage[i] = (uint8_t*)ps_malloc(IMAGE_BYTES);
     if (pageStorage[i] == nullptr) {
       pageStorage[i] = (uint8_t*)malloc(IMAGE_BYTES);
     }
-    if (pageStorage[i] != nullptr) {
-      memset(pageStorage[i], 0xFF, IMAGE_BYTES);
-      usbSerial.printf("  Page %d: OK\n", i);
-    } else {
-      usbSerial.printf("  Page %d: FAILED\n", i);
-    }
   }
-
   int restoredCount = 0;
   for (int i = 0; i < NUM_PAGES; i++) {
-    if (loadSlotFromFlash(i)) restoredCount++;
+    if (loadSlotFromFlash(i)) {
+      restoredCount++;
+    } else if (pageStorage[i] != nullptr) {
+      memset(pageStorage[i], 0xFF, IMAGE_BYTES);
+    }
   }
   currentPage = loadState();
-  usbSerial.printf("Restored %d slots from flash, active page %d\n", restoredCount, currentPage);
+  if (currentPage < 0 || currentPage >= NUM_PAGES) currentPage = rtcVisibleSlot;
+  rtcVisibleSlot = currentPage;
 
+  // Display init. initial=true only on first boot; subsequent wakes skip the
+  // extra panel calibration sequence.
   hspi.begin(EPD_SCK_PIN, -1, EPD_MOSI_PIN, -1);
   display.epd2.selectSPI(hspi, SPISettings(2000000, MSBFIRST, SPI_MODE0));
-  display.init(115200, true);
+  display.init(115200, firstBoot);
   display.setRotation(0);
-  usbSerial.println("Display initialized");
 
+  // Dispatch on wake reason.
+  if (wakeCause == ESP_SLEEP_WAKEUP_EXT1) {
+    handleButtonWake();
+    if (diagnosticMode) {
+      // setup() returns; loop() runs the diagnostic loop until timeout.
+      return;
+    }
+    enterDeepSleep();  // never returns
+    return;
+  }
+
+  if (wakeCause == ESP_SLEEP_WAKEUP_TIMER) {
+    if (connectWifiBlocking(15000)) {
+      int updated = wakePollAndUpdate();
+      if (updated > 0) {
+        showPage(currentPage);
+      }
+    }
+    enterDeepSleep();
+    return;
+  }
+
+  // Cold boot (poweron, brownout-style reset, or first ever).
   if (restoredCount > 0 && pageLoaded[currentPage]) {
     showPage(currentPage);
   } else {
     showBootScreen();
   }
-
-  if (strlen(WIFI_SSID) > 0) {
-    WiFi.persistent(false);
-    WiFi.mode(WIFI_STA);
-    WiFi.setSleep(false);
-    WiFi.setAutoReconnect(true);
-    WiFi.setHostname(HOSTNAME);
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
-    usbSerial.print("Connecting to WiFi");
-
-    int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 30) {
-      delay(500);
-      usbSerial.print(".");
-      attempts++;
+  if (connectWifiBlocking(15000)) {
+    if (restoredCount == 0 || !pageLoaded[currentPage]) {
+      showReadyScreen(WiFi.localIP().toString());
     }
-    usbSerial.println();
-
-    if (WiFi.status() == WL_CONNECTED) {
-      lastWifiOkMs = millis();
-      lastArpMs = millis();
-      usbSerial.println("Connected! IP: " + WiFi.localIP().toString());
-      if (restoredCount == 0 || !pageLoaded[currentPage]) {
-        showReadyScreen(WiFi.localIP().toString());
-      }
-      beep(100);
-    } else {
-      usbSerial.println("WiFi failed!");
-      showConfigRequiredScreen("WiFi connect failed", "Check platformio.local.ini");
+    int updated = wakePollAndUpdate();
+    if (updated > 0) {
+      showPage(currentPage);
     }
-  } else {
-    usbSerial.println("WiFi credentials not configured");
-    showConfigRequiredScreen("WiFi not configured", "Set platformio.local.ini");
+    beep(100);
+  } else if (firstBoot) {
+    showConfigRequiredScreen("WiFi connect failed", "Check platformio.local.ini");
   }
-
-  server.on("/", handleRoot);
-  server.on("/status", HTTP_GET, handleStatus);
-  server.on("/capabilities", HTTP_GET, handleCapabilities);
-  server.on("/snapshot", HTTP_GET, handleSnapshot);
-  server.on("/buttons", HTTP_GET, handleButtons);
-  server.on("/beep", HTTP_GET, handleBeep);
-  server.on("/page", handlePage);
-  server.on("/imageraw", HTTP_POST, handleImageRaw, handleImageUpload);
-  server.on("/clear", HTTP_POST, handleClear);
-  server.on("/eventlog", HTTP_GET, handleEventLog);
-  server.onNotFound(handleNotFound);
-  server.begin();
-  usbSerial.println("HTTP server started");
-
-  startMdns();
-  startOta();
-  if (strlen(OTA_PASSWORD) == 0) {
-    usbSerial.println("OTA disabled (set RETERMINAL_OTA_PASSWORD to enable)");
-  }
-
-  // Arduino-ESP32 v2.x / IDF v5.1 exposes the legacy 2-arg form. The struct-
-  // based esp_task_wdt_config_t API is IDF v5.2+ and not available here.
-  loopWatchdogInitStatus = esp_task_wdt_init(LOOP_WDT_TIMEOUT_S, true);
-  if (loopWatchdogInitStatus == ESP_OK || loopWatchdogInitStatus == ESP_ERR_INVALID_STATE) {
-    loopWatchdogAddStatus = esp_task_wdt_add(NULL);
-    loopWatchdogArmed = loopWatchdogAddStatus == ESP_OK || esp_task_wdt_status(NULL) == ESP_OK;
-  }
-  if (loopWatchdogArmed) {
-    usbSerial.printf("Loop watchdog armed: %us, panic=true\n",
-                     (unsigned)LOOP_WDT_TIMEOUT_S);
-  } else {
-    usbSerial.printf(
-      "Loop watchdog setup failed: init=%d add=%d\n",
-      (int)loopWatchdogInitStatus,
-      (int)loopWatchdogAddStatus
-    );
-  }
-
-  usbSerial.println("Setup complete!");
+  enterDeepSleep();
 }
 
-void sendGratuitousArp() {
-  struct netif* iface;
-  for (iface = netif_list; iface != nullptr; iface = iface->next) {
-    if (netif_is_up(iface) && (iface->flags & NETIF_FLAG_ETHARP)) {
-      etharp_gratuitous(iface);
-    }
-  }
-}
-
-// WiFi.setAutoReconnect(true) handles reconnection; this function only
-// tracks state transitions, manages mDNS/OTA lifecycle, and restarts if
-// the driver fails to recover within WIFI_SELF_RESTART_MS.
+// Reused by diagnostic mode only. Tracks online/offline transitions and
+// restarts if the wifi driver fails to recover. In normal battery operation
+// the device only briefly has WiFi up at all, so this never matters.
 void maintainWifi() {
   if (strlen(WIFI_SSID) == 0) return;
   unsigned long now = millis();
@@ -1195,56 +1398,34 @@ void maintainWifi() {
 }
 
 void loop() {
-  if (loopWatchdogArmed) {
-    esp_task_wdt_reset();
+  // Diagnostic mode only. Normal operation ends in enterDeepSleep() from
+  // setup() and loop() is never reached.
+  if (!diagnosticMode) {
+    enterDeepSleep();
+    return;
   }
 
-  // Unconditional uptime ceiling. Every previous restart path has a condition
-  // the zombie-Wi-Fi state can bypass (link appears up, loop runs, watchdog
-  // feeds). millis() does not care about network state — it always advances.
-  if (PERIODIC_RESTART_MS > 0 && millis() >= PERIODIC_RESTART_MS) {
-    restartForHealth(SELF_RESTART_PERIODIC);
-  }
+  if (loopWatchdogArmed) esp_task_wdt_reset();
 
-  // HTTP-idleness detector. WiFi.status() can lie (zombie LWIP); an actual
-  // TCP accept from a real client on the LAN cannot. Once we've seen any
-  // client, prolonged silence while WiFi reports connected means the stack
-  // is wedged below the WiFi layer. Pure millis() comparison — no blocking
-  // calls, so the loop watchdog stays happy.
-  if (HTTP_IDLE_RESTART_MS > 0
-      && lastClientMs > 0
-      && wifiLinkUp()
-      && (millis() - lastClientMs) >= HTTP_IDLE_RESTART_MS) {
-    restartForHealth(SELF_RESTART_HTTP_IDLE);
-  }
-
-  // Heartbeat — captures battery + rssi + heap so a post-mortem can see
-  // the trend leading up to a crash. ~5h of history in the ring at 5min
-  // interval. extra1 = uptime_seconds for easy timeline reconstruction.
-  if (millis() - lastHeartbeatMs >= HEARTBEAT_INTERVAL_MS) {
-    lastHeartbeatMs = millis();
-    eventLogAppend(EVENT_HEARTBEAT, millis() / 1000, 0);
-  }
-
-  maintainWifi();
-
-  if (wifiLinkUp() && millis() - lastArpMs >= ARP_KEEPALIVE_MS) {
-    lastArpMs = millis();
-    sendGratuitousArp();
+  if (millis() - diagnosticEntryMs >= RETERMINAL_DIAGNOSTIC_TIMEOUT_MS) {
+    usbSerial.println("Diagnostic mode timeout, sleeping.");
+    enterDeepSleep();
+    return;
   }
 
   if (otaReady) ArduinoOTA.handle();
   server.handleClient();
+  maintainWifi();
 
   bool curLeft = digitalRead(BTN_LEFT);
   if (curLeft != lastLeft) {
     delay(DEBOUNCE_MS);
     if (curLeft == LOW) {
-      usbSerial.println("Left button - Previous page");
       beep(100);
       currentPage = (currentPage - 1 + NUM_PAGES) % NUM_PAGES;
       showPage(currentPage);
       saveState();
+      rtcVisibleSlot = currentPage;
     }
     lastLeft = curLeft;
   }
@@ -1253,11 +1434,11 @@ void loop() {
   if (curMiddle != lastMiddle) {
     delay(DEBOUNCE_MS);
     if (curMiddle == LOW) {
-      usbSerial.println("Middle button - Next page");
       beep(100);
       currentPage = (currentPage + 1) % NUM_PAGES;
       showPage(currentPage);
       saveState();
+      rtcVisibleSlot = currentPage;
     }
     lastMiddle = curMiddle;
   }
@@ -1266,7 +1447,6 @@ void loop() {
   if (curRight != lastRight) {
     delay(DEBOUNCE_MS);
     if (curRight == LOW) {
-      usbSerial.println("Right button - Refresh");
       beep(100);
       showPage(currentPage);
     }
