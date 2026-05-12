@@ -161,9 +161,10 @@ RTC_DATA_ATTR uint32_t lastSelfRestartReasonCode = SELF_RESTART_NONE;
 RTC_DATA_ATTR uint32_t lastSelfRestartUptimeMs = 0;
 
 // === Persistent event log ===
-// Small ring buffer in LittleFS so a freeze post-mortem can read what fired
-// (or didn't fire) across boots without serial. ts_ms uses millis() so it's
-// boot-local; restart_count gives total ordering across boots.
+// Ring buffer in LittleFS for freeze post-mortems. Entries are 24 bytes so
+// a heartbeat can carry battery_mv + rssi + heap snapshots, not just a
+// timestamp + event code. Magic bumped from RELG when entry size grew, so
+// older format files (16-byte entries) are rejected cleanly on first load.
 enum EventCode : uint8_t {
   EVENT_NONE = 0,
   EVENT_BOOT = 1,
@@ -172,6 +173,7 @@ enum EventCode : uint8_t {
   EVENT_RESTART_PERIODIC = 4,
   EVENT_RESTART_WIFI_STALE = 5,
   EVENT_RESTART_HTTP_IDLE = 6,
+  EVENT_HEARTBEAT = 7,
 };
 
 struct EventLogEntry {
@@ -181,11 +183,15 @@ struct EventLogEntry {
   uint16_t restart_count;       // selfRestartCount snapshot
   uint32_t extra1;
   uint32_t extra2;
-};  // 16 bytes
+  uint16_t battery_mv;
+  int16_t  rssi_dbm;
+  uint16_t free_heap_kb;
+  uint16_t reserved;
+};  // 24 bytes
 
-const int EVENT_LOG_CAPACITY = 16;
+const int EVENT_LOG_CAPACITY = 64;  // ~5h history at 5min heartbeat interval
 const char* EVENT_LOG_PATH = "/eventlog.bin";
-const uint32_t EVENT_LOG_MAGIC = 0x52454C47;  // 'RELG'
+const uint32_t EVENT_LOG_MAGIC = 0x52454C48;  // 'RELH' (entry size bumped from RELG)
 
 struct EventLogHeader {
   uint32_t magic;
@@ -196,6 +202,21 @@ struct EventLogHeader {
 
 EventLogHeader eventLogHeader = {EVENT_LOG_MAGIC, 0, 0, 0};
 EventLogEntry eventLogBuffer[EVENT_LOG_CAPACITY] = {};
+
+// reTerminal E1001 reads battery voltage on GPIO1 through a 2x divider
+// (two 10kohm resistors); the divider is gated by GPIO21 which must be
+// driven HIGH to feed the ADC. Without that, GPIO1 reads 0. ADC needs
+// ADC_11db attenuation to cover the ~2.1V max divider output.
+const int BATTERY_ADC_PIN = 1;
+const int BATTERY_ENABLE_PIN = 21;
+const float BATTERY_DIVIDER = 2.0f;
+const unsigned long HEARTBEAT_INTERVAL_MS = 300000UL;  // 5 minutes
+unsigned long lastHeartbeatMs = 0;
+
+uint16_t readBatteryMv() {
+  uint32_t raw = analogReadMilliVolts(BATTERY_ADC_PIN);
+  return static_cast<uint16_t>(raw * BATTERY_DIVIDER);
+}
 
 GxEPD2_BW<GxEPD2_750_GDEY075T7, GxEPD2_750_GDEY075T7::HEIGHT> display(
     GxEPD2_750_GDEY075T7(EPD_CS_PIN, EPD_DC_PIN, EPD_RES_PIN, EPD_BUSY_PIN));
@@ -425,6 +446,7 @@ const char* eventCodeName(uint8_t code) {
     case EVENT_RESTART_PERIODIC: return "restart_periodic";
     case EVENT_RESTART_WIFI_STALE: return "restart_wifi_stale";
     case EVENT_RESTART_HTTP_IDLE: return "restart_http_idle";
+    case EVENT_HEARTBEAT: return "heartbeat";
     default: return "unknown";
   }
 }
@@ -480,6 +502,10 @@ void eventLogAppend(uint8_t code, uint32_t extra1 = 0, uint32_t extra2 = 0) {
   slot.restart_count = static_cast<uint16_t>(selfRestartCount);
   slot.extra1 = extra1;
   slot.extra2 = extra2;
+  slot.battery_mv = readBatteryMv();
+  slot.rssi_dbm = WiFi.RSSI();
+  slot.free_heap_kb = static_cast<uint16_t>(ESP.getFreeHeap() / 1024);
+  slot.reserved = 0;
   eventLogHeader.write_index = (eventLogHeader.write_index + 1) % EVENT_LOG_CAPACITY;
   eventLogHeader.total_appended++;
   eventLogPersist();
@@ -527,6 +553,8 @@ void appendCapabilityFields(JsonDocument& doc) {
   doc["http_request_count"] = httpRequestCount;
   doc["event_log_total"] = eventLogHeader.total_appended;
   doc["event_log_capacity"] = EVENT_LOG_CAPACITY;
+  doc["battery_mv"] = readBatteryMv();
+  doc["heartbeat_interval_ms"] = HEARTBEAT_INTERVAL_MS;
   doc["self_restart_count"] = selfRestartCount;
   doc["last_self_restart_reason"] = selfRestartReasonName(lastSelfRestartReasonCode);
   doc["last_self_restart_uptime_ms"] = lastSelfRestartUptimeMs;
@@ -909,6 +937,9 @@ void handleEventLog() {
     obj["restart_count"] = e.restart_count;
     obj["extra1"] = e.extra1;
     obj["extra2"] = e.extra2;
+    obj["battery_mv"] = e.battery_mv;
+    obj["rssi_dbm"] = e.rssi_dbm;
+    obj["free_heap_kb"] = e.free_heap_kb;
   }
   String response;
   serializeJson(doc, response);
@@ -989,6 +1020,11 @@ void setup() {
   lastLeft = digitalRead(BTN_LEFT);
   lastMiddle = digitalRead(BTN_MIDDLE);
   lastRight = digitalRead(BTN_RIGHT);
+
+  // Enable the battery-monitor voltage divider on GPIO1.
+  pinMode(BATTERY_ENABLE_PIN, OUTPUT);
+  digitalWrite(BATTERY_ENABLE_PIN, HIGH);
+  analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db);
 
   // Auto-format on mount failure so a fresh partition self-heals into a usable
   // filesystem on first boot. Without this, a corrupted or empty LittleFS
@@ -1180,6 +1216,14 @@ void loop() {
       && wifiLinkUp()
       && (millis() - lastClientMs) >= HTTP_IDLE_RESTART_MS) {
     restartForHealth(SELF_RESTART_HTTP_IDLE);
+  }
+
+  // Heartbeat — captures battery + rssi + heap so a post-mortem can see
+  // the trend leading up to a crash. ~5h of history in the ring at 5min
+  // interval. extra1 = uptime_seconds for easy timeline reconstruction.
+  if (millis() - lastHeartbeatMs >= HEARTBEAT_INTERVAL_MS) {
+    lastHeartbeatMs = millis();
+    eventLogAppend(EVENT_HEARTBEAT, millis() / 1000, 0);
   }
 
   maintainWifi();
