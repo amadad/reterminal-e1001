@@ -22,39 +22,8 @@ DISCOVERY_RETRY_SECONDS="${RETERMINAL_DISCOVERY_RETRY_SECONDS:-30}"
 
 cd "$PYTHON_DIR"
 
-if [[ -z "${RETERMINAL_HOST:-}" ]]; then
-  while [[ -z "${RETERMINAL_HOST:-}" ]]; do
-    discover_args=(reterminal discover --output json --timeout "$DISCOVERY_TIMEOUT" --workers "$DISCOVERY_WORKERS")
-    if [[ -n "${RETERMINAL_DISCOVERY_SUBNET:-}" ]]; then
-      discover_args+=(--subnet "$RETERMINAL_DISCOVERY_SUBNET")
-    fi
-
-    discovery_json="$($UV_BIN run "${discover_args[@]}" 2>/dev/null || printf '[]')"
-    resolved_host="$(DISCOVERY_JSON="$discovery_json" python3 - <<'PY'
-import json
-import os
-
-try:
-    results = json.loads(os.environ.get("DISCOVERY_JSON", "[]"))
-except json.JSONDecodeError:
-    results = []
-if results:
-    first = results[0]
-    print(first.get("target") or first.get("status", {}).get("ip") or "")
-PY
-)"
-    if [[ -n "$resolved_host" ]]; then
-      export RETERMINAL_HOST="$resolved_host"
-      break
-    fi
-    echo "No reachable reTerminal host found; retrying in ${DISCOVERY_RETRY_SECONDS}s." >&2
-    sleep "$DISCOVERY_RETRY_SECONDS"
-  done
-fi
-
 exec "$UV_BIN" run reterminal publish \
   --feed "$FEED" \
-  --push \
   --watch \
   --live \
   "$@"
