@@ -124,36 +124,53 @@ Once the device is on Wi-Fi, flash wirelessly:
 pio run -e ota -t upload
 ```
 
-## HTTP API
+## Architecture
 
-The tracked firmware source exposes:
+The firmware is a **deep-sleep + HTTP-pull client**, not a server. On every
+wake (timer every `RETERMINAL_WAKE_INTERVAL_S`, default 1800s, or any button
+via EXT1) it:
 
-- `GET /status`
-- `GET /capabilities`
-- `GET /buttons`
-- `GET /beep`
-- `GET/POST /page`
-- `GET /snapshot`
-- `POST /imageraw`
-- `POST /clear`
-- `GET /eventlog`
+1. Connects WiFi (`WIFI_PS_MIN_MODEM`)
+2. `GET <publisher>/content-hash` — JSON of per-slot SHA-256s
+3. For each slot whose hash differs from the RTC-RAM fingerprint:
+   `GET <publisher>/content/slot-N` → 48000 raw bytes → save to LittleFS
+4. Refresh ePaper (only if anything changed)
+5. `esp_deep_sleep_start()`
 
-Notes:
+That's it for normal operation. The chip draws ~10 µA in deep sleep, ~100 mA
+active. ~9 s awake per 1800 s cycle → ~0.5 mA average → ~60 days on a 750 mAh
+cell. Matches Seeed's spec.
 
-- `/capabilities` is the richer machine-readable contract for host software.
-- `/snapshot` returns the exact stored raw bitmap for a loaded slot so host tooling can verify what the device has cached.
-- `/clear` clears one slot or the stored slot cache.
-- `/eventlog` returns a small persisted ring buffer of operational events (boot, wifi_lost, wifi_restored, restart_*) read from `/eventlog.bin` on LittleFS. This is the post-mortem signal when a freeze ended in a user-initiated power-cycle — the entries survive the reset and tell you what fired (or didn't) before it.
-- Stored pages are persisted to the labeled LittleFS partition on the current tracked firmware when the filesystem mounts successfully.
-- `/capabilities` reports Wi-Fi outage duration, the self-restart threshold,
-  self-restart reason/count, loop-watchdog arm status, and HTTP-idle state
-  (`http_idle_restart_ms`, `last_client_ms`, `http_idle_ms`,
-  `http_request_count`). These fields are the first place to check after a
-  stale-screen incident. `http_idle_ms` climbing while `wifi_connected` stays
-  `true` is the zombie-LWIP signature.
-- HTTP-idleness restart fires (`SELF_RESTART_HTTP_IDLE`) when WiFi reports connected but no client has reached the HTTP server for `RETERMINAL_HTTP_IDLE_RESTART_MS` (default 30 min, override via `platformio.local.ini`). Set to `0` to disable for bench debugging.
-- Invalid page numbers are rejected with `400 Page out of range`; older wraparound/display-immediate behavior belongs to the historical pre-reflash build.
-- If the live device still returns `404` for `/capabilities`, `/snapshot`, `/clear`, or `/eventlog`, you are still talking to an older flashed firmware and need a reflash before expecting the newer source contract.
+### Diagnostic mode
+
+Long-press the **right** button for 3 seconds (`RETERMINAL_DIAGNOSTIC_HOLD_MS`)
+while waking from EXT1. The firmware brings up:
+
+- `GET /status` — JSON: uptime, battery_mv, RSSI, free_heap, build SHA, slot state
+- `GET /eventlog` — persistent ring buffer (boot, wake_timer, wake_button, diagnostic, wifi_fail)
+- `GET /snapshot[?page=N]` — exact stored 48000-byte bitmap for inspection
+- `POST /imageraw?page=N` — manual push (legacy; mostly unused)
+- `GET/POST /page` — read or set the visible slot
+- `POST /sleep` — return to deep sleep immediately
+- mDNS advertising as `reterminal.local`
+- OTA listener (if `RETERMINAL_OTA_PASSWORD` is set)
+
+After `RETERMINAL_DIAGNOSTIC_TIMEOUT_MS` (default 10 min) the firmware
+returns to deep sleep automatically. This is the path for OTA-flashing or
+post-mortem inspection.
+
+### Build flags
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `RETERMINAL_WIFI_SSID` / `_PASS` | — | WiFi credentials |
+| `RETERMINAL_HOSTNAME` | `reterminal` | mDNS / hostname |
+| `RETERMINAL_OTA_PASSWORD` | unset (OTA off) | Diagnostic-mode OTA |
+| `RETERMINAL_PUBLISHER_HOST` | unset (no pull) | Host running the content server |
+| `RETERMINAL_PUBLISHER_PORT` | 8765 | Content server port |
+| `RETERMINAL_WAKE_INTERVAL_S` | 1800 (30 min) | Timer wake interval |
+| `RETERMINAL_DIAGNOSTIC_HOLD_MS` | 3000 | Right-button long-press threshold |
+| `RETERMINAL_DIAGNOSTIC_TIMEOUT_MS` | 600000 (10 min) | Diagnostic-mode auto-sleep |
 
 ## Pin Mapping
 

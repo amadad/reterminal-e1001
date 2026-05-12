@@ -67,21 +67,43 @@ If this is empty, do not guess an old DHCP lease. Use USB serial logs to diagnos
 
 ## HTTP device access
 
-Once a host is known:
+The firmware is a **deep-sleep HTTP client**, not a server. In normal
+operation it has no listening port — `reterminal discover` will return empty
+99% of the time. To inspect or flash live, you need to bring up diagnostic
+mode first:
+
+**Long-press the right button on the device for 3 seconds.** The firmware
+brings up its HTTP server, mDNS, and OTA for 10 minutes, then auto-returns to
+deep sleep. During that window:
 
 ```bash
-env -u VIRTUAL_ENV uv --directory python run reterminal doctor --host "$RETERMINAL_HOST"
+env -u VIRTUAL_ENV uv --directory python run reterminal discover
 env -u VIRTUAL_ENV uv --directory python run reterminal status --host "$RETERMINAL_HOST" --output json
-env -u VIRTUAL_ENV uv --directory python run reterminal capabilities --host "$RETERMINAL_HOST" --output json
-env -u VIRTUAL_ENV uv --directory python run reterminal snapshot --host "$RETERMINAL_HOST" --png /tmp/reterminal-current.png --output json
+curl http://$RETERMINAL_HOST/eventlog | jq
+curl http://$RETERMINAL_HOST/snapshot?page=0 --output /tmp/slot-0.raw
 ```
 
-On some macOS networks, Python `requests` can report `No route to host` while
-`curl` works against the same device. The CLI falls back to `curl` for device
-HTTP operations and discovery probes, so prefer the CLI/curl path over ad hoc
-Python `requests` snippets when debugging live hardware.
+On some macOS networks, Python `requests` reports `No route to host` while
+`curl` works against the same device. Prefer the CLI/`curl` path over ad hoc
+Python `requests` snippets.
 
-For live mutations, follow the repo safety rule: preview first, then use `--live` only after explicit approval.
+For OTA flashing, plug the device into USB *or* trigger diagnostic mode, then
+`pio run -e ota -t upload`. macOS firewall can block espota's UDP reply
+(reports "Host Not Found"); briefly disable it.
+
+### The publisher's content server
+
+The publisher (`reterminal publish --watch`) runs an HTTP server on
+**port 8765** that the device polls on every wake:
+
+```
+GET /content-hash       → JSON {"hashes": {"slot-0": "<sha256>", ...}}
+GET /content/slot-N     → 48000-byte raw 1-bit bitmap
+```
+
+The launchd plist at `~/Library/LaunchAgents/sh.reterminal.publish.plist`
+runs this in the background. The device picks up content changes within one
+wake cycle (~30 min default).
 
 ## USB serial access on macOS
 
