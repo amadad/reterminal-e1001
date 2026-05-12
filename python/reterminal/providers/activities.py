@@ -15,12 +15,10 @@ from PIL import Image, ImageEnhance, ImageOps
 
 from reterminal.family.activities import DEFAULT_PATH, Activity, parse_activities
 from reterminal.payloads import JSONValue
+from reterminal.providers._poster_fetcher import fetch_poster
 from reterminal.providers.manifest import register_provider
 from reterminal.render.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, new_canvas, render_notice, to_1bit, truncate_text
 from reterminal.scenes import SceneSpec
-
-
-POSTERS_DIR = Path("/tmp/reterminal-review/posters")
 
 
 def _dither_poster(path: Path, target_h: int) -> Image.Image:
@@ -35,14 +33,17 @@ def _dither_poster(path: Path, target_h: int) -> Image.Image:
 
 
 def _resolve_poster(queue: list[Activity]) -> Path | None:
+    """Return a poster path for the top Queue item, fetching from Wikipedia
+    on miss. Returns None when the top item isn't a movie/series or when no
+    article can be matched. Cache survives across publisher restarts.
+    """
     if not queue:
         return None
-    slug = queue[0].label.lower().replace(" ", "-").replace("'", "")
-    for ext in ("jpg", "png"):
-        candidate = POSTERS_DIR / f"{slug}.{ext}"
-        if candidate.exists():
-            return candidate
-    return None
+    top = queue[0]
+    if top.tag not in {"movie", "series"}:
+        return None
+    kind_hint = "film" if top.tag == "movie" else "TV series"
+    return fetch_poster(top.label, kind_hint=kind_hint)
 
 
 def render_activities(
