@@ -4,6 +4,8 @@ The reTerminal firmware deep-sleeps most of the time and wakes every
 30 min to poll us for content. This module:
 
 - Watches the manifest's family/*.md paths via FSEvents
+- Watches the manifest file itself and rebuilds providers in place when
+  it changes, so repointing a path does not require a daemon restart
 - Renders changed slots into an in-memory bitmap cache
 - Serves `GET /content-hash` and `GET /content/slot-N` so the device
   can fetch only what changed on its next wake.
@@ -17,9 +19,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import socket
 import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -32,7 +35,7 @@ from watchdog.observers import Observer
 from reterminal.app.publisher import DisplayPublisher
 from reterminal.encoding import pil_to_raw
 from reterminal.protocols import DisplayDevice
-from reterminal.providers import SceneProvider, build_providers, load_manifest
+from reterminal.providers import build_providers, load_manifest
 from reterminal.providers.manifest import FeedManifest
 from reterminal.render import MonoRenderer
 from reterminal.scheduler import PriorityScheduler
@@ -40,6 +43,7 @@ from reterminal.scheduler import PriorityScheduler
 
 SANITY_TICK_SECONDS = 300
 CONTENT_SERVER_PORT = 8765
+CONTENT_SERVER_REQUEST_TIMEOUT = 5.0
 RecoverDevice = Callable[[DisplayDevice], bool]
 
 
@@ -68,6 +72,14 @@ def _provider_paths(manifest: FeedManifest) -> list[Path]:
     return [p for entry in manifest.providers if (p := entry.path()) is not None]
 
 
+def _build_publisher(manifest: FeedManifest) -> DisplayPublisher:
+    return DisplayPublisher(
+        providers=build_providers(manifest),
+        renderer=MonoRenderer(),
+        scheduler=PriorityScheduler(),
+    )
+
+
 def _make_content_handler(cache: _BitmapCache) -> type[BaseHTTPRequestHandler]:
     """Serve /content-hash + /content/slot-N to the deep-sleeping device."""
 
@@ -81,8 +93,10 @@ def _make_content_handler(cache: _BitmapCache) -> type[BaseHTTPRequestHandler]:
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")
             self.end_headers()
             self.wfile.write(payload)
+            self.close_connection = True
 
         def do_GET(self) -> None:  # noqa: N802
             if self.path == "/content-hash":
@@ -105,16 +119,35 @@ def _make_content_handler(cache: _BitmapCache) -> type[BaseHTTPRequestHandler]:
                 self.send_header("X-Slot", str(slot))
                 self.send_header("X-Hash", cache.digests.get(slot, ""))
                 self.send_header("Cache-Control", "no-store")
+                self.send_header("Connection", "close")
                 self.end_headers()
                 self.wfile.write(data)
+                self.close_connection = True
                 return
             self._send_json(404, {"error": "not found", "path": self.path})
 
     return _ContentHandler
 
 
+class _ContentServer(ThreadingHTTPServer):
+    """Small LAN server hardened for sleepy clients.
+
+    The panel wakes briefly and may disappear mid-request. Bound connection
+    lifetime so stale sockets cannot consume the small accept backlog.
+    """
+
+    daemon_threads = True
+    request_queue_size = 32
+    allow_reuse_address = True
+
+    def get_request(self) -> tuple[socket.socket, tuple[str, int]]:
+        request, client_address = super().get_request()
+        request.settimeout(CONTENT_SERVER_REQUEST_TIMEOUT)
+        return request, client_address
+
+
 def _start_content_server(cache: _BitmapCache, port: int = CONTENT_SERVER_PORT) -> ThreadingHTTPServer:
-    server = ThreadingHTTPServer(("0.0.0.0", port), _make_content_handler(cache))
+    server = _ContentServer(("0.0.0.0", port), _make_content_handler(cache))
     threading.Thread(target=server.serve_forever, name="content-server", daemon=True).start()
     logger.info(f"live: content-server listening on 0.0.0.0:{port}")
     return server
@@ -155,16 +188,65 @@ class _DebouncedTrigger:
 
 
 class _PathHandler(FileSystemEventHandler):
-    def __init__(self, watched: set[str], trigger: _DebouncedTrigger):
+    """Fire `trigger` when an event touches a path `matches` accepts.
+
+    `matches` is evaluated per event rather than closing over a fixed set so
+    the watched paths can change underneath us (manifest reload repoints them).
+    """
+
+    def __init__(self, matches: Callable[[str], bool], trigger: _DebouncedTrigger):
         super().__init__()
-        self._watched = watched
+        self._matches = matches
         self._trigger = trigger
 
     def on_any_event(self, event: FileSystemEvent) -> None:
         for candidate in (getattr(event, "src_path", None), getattr(event, "dest_path", None)):
-            if candidate and candidate in self._watched:
+            if candidate and self._matches(candidate):
                 self._trigger.fire()
                 return
+
+
+class _LiveRuntime:
+    """Mutable live state: the active publisher and the content paths to watch.
+
+    Rebuilt in place from the manifest on disk so a repointed path is picked
+    up without restarting the daemon — the failure mode that left the display
+    rendering "source missing" for days after a content dir moved.
+    """
+
+    def __init__(self, manifest_path: Path, cache: _BitmapCache):
+        self.manifest_path = manifest_path
+        self.cache = cache
+        self.content_watched: set[str] = set()
+        self.content_paths: list[Path] = []
+        manifest = load_manifest(manifest_path)
+        self.publisher = _build_publisher(manifest)
+        self._set_watched(manifest)
+
+    def _set_watched(self, manifest: FeedManifest) -> None:
+        paths = _provider_paths(manifest)
+        self.content_paths = paths
+        self.content_watched = {
+            str(p.resolve()) for p in paths if p.exists() or p.parent.exists()
+        }
+
+    def render(self) -> int:
+        return _render_to_cache(self.publisher, self.cache)
+
+    def reload(self) -> bool:
+        """Rebuild publisher + watched paths from the manifest on disk. Returns
+        False (keeping the previous config) if the manifest is unreadable, so a
+        mid-edit save never takes the display down.
+        """
+        try:
+            manifest = load_manifest(self.manifest_path)
+            publisher = _build_publisher(manifest)
+        except Exception:
+            logger.exception("live: manifest reload failed; keeping previous config")
+            return False
+        self.publisher = publisher
+        self._set_watched(manifest)
+        return True
 
 
 def _render_to_cache(publisher: DisplayPublisher, cache: _BitmapCache) -> int:
@@ -221,43 +303,59 @@ def run_live(
     """
     del device, push, recover_device
 
-    manifest = load_manifest(manifest_path)
-    providers: Sequence[SceneProvider] = build_providers(manifest)
-    publisher = DisplayPublisher(
-        providers=providers,
-        renderer=MonoRenderer(),
-        scheduler=PriorityScheduler(),
-    )
+    manifest_path = manifest_path.resolve()
     cache = _BitmapCache()
+    runtime = _LiveRuntime(manifest_path, cache)
     content_server = _start_content_server(cache)
 
     # Initial render — populates the cache before the device's first poll.
-    initial = _render_to_cache(publisher, cache)
+    initial = runtime.render()
     logger.info(f"live: rendered {initial} slot(s) into cache")
 
+    observer = Observer()
+    seen_dirs: set[str] = set()
+
+    def _schedule_content_dirs(handler: _PathHandler) -> None:
+        for p in runtime.content_paths:
+            parent = str(p.parent)
+            if p.parent.exists() and parent not in seen_dirs:
+                observer.schedule(handler, parent, recursive=False)
+                seen_dirs.add(parent)
+
     def tick() -> None:
-        changed = _render_to_cache(publisher, cache)
+        changed = runtime.render()
         if changed:
             logger.info(f"live: re-rendered {changed} slot(s)")
         if on_tick is not None:
             on_tick(changed)
 
     trigger = _DebouncedTrigger(tick, delay=0.5)
+    content_handler = _PathHandler(lambda p: p in runtime.content_watched, trigger)
 
-    paths = _provider_paths(manifest)
-    watched = {str(p.resolve()) for p in paths if p.exists() or p.parent.exists()}
-    observer = Observer()
-    handler = _PathHandler(watched, trigger)
-    seen_dirs: set[str] = set()
-    for p in paths:
-        parent = p.parent
-        if parent.exists() and str(parent) not in seen_dirs:
-            observer.schedule(handler, str(parent), recursive=False)
-            seen_dirs.add(str(parent))
+    def reload_manifest() -> None:
+        if not runtime.reload():
+            return
+        # A repointed path may live in a not-yet-watched dir.
+        _schedule_content_dirs(content_handler)
+        logger.info(
+            f"live: manifest reloaded; watching {len(runtime.content_watched)} content path(s)"
+        )
+        tick()
+
+    reload_trigger = _DebouncedTrigger(reload_manifest, delay=0.5)
+    manifest_str = str(manifest_path)
+    manifest_handler = _PathHandler(lambda p: p == manifest_str, reload_trigger)
+
+    _schedule_content_dirs(content_handler)
+    # Always schedule the manifest handler (a distinct handler object), even if
+    # its parent dir is already watched for content — watchdog fans events to
+    # every handler registered on a dir.
+    observer.schedule(manifest_handler, str(manifest_path.parent), recursive=False)
     observer.start()
+    watched_dirs = len(seen_dirs | {str(manifest_path.parent)})
     logger.info(
-        f"live: watching {len(watched)} path(s) across {len(seen_dirs)} dir(s); "
-        f"sanity tick every {sanity_tick_seconds}s"
+        f"live: watching {len(runtime.content_watched)} content path(s) + manifest "
+        f"across {watched_dirs} dir(s); sanity tick every {sanity_tick_seconds}s"
     )
 
     try:
@@ -268,6 +366,7 @@ def run_live(
         logger.info("live: stopped")
     finally:
         trigger.cancel()
+        reload_trigger.cancel()
         observer.stop()
         observer.join()
         content_server.shutdown()

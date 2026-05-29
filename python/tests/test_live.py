@@ -8,11 +8,19 @@ wake.
 
 from __future__ import annotations
 
+import json
+import urllib.request
 from pathlib import Path
 
 from PIL import Image
 
-from reterminal.app.live import _BitmapCache, _publish_once, _render_to_cache
+from reterminal.app.live import (
+    _BitmapCache,
+    _LiveRuntime,
+    _publish_once,
+    _render_to_cache,
+    _start_content_server,
+)
 from reterminal.app.publisher import DisplayPublisher
 from reterminal.providers.activities import ActivitiesProvider
 from reterminal.providers.events import EventsProvider
@@ -64,6 +72,26 @@ def test_bitmap_cache_is_per_slot():
     assert cache.changed(1, digest) is True
     cache.mark_current(1, digest, b"b" * 10)
     assert cache.bitmaps[0] != cache.bitmaps[1]
+
+
+def test_content_server_closes_short_lived_requests():
+    cache = _BitmapCache()
+    cache.digests[0] = "abc123"
+    server = _start_content_server(cache, port=0)
+    host, port = server.server_address
+    try:
+        response = urllib.request.urlopen(
+            f"http://{host}:{port}/content-hash", timeout=2
+        )
+        try:
+            assert response.headers["Connection"] == "close"
+            payload = json.loads(response.read())
+        finally:
+            response.close()
+        assert payload["hashes"]["slot-0"] == "abc123"
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_render_to_cache_populates_only_changed_slots(tmp_path: Path):
@@ -119,6 +147,58 @@ def test_render_handles_no_scenes_gracefully(tmp_path: Path):
     # Missing source still emits a "missing" notice scene, so it does render.
     # Just verify no crash and cache populates.
     _render_to_cache(publisher, cache)
+
+
+def _write_manifest(path: Path, events_path: Path) -> Path:
+    path.write_text(
+        json.dumps(
+            {"providers": [{"type": "events", "path": str(events_path), "slot": 2}]}
+        )
+    )
+    return path
+
+
+def test_live_runtime_reload_repoints_path_without_restart(tmp_path: Path):
+    """The outage that motivated this: the daemon read the manifest once at
+    startup, so a moved content dir left it rendering 'source missing'. Reload
+    must rebuild the publisher and watched set from the manifest on disk.
+    """
+    events_a = tmp_path / "a" / "events.md"
+    events_a.parent.mkdir()
+    events_a.write_text("## Upcoming\n\n- 2099-01-01 Alpha Event [event]\n")
+    events_b = tmp_path / "b" / "events.md"
+    events_b.parent.mkdir()
+    events_b.write_text("## Upcoming\n\n- 2099-02-02 Beta Event [event]\n")
+
+    manifest = _write_manifest(tmp_path / "manifest.json", events_a)
+    cache = _BitmapCache()
+    runtime = _LiveRuntime(manifest, cache)
+    runtime.render()
+
+    assert str(events_a.resolve()) in runtime.content_watched
+    digest_a = cache.digests[2]
+
+    # Repoint the manifest at a different file with different content.
+    _write_manifest(manifest, events_b)
+    assert runtime.reload() is True
+    assert str(events_b.resolve()) in runtime.content_watched
+    assert str(events_a.resolve()) not in runtime.content_watched
+
+    runtime.render()
+    assert cache.digests[2] != digest_a
+
+
+def test_live_runtime_reload_keeps_config_on_broken_manifest(tmp_path: Path):
+    events = tmp_path / "events.md"
+    events.write_text("## Upcoming\n\n- 2099-01-01 Alpha Event [event]\n")
+    manifest = _write_manifest(tmp_path / "manifest.json", events)
+    runtime = _LiveRuntime(manifest, _BitmapCache())
+    good_publisher = runtime.publisher
+
+    manifest.write_text("{ not valid json")
+    assert runtime.reload() is False
+    assert runtime.publisher is good_publisher
+    assert str(events.resolve()) in runtime.content_watched
 
 
 def test_render_skips_scene_without_prerendered_via_normal_renderer(tmp_path: Path):
