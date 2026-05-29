@@ -6,7 +6,7 @@ import json
 import os
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -961,6 +961,7 @@ def brief(
         CalendarItem,
         Event,
         Mission,
+        events_for,
         parse_activities,
         parse_calendar,
         parse_events,
@@ -975,7 +976,9 @@ def brief(
     today: list[CalendarItem] = []
     tomorrow: list[CalendarItem] = []
     if (p := paths_by_type.get("calendar")) and p.exists():
-        today, tomorrow = parse_calendar(p)
+        parsed = parse_calendar(p)
+        today = events_for(parsed, date.today())
+        tomorrow = events_for(parsed, date.today() + timedelta(days=1))
 
     missions: list[Mission] = []
     if (p := paths_by_type.get("missions")) and p.exists():
@@ -1053,4 +1056,3 @@ def brief(
     if queue:
         typer.echo("\nWATCHING NEXT")
         typer.echo(f"  {queue[0].label}")
-

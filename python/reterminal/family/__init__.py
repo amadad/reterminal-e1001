@@ -8,15 +8,16 @@ pipeline.
 
 Each submodule owns one file's grammar:
 
-- `family.calendar`   → `## Today` / `## Tomorrow`, line `HH:MM Label [@who]`
+- `family.calendar`   → `## YYYY-MM-DD [Day]`, line `HH:MM Label [@who]`
 - `family.missions`   → `## Active` blocks of `### Name` / `kind:` / `next:` …
 - `family.events`     → `## Upcoming`, line `YYYY-MM-DD Label [tag]`
 - `family.activities` → `## Recent` / `## Queue`, line `YYYY-MM-DD Label [tag]`
 
 Parsers are pure: they take a `Path`, read it once, and return immutable
 dataclasses. They never write back, never network, never raise on malformed
-lines — unparseable lines are silently dropped (use `reterminal lint` to
-surface them).
+lines — unparseable lines are silently dropped. `parse_calendar` additionally
+returns a `dropped` count so the renderer can surface the silent loss; use
+`reterminal lint` to identify which lines.
 """
 
 from reterminal.family.activities import (
@@ -24,7 +25,12 @@ from reterminal.family.activities import (
     parse_activities,
     parse_activity_line,
 )
-from reterminal.family.calendar import CalendarItem, parse_calendar
+from reterminal.family.calendar import (
+    CalendarItem,
+    ParsedCalendar,
+    events_for,
+    parse_calendar,
+)
 from reterminal.family.events import Event, parse_events
 from reterminal.family.missions import (
     Mission,
@@ -38,6 +44,8 @@ __all__ = [
     "CalendarItem",
     "Event",
     "Mission",
+    "ParsedCalendar",
+    "events_for",
     "parse_activities",
     "parse_activity_line",
     "parse_calendar",

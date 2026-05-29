@@ -86,12 +86,16 @@ def test_activities_provider_renders(tmp_path: Path):
 
 
 def test_calendar_provider_renders(tmp_path: Path):
+    from datetime import date, timedelta
+
+    today = date.today()
+    tomorrow = today + timedelta(days=1)
     md = _write(
         tmp_path / "calendar.md",
-        "## Today\n\n"
+        f"## {today.isoformat()}\n\n"
         "- 9:30am Piano [@kid1]\n"
         "- 12:00pm Family lunch\n\n"
-        "## Tomorrow\n\n"
+        f"## {tomorrow.isoformat()}\n\n"
         "- 8:00am School\n",
     )
     scenes = CalendarProvider(path=md).fetch()
@@ -116,10 +120,19 @@ def test_provider_renders_notice_when_file_missing(tmp_path: Path):
 
 
 def test_calendar_provider_renders_empty_agenda(tmp_path: Path):
-    md = _write(tmp_path / "calendar.md", "## Today\n\n## Tomorrow\n")
+    """File present but no events for today/tomorrow → empty dated columns, not crash."""
+    md = _write(tmp_path / "calendar.md", "## 2099-01-01\n- 9:00am far-future\n")
     scenes = CalendarProvider(path=md).fetch()
     assert len(scenes) == 1
     assert scenes[0].id == "calendar"
+    _assert_bitmap(scenes[0].prerendered)
+
+
+def test_calendar_provider_renders_legacy_notice(tmp_path: Path):
+    """Retired `## Today` / `## Tomorrow` schema → migration notice, not silent empty."""
+    md = _write(tmp_path / "calendar.md", "## Today\n- 9:30am Piano\n## Tomorrow\n- 8:00am School\n")
+    scenes = CalendarProvider(path=md).fetch()
+    assert len(scenes) == 1
     _assert_bitmap(scenes[0].prerendered)
 
 

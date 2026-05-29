@@ -18,14 +18,13 @@ Blank lines, comments, headings, and content under non-rendered sections
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from reterminal.family.activities import ISO_DATE as ACTIVITY_ISO_DATE
 from reterminal.family.activities import TAG_RE as ACTIVITY_TAG_RE
-from reterminal.family.calendar import TIME_RE, WHO_RE
+from reterminal.family.calendar import DATE_HEADER_RE, LEGACY_HEADER_RE
 from reterminal.family.events import ISO_DATE as EVENT_ISO_DATE
 from reterminal.family.events import TAG_RE as EVENT_TAG_RE
 from reterminal.family.missions import _KEYVAL
@@ -42,42 +41,54 @@ class LintIssue:
     raw: str
     reason: str
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self) -> dict[str, str | int]:
         return asdict(self)
 
 
-def _strip_inline_paren(body: str) -> str:
-    """Calendar labels often end with `(Ammar)` — drop trailing parens for time match."""
-    return re.sub(r"\s*\([^)]*\)\s*$", "", body).strip()
-
-
 def lint_calendar(path: Path) -> list[LintIssue]:
+    """Validate `## YYYY-MM-DD [Day]` headers and the bullet grammar inside.
+
+    The bullet grammar is loose by design — time is optional, `[@who]` may
+    appear anywhere, `(Name)` is accepted as a who shortcut. We flag only:
+
+      - retired `## Today` / `## Tomorrow` headers
+      - other malformed `## ` headers in calendar.md
+      - non-bullet lines inside a dated section
+      - empty bullets
+
+    A bullet without a time is no longer an issue — the renderer shows it
+    as an all-day item with an em-dash.
+    """
     issues: list[LintIssue] = []
-    section: str | None = None
+    in_section = False
     for i, raw in enumerate(path.read_text().splitlines(), start=1):
         line = raw.strip()
         if line.startswith("## "):
-            name = line[3:].strip().lower()
-            section = name if name in {"today", "tomorrow"} else None
+            header = line[3:].strip()
+            if DATE_HEADER_RE.match(header):
+                in_section = True
+            elif LEGACY_HEADER_RE.match(header):
+                issues.append(
+                    LintIssue(
+                        str(path),
+                        i,
+                        raw,
+                        "retired `## Today` / `## Tomorrow` header — use `## YYYY-MM-DD Day`",
+                    )
+                )
+                in_section = False
+            else:
+                in_section = False
             continue
-        if section is None or not line:
+        if not in_section or not line:
             continue
         if not line.startswith("- "):
-            # In a rendered section, non-bullet content is suspicious
             issues.append(LintIssue(str(path), i, raw, "expected `- ` bullet"))
             continue
         body = line[2:].strip()
         if not body:
             issues.append(LintIssue(str(path), i, raw, "empty bullet"))
             continue
-        m_who = WHO_RE.search(body)
-        if m_who:
-            body = body[: m_who.start()].strip()
-        body = _strip_inline_paren(body)
-        if not TIME_RE.match(body):
-            issues.append(
-                LintIssue(str(path), i, raw, "missing/invalid time prefix (HH:MM[am|pm])")
-            )
     return issues
 
 

@@ -80,7 +80,7 @@ uv run reterminal clear --all
 uv run reterminal probe
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews --push --live
-uv run reterminal publish --feed examples/kitchen-display.json --push --watch --live
+uv run reterminal publish --feed examples/kitchen-display.json --watch --live
 uv run reterminal lint --feed examples/kitchen-display.json
 uv run reterminal brief --feed examples/kitchen-display.json             # sample family-state consumer (today/tomorrow/missions/next-event/queue)
 ```
@@ -115,24 +115,27 @@ The old fixed-page `refresh` / `watch` CLI commands and `reterminal/pages/*` mod
 
 ## Live feed architecture
 
-The kitchen display can be driven by **four local markdown files**, watched via FSEvents by `reterminal publish --watch`. The public example uses `~/reterminal-content/family/`; machine-specific paths belong in an ignored local manifest such as `python/examples/kitchen-display.local.json`. The display pipeline has zero required calendar/chat/cloud API dependencies.
+The kitchen display is driven by **four local markdown files**, watched via FSEvents by `reterminal publish --watch`. The public example uses `~/reterminal-content/family/`; machine-specific paths belong in an ignored local manifest such as `python/examples/kitchen-display.local.json`. The display pipeline has zero required calendar/chat/cloud API dependencies: external systems such as Google Calendar feed markdown upstream of this repo.
 
 ```
-calendar exporter ─►  ~/reterminal-content/family/calendar.md
-local editors     ─►  ~/reterminal-content/family/missions.md
-local editors     ─►  ~/reterminal-content/family/events.md
-local editors     ─►  ~/reterminal-content/family/activities.md
-                                          │
-                                          ▼  (FSEvents on all 4 paths)
-                          reterminal publish --watch
-                                          │
-                                          ▼
-                                       device
+OpenClaw/calendar exporter ─►  ~/reterminal-content/family/calendar.md
+OpenClaw/local editors     ─►  ~/reterminal-content/family/missions.md
+OpenClaw/local editors     ─►  ~/reterminal-content/family/events.md
+OpenClaw/local editors     ─►  ~/reterminal-content/family/activities.md
+                                                   │
+                                                   ▼  (FSEvents on all 4 paths)
+                                  reterminal publish --watch
+                                                   │
+                                                   ▼
+                         host content API on :8765 (/content-hash, /content/slot-N)
+                                                   │
+                                                   ▼
+                             deep-sleeping device pulls on its next wake
 ```
 
 4-slot layout, one provider per slot:
 
-- **slot 0**: `calendar` — today/tomorrow agenda from `calendar.md`
+- **slot 0**: `calendar` — today/tomorrow agenda from `calendar.md`. Sections are absolute dates (`## 2026-05-08 Fri`); the renderer picks today/tomorrow at render time from `date.today()`. Retired `## Today` / `## Tomorrow` headers trigger a migration notice. See `docs/oc-calendar-heartbeat.md`.
 - **slot 1**: `missions` — mission cards from `missions.md`
 - **slot 2**: `events` — upcoming events from `events.md`
 - **slot 3**: `activities` — recent + queued activities from `activities.md`
@@ -145,7 +148,9 @@ Beyond the four markdown providers, an additional `photo` provider type can take
 
 `reterminal brief --feed <manifest>` is a sample non-display consumer of `reterminal.family`: reads the manifest's calendar/missions/events/activities files and prints a daily readout. Useful as-is and as a worked example of what other tools (digests, recall CLIs, OC flows) can build on the family API.
 
-The trigger loop (`python/reterminal/app/live.py`) uses `watchdog` for FSEvents on the parent directories of the four files, with a 5-minute sanity tick. It seeds its in-memory slot hashes from `/snapshot` on startup, refreshes capabilities on each tick to detect device reboots/storage loss, then marks a slot current only after a successful upload; this keeps launchd restarts, reboots, and transient upload failures from causing redundant or missed pushes. Slot pins live in the provider manifest (`slot: 0..3`), not in provider code. The public launchd template at `scripts/sh.reterminal.publish.example.plist` runs `scripts/reterminal-publish-watch.sh`, which discovers the DHCP-assigned host unless `RETERMINAL_HOST` is explicitly set.
+The trigger loop (`python/reterminal/app/live.py`) uses `watchdog` for FSEvents on the parent directories of the four files, with a 5-minute sanity tick. It renders changed slots into an in-memory cache and serves `GET /content-hash` plus `GET /content/slot-N` on port 8765. The firmware is the HTTP client; it wakes, compares hashes, fetches changed raw bitmaps, refreshes the panel, then sleeps. Slot pins live in the provider manifest (`slot: 0..3`), not in provider code. The public launchd template at `scripts/sh.reterminal.publish.example.plist` runs `scripts/reterminal-publish-watch.sh`.
+
+Operational invariant: localhost health is not enough. The publisher must respond on the MacBook LAN IP because that is the path the device uses. If `curl http://127.0.0.1:8765/content-hash` works but `curl http://<macbook-lan-ip>:8765/content-hash` hangs, fix macOS Application Firewall for the Python runtime used by `uv`, then restart `sh.reterminal.publish`.
 
 Do **not** reintroduce legacy `ready-board` / `need-board` / `reset-board` as live slots unless explicitly asked for a rollback.
 

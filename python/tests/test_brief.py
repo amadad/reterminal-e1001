@@ -26,12 +26,16 @@ def _write_manifest(tmp_path: Path, files: dict[str, Path]) -> Path:
 
 
 def _seed_family(tmp_path: Path) -> dict[str, Path]:
+    from datetime import date, timedelta
+
+    today = date.today()
+    tomorrow = today + timedelta(days=1)
     cal = tmp_path / "calendar.md"
     cal.write_text(
-        "## Today\n"
+        f"## {today.isoformat()}\n"
         "- 9:30am Piano [@kid1]\n"
         "- 12:00pm Family lunch\n"
-        "## Tomorrow\n"
+        f"## {tomorrow.isoformat()}\n"
         "- 8:00am School\n"
     )
     miss = tmp_path / "missions.md"
@@ -110,8 +114,10 @@ def test_brief_handles_missing_files(tmp_path: Path):
 
 def test_brief_only_includes_referenced_providers(tmp_path: Path):
     """A manifest with only calendar shouldn't try to print missions/events/queue."""
+    from datetime import date
+
     cal = tmp_path / "calendar.md"
-    cal.write_text("## Today\n- 9:00am Test\n")
+    cal.write_text(f"## {date.today().isoformat()}\n- 9:00am Test\n")
     feed = _write_manifest(tmp_path, {"calendar": cal})
     result = runner.invoke(app, ["brief", "--feed", str(feed), "--output", "json"])
     assert result.exit_code == 0, result.output

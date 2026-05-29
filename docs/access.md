@@ -105,6 +105,31 @@ The launchd plist at `~/Library/LaunchAgents/sh.reterminal.publish.plist`
 runs this in the background. The device picks up content changes within one
 wake cycle (~30 min default).
 
+Verify the server from both sides of the host network stack:
+
+```bash
+curl -fsS --max-time 3 http://127.0.0.1:8765/content-hash
+curl -fsS --max-time 3 http://<macbook-lan-ip>:8765/content-hash
+```
+
+If localhost responds but the LAN IP connects and hangs, macOS Application
+Firewall is blocking the Python runtime that `uv` uses for the publisher. The
+device uses the LAN path, so localhost success alone is not enough.
+
+Allow and unblock the exact `Python.app`, then restart the publisher:
+
+```bash
+/usr/libexec/ApplicationFirewall/socketfilterfw --add /path/to/Python.app
+/usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp /path/to/Python.app
+launchctl kickstart -k gui/$(id -u)/sh.reterminal.publish
+```
+
+On Kunst on 2026-05-21, the blocked runtime was:
+
+```text
+/usr/local/Cellar/python@3.13/3.13.13_1/Frameworks/Python.framework/Versions/3.13/Resources/Python.app
+```
+
 ## USB serial access on macOS
 
 Use callout devices (`/dev/cu.*`) for connecting from tools. The matching `/dev/tty.*` devices may also exist, but `/dev/cu.*` is the normal macOS path for PlatformIO/serial monitor.

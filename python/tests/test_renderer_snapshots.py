@@ -29,6 +29,7 @@ import pytest
 
 from reterminal.encoding import pil_to_raw
 from reterminal.family import (
+    events_for,
     parse_activities,
     parse_calendar,
     parse_missions,
@@ -58,13 +59,13 @@ FROZEN_TODAY = date(2026, 5, 5)
 CALENDAR_FIXTURE = """\
 # Today
 
-## Today
+## 2026-05-05 Tue
 
 - 9:30am Piano [@kid1]
 - 12:00pm Family lunch
 - 4:00pm Baseball practice (Ammar)
 
-## Tomorrow
+## 2026-05-06 Wed
 
 - 7:50am Play Group (Laila)
 - 4:45pm Ballet (Laila)
@@ -165,9 +166,17 @@ def _write_frozen(path: Path, body: str) -> Path:
 
 
 def test_calendar_render_snapshot(tmp_path: Path):
+    from datetime import timedelta
+
     md = _write_frozen(tmp_path / "calendar.md", CALENDAR_FIXTURE)
-    today, tomorrow = parse_calendar(md)
-    image = render_calendar(today, tomorrow, source_path=md)
+    parsed = parse_calendar(md)
+    image = render_calendar(
+        events_for(parsed, FROZEN_TODAY),
+        events_for(parsed, FROZEN_TODAY + timedelta(days=1)),
+        today=FROZEN_TODAY,
+        source_path=md,
+        dropped=parsed.dropped,
+    )
     _check_or_update("calendar", image)
 
 
@@ -235,7 +244,7 @@ def test_stale_glyph_when_threshold_exceeded_vs_fresh(tmp_path: Path):
     from reterminal.render.kitchen import HEIGHT, WIDTH
 
     md = tmp_path / "calendar.md"
-    md.write_text("## Today\n- 9:30am Piano\n")
+    md.write_text("## 2026-05-05\n- 9:30am Piano\n")
 
     # Fresh
     fresh_t = datetime(2026, 5, 5, 8, 30, 0).timestamp()
@@ -277,7 +286,7 @@ def test_stamp_omitted_when_no_threshold_set(tmp_path: Path):
     from reterminal.render.kitchen import HEIGHT, WIDTH
 
     md = tmp_path / "calendar.md"
-    md.write_text("## Today\n- 9:30am Piano\n")
+    md.write_text("## 2026-05-05\n- 9:30am Piano\n")
     very_old = datetime(2020, 1, 1).timestamp()
     os.utime(md, (very_old, very_old))
 

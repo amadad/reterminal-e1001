@@ -2,6 +2,14 @@
 
 Newest first. Keep entries short, dated, and evidence-oriented.
 
+## 2026-05-21 — Publisher was healthy on localhost but blocked on LAN by macOS firewall
+
+- **Symptoms / why this entry exists:** OpenClaw correctly updated the markdown files and the publisher process was listening on port 8765, but the physical reTerminal still did not update. `curl http://127.0.0.1:8765/content-hash` worked after restart, while `curl http://192.168.7.68:8765/content-hash` connected and then timed out. The device uses the LAN path, so localhost success was a false green.
+- **Root cause:** macOS Application Firewall did not allow incoming connections for the Homebrew Python 3.13 `Python.app` that `uv run reterminal publish --watch --live` uses. The service could look alive from launchd/lsof and still be unusable to the device. Stale device connections also made the small Python content server easier to wedge.
+- **Fix:** allowed and unblocked `/usr/local/Cellar/python@3.13/3.13.13_1/Frameworks/Python.framework/Versions/3.13/Resources/Python.app` with `socketfilterfw`, then restarted `sh.reterminal.publish`. Hardened `python/reterminal/app/live.py` so the content server sends `Connection: close`, uses daemon handler threads, increases the accept backlog, enables address reuse, and applies a per-request socket timeout.
+- **Evidence:** after the firewall fix and publisher restart, both `http://127.0.0.1:8765/content-hash` and `http://192.168.7.68:8765/content-hash` returned the same four slot hashes. `env -u VIRTUAL_ENV uv --directory python run pytest tests/test_live.py` passed (`7 passed`).
+- **Lesson:** the reTerminal freshness contract must be checked end-to-end: source file -> render cache -> localhost content API -> LAN content API -> device pull/ack. "Process is running" and "localhost responds" are necessary but not sufficient.
+
 ## 2026-05-12 — Stripped to idiomatic deep-sleep + pull architecture
 
 - **Symptoms / why this entry exists:** Every "freeze" we'd been fixing since 2026-04-27 was a symptom of running the wrong architecture (always-on HTTP server with `WiFi.setSleep(false)`) on the wrong power source (the unit has a Li-Po battery and Seeed claims ~3-month life). The 2026-05-11 event log shipped the day before captured 229 POWERON-class resets with RTC RAM wiped each time, zero `wifi_lost` events, zero `restart_*` events — i.e. brownout cycling during battery depletion, not zombie LWIP or anything firmware-level. Each prior "fix" (ARP keepalive, HTTP-idleness, 12h periodic restart, loop watchdog, manual reconnect) was chasing a symptom of the wrong base architecture.

@@ -129,17 +129,26 @@ uv run reterminal publish \
   --live
 ```
 
-To keep the kitchen display fresh in production, use the provider manifest with the FSEvents watcher:
+To keep the kitchen display fresh in production, use the provider manifest with
+the FSEvents watcher. In the current deep-sleep architecture this serves content
+on port 8765; the device pulls changed slots on wake.
 
 ```bash
 uv run reterminal publish \
   --feed examples/kitchen-display.json \
-  --push \
   --watch \
   --live
 ```
 
-Repeated publish runs skip unchanged slot uploads and preserve the current visible slot unless `--show-slot` is explicit. Use `--interval` only for demos/debugging; with full-refresh firmware, interval-based visible rotation is unnecessarily flashy for normal kitchen use.
+For host health, verify the publisher on the MacBook LAN IP, not only
+localhost:
+
+```bash
+curl -fsS --max-time 3 http://<macbook-lan-ip>:8765/content-hash
+```
+
+If localhost works but the LAN IP hangs, fix macOS Application Firewall for the
+Python runtime used by `uv`; the physical device uses the LAN path.
 
 ## Agent-friendly CLI workflow
 

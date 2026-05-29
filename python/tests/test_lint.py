@@ -27,30 +27,30 @@ def _w(path: Path, body: str) -> Path:
 def test_calendar_lint_clean(tmp_path: Path):
     md = _w(
         tmp_path / "calendar.md",
-        "## Today\n\n"
+        "## 2026-05-08 Fri\n\n"
         "- 9:30am Piano [@kid1]\n"
         "- 12:00pm Family lunch\n"
         "- 4:00pm Baseball practice (Ammar)\n"
+        "- All-day field trip\n"  # no time — loose grammar, not an issue
         "\n## Notes\n- ignored, not a rendered section\n",
     )
     assert lint_calendar(md) == []
 
 
-def test_calendar_lint_flags_missing_time(tmp_path: Path):
+def test_calendar_lint_flags_legacy_today_header(tmp_path: Path):
     md = _w(
         tmp_path / "calendar.md",
-        "## Today\n- Piano lesson\n- 9:30am OK line\n",
+        "## Today\n- 9:30am Piano\n## Tomorrow\n- 4:00pm Soccer\n",
     )
     issues = lint_calendar(md)
-    assert len(issues) == 1
-    assert issues[0].line == 2
-    assert "time prefix" in issues[0].reason
+    assert len(issues) == 2
+    assert all("retired" in i.reason for i in issues)
 
 
 def test_calendar_lint_flags_non_bullet(tmp_path: Path):
     md = _w(
         tmp_path / "calendar.md",
-        "## Today\nthis is prose, not a bullet\n- 9:30am Piano\n",
+        "## 2026-05-08\nthis is prose, not a bullet\n- 9:30am Piano\n",
     )
     issues = lint_calendar(md)
     assert any("expected `- ` bullet" in i.reason for i in issues)
