@@ -17,7 +17,22 @@ from reterminal.family.activities import DEFAULT_PATH, Activity, parse_activitie
 from reterminal.payloads import JSONValue
 from reterminal.providers._poster_fetcher import fetch_poster
 from reterminal.providers.manifest import register_provider
-from reterminal.render.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, new_canvas, render_notice, to_1bit, truncate_text
+from reterminal.render.kitchen import (
+    HEADLINE,
+    HEIGHT,
+    MARGIN,
+    META,
+    SUBHEAD,
+    WIDTH,
+    draw_kicker,
+    draw_rule,
+    draw_source_stamp,
+    font,
+    new_canvas,
+    render_notice,
+    to_1bit,
+    truncate_text,
+)
 from reterminal.scenes import SceneSpec
 
 
@@ -54,14 +69,12 @@ def render_activities(
     source_path: Path | None = None,
 ) -> Image.Image:
     img, draw = new_canvas()
-    margin = 24
-    gutter = 24
+    margin = MARGIN
+    gutter = MARGIN
 
-    kicker = font(14, "bold")
-    section_h = font(18, "bold")
-    item_f = font(28)
-    meta_f = font(16)
-    hero_title = font(36, "bold")
+    item_f = HEADLINE
+    meta_f = META
+    hero_title = font(36, "bold")  # slot-specific hero; larger than HEADLINE by design
 
     poster_h = HEIGHT - margin * 2
     poster = _dither_poster(poster_path, poster_h) if poster_path and poster_path.exists() else None
@@ -75,10 +88,8 @@ def render_activities(
 
     text_max_w = left_right_edge - margin
 
-    draw.text((margin, margin), "ACTIVITIES", font=kicker, fill=0)
-
-    y = margin + 40
-    draw.text((margin, y), "RECENT", font=section_h, fill=0)
+    y = draw_kicker(draw, "Activities") + 8
+    draw.text((margin, y), "RECENT", font=SUBHEAD, fill=0)
     y += 32
     for a in recent[:3]:
         date_s = a.on.strftime("%b %d") if a.on else ""
@@ -92,10 +103,10 @@ def render_activities(
         y += 46
 
     rule_y = y + 6
-    draw.line([(margin, rule_y), (left_right_edge, rule_y)], fill=0, width=1)
+    draw_rule(draw, rule_y, x1=left_right_edge)
 
     y = rule_y + 20
-    draw.text((margin, y), "NEXT UP", font=section_h, fill=0)
+    draw.text((margin, y), "NEXT UP", font=SUBHEAD, fill=0)
     y += 36
     if queue:
         hero = queue[0]

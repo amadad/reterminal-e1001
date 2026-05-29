@@ -27,7 +27,20 @@ from reterminal.family.calendar import (
 )
 from reterminal.payloads import JSONValue
 from reterminal.providers.manifest import register_provider
-from reterminal.render.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, new_canvas, render_notice, to_1bit, truncate_text
+from reterminal.render.kitchen import (
+    BODY,
+    HEIGHT,
+    MARGIN,
+    SUBHEAD,
+    WIDTH,
+    draw_kicker,
+    draw_source_stamp,
+    font,
+    new_canvas,
+    render_notice,
+    to_1bit,
+    truncate_text,
+)
 from reterminal.scenes import SceneSpec
 
 
@@ -59,10 +72,10 @@ def _render_column(
     bottom: int,
     title: str,
 ) -> None:
-    title_f = font(18, "bold")
-    kid_f = font(16, "bold")
-    time_f = font(18, "bold")
-    label_f = font(20)
+    title_f = SUBHEAD
+    kid_f = font(16, "bold")  # dense column sub-label; one rung below SUBHEAD
+    time_f = SUBHEAD
+    label_f = BODY
 
     title_text = truncate_text(draw, title, title_f, width)
     draw.text((x, y), title_text, font=title_f, fill=0)
@@ -106,12 +119,10 @@ def render_calendar(
     dropped: int = 0,
 ) -> Image.Image:
     img, draw = new_canvas()
-    margin = 24
+    margin = MARGIN
     gutter = 28
 
-    draw.text((margin, margin), "AGENDA", font=font(13, "bold"), fill=0)
-
-    body_top = margin + 30
+    body_top = draw_kicker(draw, "Agenda")
     body_bottom = HEIGHT - margin
     col_w = (WIDTH - margin * 2 - gutter) // 2
 

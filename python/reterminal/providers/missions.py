@@ -22,7 +22,7 @@ from reterminal.family.missions import (
 )
 from reterminal.payloads import JSONValue
 from reterminal.providers.manifest import register_provider
-from reterminal.render.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, new_canvas, render_notice, to_1bit
+from reterminal.render.kitchen import HEIGHT, WIDTH, draw_kicker, draw_source_stamp, font, new_canvas, render_notice, to_1bit
 from reterminal.render.layout import wrap_text
 from reterminal.render.viz import dots, heatmap, progress_bar
 from reterminal.scenes import SceneSpec
@@ -131,9 +131,9 @@ def render_missions(
     order: tuple[str, ...] | None = None,
 ) -> Image.Image:
     img, draw = new_canvas()
-    draw.text((24, 14), "MISSIONS", font=font(13, "bold"), fill=0)
+    draw_kicker(draw, "Missions")
 
-    grid_top = 38
+    grid_top = 44
     grid_h = HEIGHT - grid_top
     grid_w = WIDTH
     cell_w = grid_w // 2

@@ -17,7 +17,21 @@ from PIL import Image
 from reterminal.family.camps import DEFAULT_PATH, Camp, parse_camps
 from reterminal.payloads import JSONValue
 from reterminal.providers.manifest import register_provider
-from reterminal.render.kitchen import HEIGHT, WIDTH, draw_source_stamp, font, new_canvas, render_notice, to_1bit, truncate_text
+from reterminal.render.kitchen import (
+    BODY,
+    BODY_BOLD,
+    HEIGHT,
+    KICKER,
+    MARGIN,
+    WIDTH,
+    draw_kicker,
+    draw_rule,
+    draw_source_stamp,
+    new_canvas,
+    render_notice,
+    to_1bit,
+    truncate_text,
+)
 from reterminal.scenes import SceneSpec
 
 
@@ -43,48 +57,41 @@ def render_camps(
     source_path: Path | None = None,
 ) -> Image.Image:
     img, draw = new_canvas()
-    margin = 24
-
-    draw.text((margin, margin), title, font=font(14, "bold"), fill=0)
+    body_top = draw_kicker(draw, title)
 
     if not camps:
-        draw.text((margin, HEIGHT // 2), "(no camp weeks)", font=font(24), fill=0)
+        draw.text((MARGIN, HEIGHT // 2), "(no camp weeks)", font=BODY, fill=0)
         draw_source_stamp(draw, source_path, stale_after=timedelta(days=180))
         return to_1bit(img)
 
-    week_x = margin
-    boys_x = margin + 116
-    laila_x = WIDTH - margin - 210
-    laila_w = WIDTH - margin - laila_x
+    week_x = MARGIN
+    boys_x = MARGIN + 116
+    laila_x = WIDTH - MARGIN - 210
+    laila_w = WIDTH - MARGIN - laila_x
     boys_w = laila_x - boys_x - 16
 
-    head_f = font(13, "bold")
-    week_f = font(22, "bold")
-    cell_f = font(22)
+    draw.text((week_x, body_top), "WEEK", font=KICKER, fill=0)
+    draw.text((boys_x, body_top), "AMMAR + HASAN", font=KICKER, fill=0)
+    draw.text((laila_x, body_top), "LAILA", font=KICKER, fill=0)
+    rule_y = body_top + 22
+    draw_rule(draw, rule_y)
 
-    head_y = margin + 36
-    draw.text((week_x, head_y), "WEEK", font=head_f, fill=0)
-    draw.text((boys_x, head_y), "AMMAR + HASAN", font=head_f, fill=0)
-    draw.text((laila_x, head_y), "LAILA", font=head_f, fill=0)
-    rule_y = head_y + 22
-    draw.line([(margin, rule_y), (WIDTH - margin, rule_y)], fill=0, width=1)
-
-    body_top = rule_y + 12
-    body_bottom = HEIGHT - margin - 8
+    rows_top = rule_y + 12
+    rows_bottom = HEIGHT - MARGIN - 8
     shown = camps[:10]
-    row_h = (body_bottom - body_top) // len(shown)
+    row_h = (rows_bottom - rows_top) // len(shown)
 
     for i, c in enumerate(shown):
-        y = body_top + i * row_h
-        draw.text((week_x, y), truncate_text(draw, c.week, week_f, 108), font=week_f, fill=0)
+        y = rows_top + i * row_h
+        draw.text((week_x, y), truncate_text(draw, c.week, BODY_BOLD, 108), font=BODY_BOLD, fill=0)
         boys = _strip_emoji(c.boys)
         if boys:
-            draw.text((boys_x, y), truncate_text(draw, boys, cell_f, boys_w), font=cell_f, fill=0)
+            draw.text((boys_x, y), truncate_text(draw, boys, BODY, boys_w), font=BODY, fill=0)
         laila = _strip_emoji(c.laila)
         draw.text(
             (laila_x, y),
-            truncate_text(draw, laila or "—", cell_f, laila_w),
-            font=cell_f,
+            truncate_text(draw, laila or "—", BODY, laila_w),
+            font=BODY,
             fill=0,
         )
 

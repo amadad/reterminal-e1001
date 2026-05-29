@@ -101,5 +101,7 @@ def test_example_kitchen_display_manifest_parses():
     manifest = load_manifest(repo_example)
     types = [p.type for p in manifest.providers]
     slots = [p.slot for p in manifest.providers]
-    assert types == ["calendar", "missions", "events", "activities"]
+    assert types == ["calendar", "missions", "comingup", "camps"]
     assert slots == [0, 1, 2, 3]
+    # comingup is multi-source: both files must be discoverable for the watch loop.
+    assert len(manifest.providers[2].source_paths()) == 2

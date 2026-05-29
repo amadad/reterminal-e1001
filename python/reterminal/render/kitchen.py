@@ -70,10 +70,73 @@ def draw_source_stamp(
         draw.text((WIDTH - 24 - text_w, HEIGHT - 18), stamp, font=stamp_font, fill=0)
 
 
+# ── design system ──────────────────────────────────────────────────────────
+# The code half of the kitchen-display design system; docs/design.md is the
+# intent half. Renderers compose from these tokens instead of hardcoding sizes,
+# margins, and header drawing, so the slots share one visual language (unity)
+# while their bodies stay free to differ (not uniformity). The snapshot goldens
+# in tests/test_renderer_snapshots.py pin the result — change a token here,
+# update docs/design.md in the same edit, and re-pin the goldens.
+
+# Spacing: one base unit; every margin/gap is a multiple, for shared rhythm.
+BASE = 8
+MARGIN = 3 * BASE  # 24 — outer frame
+GUTTER = 3 * BASE  # 24 — column gap
+
+# Type ladder (Helvetica): a finite, named set of roles. Renderers reference
+# the role, not a raw size. Dense compositions (the missions 4-up grid) may
+# step a role down one rung inside a cell — the one documented exception.
+KICKER = font(13, "bold")    # slot label (top-left, UPPERCASE); also column heads
+META = font(16)              # dates, counts, secondary text
+SUBHEAD = font(18, "bold")   # in-body section header (TODAY, RECENT, UP NEXT)
+BODY = font(22)              # primary list text
+BODY_BOLD = font(22, "bold")
+HEADLINE = font(28, "bold")  # hero / item headline
+DISPLAY = font(54, "bold")   # big numerals (countdowns)
+
+# Iconography: the one canonical tag→shape map (viz.py owns the primitives),
+# centralized so events and comingup share it instead of each defining a copy.
+TAG_SHAPES = {
+    "trip": "triangle",
+    "school": "square",
+    "event": "circle",
+    "performance": "diamond",
+    "camp": "triangle_outline",
+    "celebration": "star",
+}
+DEFAULT_SHAPE = "dot"
+
+
+def shape_for(tag: str | None) -> str:
+    return TAG_SHAPES.get((tag or "").lower(), DEFAULT_SHAPE)
+
+
+def draw_kicker(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    *,
+    right: str | None = None,
+) -> int:
+    """Standard slot header: UPPERCASE kicker at the top-left, optional
+    right-aligned meta on the same baseline. Returns the y where body content
+    should begin, so every slot opens the same way.
+    """
+    draw.text((MARGIN, MARGIN), text.upper(), font=KICKER, fill=0)
+    if right:
+        w = draw.textlength(right, font=KICKER)
+        draw.text((WIDTH - MARGIN - w, MARGIN), right, font=KICKER, fill=0)
+    return MARGIN + 4 * BASE  # body top = 56
+
+
+def draw_rule(draw: ImageDraw.ImageDraw, y: int, *, x0: int = MARGIN, x1: int | None = None) -> None:
+    """A standard 1px rule inset to the margins."""
+    draw.line([(x0, y), (WIDTH - MARGIN if x1 is None else x1, y)], fill=0, width=1)
+
+
 def render_notice(title: str, message: str, detail: str | None = None) -> Image.Image:
     img, draw = new_canvas()
-    draw.text((24, 24), title.upper(), font=font(14, "bold"), fill=0)
-    draw.text((24, 190), message, font=font(34, "bold"), fill=0)
+    draw_kicker(draw, title)
+    draw.text((MARGIN, 190), message, font=font(34, "bold"), fill=0)
     if detail:
-        draw.text((24, 238), truncate_text(draw, detail, font(16), WIDTH - 48), font=font(16), fill=0)
+        draw.text((MARGIN, 238), truncate_text(draw, detail, META, WIDTH - 2 * MARGIN), font=META, fill=0)
     return to_1bit(img)
