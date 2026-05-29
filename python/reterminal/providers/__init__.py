@@ -19,6 +19,8 @@ from reterminal.providers.system import SystemSceneProvider
 # Order does not matter; each module calls register_provider() at import time.
 from reterminal.providers import activities as _activities  # noqa: F401
 from reterminal.providers import calendar as _calendar  # noqa: F401
+from reterminal.providers import camps as _camps  # noqa: F401
+from reterminal.providers import comingup as _comingup  # noqa: F401
 from reterminal.providers import events as _events  # noqa: F401
 from reterminal.providers import missions as _missions  # noqa: F401
 from reterminal.providers import photos as _photos  # noqa: F401

@@ -32,10 +32,13 @@ from reterminal.family import (
     events_for,
     parse_activities,
     parse_calendar,
+    parse_camps,
     parse_missions,
 )
 from reterminal.providers.activities import render_activities
 from reterminal.providers.calendar import render_calendar
+from reterminal.providers.camps import render_camps
+from reterminal.providers.comingup import render_comingup
 from reterminal.providers.events import render_events
 from reterminal.providers.missions import render_missions
 from reterminal.render.kitchen import HELVETICA, draw_source_stamp
@@ -133,6 +136,14 @@ ACTIVITIES_FIXTURE = """\
 - Back to the Future [movie]
 """
 
+CAMPS_FIXTURE = """\
+| Week   | Ammar + Hasan (together)    | Laila     | Notes        |
+| ------ | --------------------------- | --------- | ------------ |
+| Jun 29 | 🏖️ Maryland                 | —         |              |
+| Jul 06 | CoderSchool: Indy 3D 🏎️     | Camp Rock | $649 × 2     |
+| Jul 27 | ⛵ Sailing                   | Camp Rock | 2,995        |
+"""
+
 
 def _digest(image) -> str:
     return hashlib.sha256(pil_to_raw(image)).hexdigest()
@@ -209,6 +220,34 @@ def test_activities_render_snapshot(tmp_path: Path):
     recent, queue = parse_activities(md)
     image = render_activities(recent, queue, poster_path=None, source_path=md)
     _check_or_update("activities", image)
+
+
+def test_comingup_render_snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Coming Up merges upcoming events + the activities queue; freeze today."""
+    events_md = _write_frozen(tmp_path / "events.md", EVENTS_FIXTURE)
+    activities_md = _write_frozen(tmp_path / "activities.md", ACTIVITIES_FIXTURE)
+
+    class _FrozenDate(date):
+        @classmethod
+        def today(cls) -> date:
+            return FROZEN_TODAY
+
+    monkeypatch.setattr("reterminal.family.events.date", _FrozenDate)
+    from reterminal.family import parse_events
+
+    events = parse_events(events_md)
+    queue = parse_activities(activities_md)[1]
+    image = render_comingup(events, queue, source_path=events_md)
+    _check_or_update("comingup", image)
+
+
+def test_camps_render_snapshot(tmp_path: Path):
+    md = _write_frozen(tmp_path / "camps.md", CAMPS_FIXTURE)
+    # source_path=None: the camp grid is reference content, and a wall-clock
+    # stamp would make the snapshot time-dependent. Stamp logic is covered by
+    # the dedicated stale-glyph tests.
+    image = render_camps(parse_camps(md), source_path=None)
+    _check_or_update("camps", image)
 
 
 def test_renderers_are_deterministic(tmp_path: Path):

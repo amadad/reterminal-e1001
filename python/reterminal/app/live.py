@@ -69,7 +69,12 @@ class _BitmapCache:
 
 
 def _provider_paths(manifest: FeedManifest) -> list[Path]:
-    return [p for entry in manifest.providers if (p := entry.path()) is not None]
+    paths: list[Path] = []
+    for entry in manifest.providers:
+        for p in entry.source_paths():
+            if p not in paths:
+                paths.append(p)
+    return paths
 
 
 def _build_publisher(manifest: FeedManifest) -> DisplayPublisher:

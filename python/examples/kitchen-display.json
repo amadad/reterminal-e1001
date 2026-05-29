@@ -2,7 +2,7 @@
   "providers": [
     {"type": "calendar", "path": "~/reterminal-content/family/calendar.md", "slot": 0},
     {"type": "missions", "path": "~/reterminal-content/family/missions.md", "slot": 1},
-    {"type": "events", "path": "~/reterminal-content/family/events.md", "slot": 2},
-    {"type": "activities", "path": "~/reterminal-content/family/activities.md", "slot": 3}
+    {"type": "comingup", "events": "~/reterminal-content/family/events.md", "queue": "~/reterminal-content/family/activities.md", "slot": 2},
+    {"type": "camps", "path": "~/reterminal-content/family/summer-camps.md", "slot": 3}
   ]
 }

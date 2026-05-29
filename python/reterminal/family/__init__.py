@@ -25,6 +25,7 @@ from reterminal.family.activities import (
     parse_activities,
     parse_activity_line,
 )
+from reterminal.family.camps import Camp, parse_camps
 from reterminal.family.calendar import (
     CalendarItem,
     ParsedCalendar,
@@ -42,6 +43,7 @@ from reterminal.family.missions import (
 __all__ = [
     "Activity",
     "CalendarItem",
+    "Camp",
     "Event",
     "Mission",
     "ParsedCalendar",
@@ -49,6 +51,7 @@ __all__ = [
     "parse_activities",
     "parse_activity_line",
     "parse_calendar",
+    "parse_camps",
     "parse_days",
     "parse_events",
     "parse_fraction",

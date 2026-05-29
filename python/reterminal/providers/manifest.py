@@ -59,6 +59,22 @@ class ProviderEntry:
             return Path(raw).expanduser()
         return None
 
+    # Config keys that name a markdown source file. Multi-source providers
+    # (e.g. `comingup` reads `events` + `queue`) list each file here so the
+    # FSEvents watch loop watches all of them, not just `path`.
+    _SOURCE_KEYS = ("path", "events", "queue", "activities")
+
+    def source_paths(self) -> list[Path]:
+        """Every source file this entry reads, expanded — for the watch loop."""
+        seen: list[Path] = []
+        for key in self._SOURCE_KEYS:
+            raw = self.config.get(key)
+            if isinstance(raw, str) and raw:
+                p = Path(raw).expanduser()
+                if p not in seen:
+                    seen.append(p)
+        return seen
+
     @classmethod
     def from_dict(cls, data: Mapping[str, JSONValue]) -> ProviderEntry:
         if "type" not in data:
