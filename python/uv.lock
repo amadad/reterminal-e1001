@@ -354,7 +354,6 @@ wheels = [
 
 [[package]]
 name = "reterminal"
-version = "2.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "loguru" },
@@ -387,7 +386,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "requests", specifier = ">=2.31.0" },
-    { name = "reterminal", extras = ["qr", "dev"], marker = "extra == 'all'" },
+    { name = "reterminal", extras = ["dev", "qr"], marker = "extra == 'all'" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "segno", marker = "extra == 'qr'", specifier = ">=1.5.0" },
     { name = "tenacity", specifier = ">=8.2.0" },
