@@ -8,11 +8,14 @@ on:
 jobs:
   python:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v5
       - name: Tests
         working-directory: python
@@ -20,6 +23,9 @@ jobs:
       - name: Ruff
         working-directory: python
         run: uv run --extra dev ruff check reterminal tests
+      - name: Audit dependencies
+        working-directory: python
+        run: uv run --with pip-audit pip-audit --skip-editable
 
   firmware:
     runs-on: ubuntu-latest
