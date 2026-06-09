@@ -70,7 +70,7 @@ def test_clear_command_invokes_device_clear(monkeypatch):
             captured["all"] = all
             return {"success": True, "page": slot, "all": all}
 
-    monkeypatch.setattr("reterminal.cli.commands.ReTerminalDevice", StubDevice)
+    monkeypatch.setattr("reterminal.cli.commands.device.ReTerminalDevice", StubDevice)
 
     result = runner.invoke(
         app,
@@ -122,7 +122,7 @@ def test_push_transient_invokes_direct_display(monkeypatch):
             captured["raw_len"] = len(raw)
             return {"success": True, "displayed": True}
 
-    monkeypatch.setattr("reterminal.cli.commands.ReTerminal", StubClient)
+    monkeypatch.setattr("reterminal.cli.commands.device.ReTerminal", StubClient)
 
     result = runner.invoke(
         app,
@@ -173,7 +173,7 @@ def test_snapshot_command_writes_png_and_raw(monkeypatch, tmp_path):
             assert slot == 0
             return StubSnapshot()
 
-    monkeypatch.setattr("reterminal.cli.commands.ReTerminalDevice", StubDevice)
+    monkeypatch.setattr("reterminal.cli.commands.device.ReTerminalDevice", StubDevice)
 
     result = runner.invoke(
         app,
