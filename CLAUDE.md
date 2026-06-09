@@ -176,6 +176,10 @@ uv run --extra dev pytest -q
 uv run --extra dev ruff check reterminal tests
 ```
 
+CI runs the same tests and lint on a 3.10/3.12/3.13 matrix plus `pip-audit`
+(`uv run --with pip-audit pip-audit --skip-editable`) — a known-vulnerable
+locked dependency fails the build, not just local sweeps.
+
 For live device work:
 
 ```bash

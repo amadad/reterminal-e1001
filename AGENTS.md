@@ -117,6 +117,9 @@ uv run --extra dev pytest -q
 uv run --extra dev ruff check reterminal tests
 ```
 
+CI mirrors these on a Python 3.10/3.12/3.13 matrix and also runs
+`pip-audit` against the lockfile, so vulnerable dependencies fail CI.
+
 For live-device work, probe first:
 
 ```bash
