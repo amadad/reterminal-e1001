@@ -95,13 +95,17 @@ Deploy with a legend-free assumption (readers learn the vocabulary).
 
 ## Cross-slot conventions
 
-- **Today / Tomorrow (slot 0/1):** use `shape` for event categories;
-  no quantitative primitives yet.
-- **Missions (slot 1, proposed):** use `progress_bar` for projects,
-  `heatmap` for habits, `dots` for small counters.
-- **Events (slot 2):** use `shape` for category tag.
-- **Activities (slot 3):** no primitives yet; dithered poster hero
-  carries the visual weight.
+- **Agenda (slot 0):** today/tomorrow columns; no quantitative
+  primitives yet.
+- **Missions (slot 1):** use `progress_bar` for projects, `heatmap`
+  for habits, `dots` for small counters.
+- **Coming Up (slot 2):** use `shape` for the event category tag
+  (the `kitchen.shape_for` map) alongside the big day-count numerals.
+- **Summer / camps (slot 3):** a week × who table; no primitives.
+
+The canonical tag→shape map lives in `kitchen.shape_for`; see
+`docs/design.md` for the broader design system (type ladder, slot
+anatomy, governing mechanism) this rubric sits inside.
 
 ## When to add a new primitive
 

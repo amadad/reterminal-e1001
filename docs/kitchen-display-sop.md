@@ -22,13 +22,18 @@ paths.
 | --- | --- | --- | --- |
 | 0 | Today / Tomorrow agenda | `~/reterminal-content/family/calendar.md` | `python/reterminal/providers/calendar.py` |
 | 1 | Missions | `~/reterminal-content/family/missions.md` | `python/reterminal/providers/missions.py` |
-| 2 | Upcoming events | `~/reterminal-content/family/events.md` | `python/reterminal/providers/events.py` |
-| 3 | Activities / movies | `~/reterminal-content/family/activities.md` | `python/reterminal/providers/activities.py` |
+| 2 | Coming Up (events + activities queue) | `events.md` `## Upcoming` + `activities.md` `## Queue` | `python/reterminal/providers/comingup.py` |
+| 3 | Summer (camp grid) | `~/reterminal-content/family/summer-camps.md` (e.g. the Madad Wiki camps table) | `python/reterminal/providers/camps.py` |
 
 All four slots are markdown-backed. Slot pins live in the provider manifest
 (`slot: 0..3`) rather than in provider code. The public manifest is
 `python/examples/kitchen-display.json`; machine-specific paths belong in the
 ignored `python/examples/kitchen-display.local.json`.
+
+Slot 2 (`comingup`) is multi-source: it merges upcoming dated events with the
+activities queue into one forward-looking board; the `## Recent` log is no
+longer rendered. The standalone `events.py` / `activities.py` providers remain
+registered for layouts that prefer them separately.
 
 Legacy scenes named `ready-board`, `need-board`, `reset-board`, and older
 fixed-page JSON feeds are not live slot owners.

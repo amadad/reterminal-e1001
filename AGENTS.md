@@ -46,11 +46,11 @@ python/reterminal/
 ├── app/            # publish scenes to previews/device slots
 ├── cli/            # active CLI
 ├── device/         # device SDK + capabilities
-├── family/         # pure parsers + dataclasses for the four kitchen markdown files (PIL-free)
+├── family/         # pure parsers + dataclasses for the kitchen markdown sources — calendar, missions, events, activities, camps (PIL-free)
 ├── payloads.py     # shared device/JSON payload types
 ├── protocols.py    # shared structural interfaces
 ├── providers/      # scene adapters (render + SceneProvider; parsers come from reterminal.family)
-├── render/         # monochrome layouts, bitmap generators, art handling, viz primitives (see docs/visualizations.md)
+├── render/         # monochrome layouts, bitmap generators, art handling, viz primitives + the kitchen design tokens in kitchen.py (see docs/design.md, docs/visualizations.md)
 ├── scheduler/      # logical scenes -> 4 slots
 ├── scenes/         # scene schema
 └── probe.py        # verification tooling

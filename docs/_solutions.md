@@ -2,6 +2,14 @@
 
 Newest first. Keep entries short, dated, and evidence-oriented.
 
+## 2026-05-29 — Device showed "no source found" for days: stale daemon held pre-move manifest paths
+
+- **Symptoms / why this entry exists:** the panel rendered `calendar source missing` / `missions source missing` for every slot. The tracked manifest was correct (`~/madad/display/*.md`, files present), yet the live publisher was serving "source missing" notices pointing at `~/madad/family/display/*.md` — a path deleted weeks earlier.
+- **Root cause:** the `reterminal publish --watch` daemon read the manifest **once at startup** and only watched the content markdown files, not the manifest itself. The `~/madad` reorg into raw/wiki/display layers moved the files and repointed `kitchen-display.local.json`, but the long-running launchd daemon (started before the reorg) kept the old in-memory paths and never restarted. On-disk config being correct was not enough.
+- **Fix:** `launchctl kickstart -k gui/$(id -u)/sh.reterminal.publish` cleared it immediately. Durable fix in `python/reterminal/app/live.py`: a `_LiveRuntime` now also watches the manifest file and rebuilds providers + watched paths in place on change (a mid-edit unreadable manifest is logged and ignored, keeping last-good config). `ProviderEntry.source_paths()` reports every file a provider reads so multi-source providers (`comingup`) are fully watched.
+- **Evidence:** after restart, served slot hashes changed and the "source missing" notices were gone on both `127.0.0.1:8765` and the LAN IP. Touching the manifest logs `live: manifest reloaded`. 124 pytest pass, ruff clean.
+- **Lesson:** a long-running daemon's in-memory config can outlive the files it points at. Repointing a manifest (or moving content dirs) now hot-reloads; if you ever see "source missing" with correct on-disk paths, the daemon is stale — restart it.
+
 ## 2026-05-21 — Publisher was healthy on localhost but blocked on LAN by macOS firewall
 
 - **Symptoms / why this entry exists:** OpenClaw correctly updated the markdown files and the publisher process was listening on port 8765, but the physical reTerminal still did not update. `curl http://127.0.0.1:8765/content-hash` worked after restart, while `curl http://192.168.7.68:8765/content-hash` connected and then timed out. The device uses the LAN path, so localhost success was a false green.
