@@ -1,4 +1,11 @@
-# Refactor plan
+# Refactor plan (completed — historical record)
+
+> **Status (2026-06-09): completed.** Every phase below has landed: the repo
+> is the 4-slot provider-driven kitchen-display pipeline, the device profile
+> is probe-verified, and the live publish loop has been in production use.
+> Keep this document as the record of how the architecture was chosen; do
+> not treat its phase instructions as pending work. Current guidance lives
+> in `CLAUDE.md`, `AGENTS.md`, and `docs/device-profile.md`.
 
 This is the cleanup plan for bringing the repo back to one truthful architecture.
 
