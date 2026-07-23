@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import re
 
+from reterminal.config import SLOT_COUNT
 from reterminal.payloads import PushResultPayload
 from reterminal.protocols import DisplayDevice, SceneRenderer
 from reterminal.providers import SceneProvider
@@ -105,7 +106,7 @@ class DisplayPublisher:
     def _resolve_slot_count(self) -> int:
         if self.device is not None:
             return self.device.discover_capabilities().page_slots
-        return 4
+        return SLOT_COUNT
 
     @staticmethod
     def _resolve_show_slot(

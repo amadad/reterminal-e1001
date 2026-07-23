@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from PIL import Image
 
@@ -20,13 +20,13 @@ from reterminal.providers.manifest import register_provider
 from reterminal.render.kitchen import (
     BODY,
     BODY_BOLD,
+    HEADLINE,
     HEIGHT,
     KICKER,
     MARGIN,
     WIDTH,
     draw_kicker,
     draw_rule,
-    draw_source_stamp,
     new_canvas,
     render_notice,
     to_1bit,
@@ -47,55 +47,87 @@ _EMOJI_RE = re.compile(
 
 
 def _strip_emoji(text: str) -> str:
-    return _EMOJI_RE.sub("", text).strip()
+    cleaned = _EMOJI_RE.sub("", text).strip()
+    return re.sub(r"^CoderSchool:\s*", "", cleaned, flags=re.IGNORECASE)
+
+
+def _camp_date(camp: Camp, year: int) -> date | None:
+    try:
+        return datetime.strptime(f"{camp.week} {year}", "%b %d %Y").date()
+    except ValueError:
+        return None
+
+
+def _current_camp_index(camps: list[Camp], today: date) -> int:
+    starts = [_camp_date(camp, today.year) for camp in camps]
+    dated = [(index, start) for index, start in enumerate(starts) if start is not None]
+    if not dated:
+        return 0
+    for index, start in dated:
+        if start <= today < start + timedelta(days=7):
+            return index
+    future = [index for index, start in dated if start > today]
+    return future[0] if future else dated[-1][0]
 
 
 def render_camps(
     camps: list[Camp],
     *,
     title: str = "SUMMER 2026",
-    source_path: Path | None = None,
+    today: date | None = None,
 ) -> Image.Image:
     img, draw = new_canvas()
-    body_top = draw_kicker(draw, title)
 
     if not camps:
-        draw.text((MARGIN, HEIGHT // 2), "(no camp weeks)", font=BODY, fill=0)
-        draw_source_stamp(draw, source_path, stale_after=timedelta(days=180))
+        draw_kicker(draw, title)
+        draw.text((MARGIN, HEIGHT // 2), "No camp weeks.", font=BODY, fill=0)
         return to_1bit(img)
 
-    week_x = MARGIN
-    boys_x = MARGIN + 116
-    laila_x = WIDTH - MARGIN - 210
-    laila_w = WIDTH - MARGIN - laila_x
-    boys_w = laila_x - boys_x - 16
+    today = today or date.today()
+    current_index = _current_camp_index(camps, today)
+    current = camps[current_index]
+    draw_kicker(draw, title, right=f"WEEK OF {current.week.upper()}")
 
-    draw.text((week_x, body_top), "WEEK", font=KICKER, fill=0)
-    draw.text((boys_x, body_top), "AMMAR + HASAN", font=KICKER, fill=0)
-    draw.text((laila_x, body_top), "LAILA", font=KICKER, fill=0)
-    rule_y = body_top + 22
-    draw_rule(draw, rule_y)
+    hero_top, hero_bottom = 64, 218
+    draw.rectangle([MARGIN, hero_top, WIDTH - MARGIN, hero_bottom], fill=0)
+    draw.text((MARGIN + 16, hero_top + 16), "THIS WEEK", font=KICKER, fill=255)
+    draw.text((MARGIN + 16, hero_top + 45), current.week.upper(), font=HEADLINE, fill=255)
+    draw.line([(MARGIN + 128, hero_top + 16), (MARGIN + 128, hero_bottom - 16)], fill=255, width=1)
 
-    rows_top = rule_y + 12
-    rows_bottom = HEIGHT - MARGIN - 8
-    shown = camps[:10]
-    row_h = (rows_bottom - rows_top) // len(shown)
+    boys_x = MARGIN + 152
+    laila_x = MARGIN + 488
+    draw.text((boys_x, hero_top + 18), "AMMAR + HASAN", font=KICKER, fill=255)
+    boys = _strip_emoji(current.boys) or "Open week"
+    draw.text((boys_x, hero_top + 54), truncate_text(draw, boys, HEADLINE, 310), font=HEADLINE, fill=255)
+    draw.text((laila_x, hero_top + 18), "LAILA", font=KICKER, fill=255)
+    laila = _strip_emoji(current.laila) or "Open week"
+    draw.text((laila_x, hero_top + 54), truncate_text(draw, laila, HEADLINE, 250), font=HEADLINE, fill=255)
 
-    for i, c in enumerate(shown):
-        y = rows_top + i * row_h
-        draw.text((week_x, y), truncate_text(draw, c.week, BODY_BOLD, 108), font=BODY_BOLD, fill=0)
-        boys = _strip_emoji(c.boys)
-        if boys:
-            draw.text((boys_x, y), truncate_text(draw, boys, BODY, boys_w), font=BODY, fill=0)
-        laila = _strip_emoji(c.laila)
+    rows = camps[current_index + 1 : current_index + 5]
+    rows_top = 254
+    draw.text((MARGIN, rows_top), "COMING NEXT", font=KICKER, fill=0)
+    draw.text((MARGIN + 116, rows_top), "AMMAR + HASAN", font=KICKER, fill=0)
+    draw.text((WIDTH - MARGIN - 210, rows_top), "LAILA", font=KICKER, fill=0)
+    draw_rule(draw, rows_top + 22)
+
+    for index, camp in enumerate(rows):
+        y = rows_top + 36 + index * 45
+        draw.text((MARGIN, y), camp.week, font=BODY_BOLD, fill=0)
+        boys = _strip_emoji(camp.boys) or "—"
         draw.text(
-            (laila_x, y),
-            truncate_text(draw, laila or "—", BODY, laila_w),
+            (MARGIN + 116, y),
+            truncate_text(draw, boys, BODY, 390),
+            font=BODY,
+            fill=0,
+        )
+        laila = _strip_emoji(camp.laila) or "—"
+        draw.text(
+            (WIDTH - MARGIN - 210, y),
+            truncate_text(draw, laila, BODY, 210),
             font=BODY,
             fill=0,
         )
 
-    draw_source_stamp(draw, source_path, stale_after=timedelta(days=180))
     return to_1bit(img)
 
 
@@ -110,7 +142,7 @@ class CampsProvider:
         if not self.path.exists():
             image = render_notice("Summer", "camps source missing", str(self.path))
         else:
-            image = render_camps(parse_camps(self.path), title=self.title, source_path=self.path)
+            image = render_camps(parse_camps(self.path), title=self.title)
         return [
             SceneSpec(
                 id="camps",

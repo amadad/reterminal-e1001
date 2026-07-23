@@ -3,7 +3,7 @@
 The reTerminal firmware deep-sleeps most of the time and wakes every
 30 min to poll us for content. This module:
 
-- Watches the manifest's family/*.md paths via FSEvents
+- Watches every local source path declared by the provider manifest
 - Watches the manifest file itself and rebuilds providers in place when
   it changes, so repointing a path does not require a daemon restart
 - Renders changed slots into an in-memory bitmap cache
@@ -28,13 +28,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from loguru import logger
-from PIL import Image
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from reterminal.app.publisher import DisplayPublisher
+from reterminal.config import SLOT_COUNT
 from reterminal.encoding import pil_to_raw
-from reterminal.protocols import DisplayDevice
 from reterminal.providers import build_providers, load_manifest
 from reterminal.providers.manifest import FeedManifest
 from reterminal.render import MonoRenderer
@@ -44,7 +43,12 @@ from reterminal.scheduler import PriorityScheduler
 SANITY_TICK_SECONDS = 300
 CONTENT_SERVER_PORT = 8765
 CONTENT_SERVER_REQUEST_TIMEOUT = 5.0
-RecoverDevice = Callable[[DisplayDevice], bool]
+
+
+@dataclass(frozen=True, slots=True)
+class _BitmapEntry:
+    digest: str
+    raw: bytes
 
 
 @dataclass(slots=True)
@@ -53,19 +57,30 @@ class _BitmapCache:
     from this; FSEvents writes to it via _render_to_cache.
     """
 
-    digests: dict[int, str] = field(default_factory=dict)
-    bitmaps: dict[int, bytes] = field(default_factory=dict)
-
-    @staticmethod
-    def image_digest(image: Image.Image) -> str:
-        return hashlib.sha256(pil_to_raw(image)).hexdigest()
+    _entries: dict[int, _BitmapEntry] = field(default_factory=dict)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def changed(self, slot: int, digest: str) -> bool:
-        return self.digests.get(slot) != digest
+        with self._lock:
+            entry = self._entries.get(slot)
+            return entry is None or entry.digest != digest
 
     def mark_current(self, slot: int, digest: str, raw: bytes) -> None:
-        self.digests[slot] = digest
-        self.bitmaps[slot] = raw
+        with self._lock:
+            self._entries[slot] = _BitmapEntry(digest=digest, raw=raw)
+
+    def entry(self, slot: int) -> _BitmapEntry | None:
+        with self._lock:
+            return self._entries.get(slot)
+
+    def hashes(self) -> dict[str, str | None]:
+        with self._lock:
+            return {
+                f"slot-{slot}": (
+                    self._entries[slot].digest if slot in self._entries else None
+                )
+                for slot in range(SLOT_COUNT)
+            }
 
 
 def _provider_paths(manifest: FeedManifest) -> list[Path]:
@@ -105,8 +120,7 @@ def _make_content_handler(cache: _BitmapCache) -> type[BaseHTTPRequestHandler]:
 
         def do_GET(self) -> None:  # noqa: N802
             if self.path == "/content-hash":
-                hashes = {f"slot-{slot}": cache.digests.get(slot) for slot in range(4)}
-                self._send_json(200, {"hashes": hashes})
+                self._send_json(200, {"hashes": cache.hashes()})
                 return
             if self.path.startswith("/content/slot-"):
                 try:
@@ -114,19 +128,19 @@ def _make_content_handler(cache: _BitmapCache) -> type[BaseHTTPRequestHandler]:
                 except ValueError:
                     self._send_json(400, {"error": "bad slot"})
                     return
-                data = cache.bitmaps.get(slot)
-                if data is None:
+                entry = cache.entry(slot)
+                if entry is None:
                     self._send_json(404, {"error": "no bitmap", "slot": slot})
                     return
                 self.send_response(200)
                 self.send_header("Content-Type", "application/octet-stream")
-                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Content-Length", str(len(entry.raw)))
                 self.send_header("X-Slot", str(slot))
-                self.send_header("X-Hash", cache.digests.get(slot, ""))
+                self.send_header("X-Hash", entry.digest)
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("Connection", "close")
                 self.end_headers()
-                self.wfile.write(data)
+                self.wfile.write(entry.raw)
                 self.close_connection = True
                 return
             self._send_json(404, {"error": "not found", "path": self.path})
@@ -269,7 +283,7 @@ def _render_to_cache(publisher: DisplayPublisher, cache: _BitmapCache) -> int:
             assignment.scene, slot=slot, total_slots=slot_count
         )
         raw = pil_to_raw(image)
-        digest = cache.image_digest(image)
+        digest = hashlib.sha256(raw).hexdigest()
         if not cache.changed(slot, digest):
             continue
         cache.mark_current(slot, digest, raw)
@@ -277,36 +291,13 @@ def _render_to_cache(publisher: DisplayPublisher, cache: _BitmapCache) -> int:
     return changed
 
 
-def _publish_once(
-    publisher: DisplayPublisher,
-    cache: _BitmapCache,
-    *,
-    push: bool = False,
-    recover_device: RecoverDevice | None = None,
-    tracker: object | None = None,
-) -> int:
-    """Backward-compat wrapper for tests. push/recover/tracker are ignored —
-    the device is the HTTP client now. Returns slots changed.
-    """
-    del push, recover_device, tracker
-    return _render_to_cache(publisher, cache)
-
-
 def run_live(
     manifest_path: Path,
     *,
-    device: DisplayDevice | None = None,
-    push: bool = False,
     sanity_tick_seconds: int = SANITY_TICK_SECONDS,
     on_tick: Callable[[int], None] | None = None,
-    recover_device: RecoverDevice | None = None,
 ) -> None:
-    """FSEvents-driven render loop + content-server. Blocks until KeyboardInterrupt.
-
-    device / push / recover_device are accepted for CLI signature compatibility
-    but ignored — this is pull-only now. The device is the HTTP client.
-    """
-    del device, push, recover_device
+    """Run the FSEvents renderer and LAN content server until interrupted."""
 
     manifest_path = manifest_path.resolve()
     cache = _BitmapCache()

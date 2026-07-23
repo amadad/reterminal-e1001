@@ -8,12 +8,12 @@ Usage:
 
     rt = ReTerminal()  # Or pass a host explicitly / set RETERMINAL_HOST
     rt.status()
-    rt.push_text("Hello World")
+    rt.push_text("Hello World", page=0)
 """
 
 from reterminal.app import DisplayPublisher, PublishResult
 from reterminal.client import ReTerminal
-from reterminal.config import settings, WIDTH, HEIGHT, IMAGE_BYTES
+from reterminal.config import HEIGHT, IMAGE_BYTES, SLOT_COUNT, WIDTH, settings
 from reterminal.device import DeviceCapabilities, ReTerminalDevice, SlotSnapshot
 from reterminal.diagnostics import (
     DoctorReport,
@@ -55,6 +55,7 @@ __all__ = [
     "WIDTH",
     "HEIGHT",
     "IMAGE_BYTES",
+    "SLOT_COUNT",
     "image_to_raw",
     "pil_to_raw",
     "raw_to_pil",

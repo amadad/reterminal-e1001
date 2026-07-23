@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "HTTP client and CLI for Seeed reTerminal E1001 ePaper display"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
     {name = "reterminal contributors"}
 ]
@@ -43,6 +43,9 @@ include = ["reterminal*"]
 
 [tool.setuptools.dynamic]
 version = {attr = "reterminal.version.__version__"}
+
+[tool.setuptools.package-data]
+reterminal = ["assets/fonts/*.ttf", "assets/fonts/OFL.txt"]
 
 [tool.ruff]
 line-length = 100

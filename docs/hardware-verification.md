@@ -10,7 +10,7 @@ It uploads a test pattern into page slots and will overwrite whatever bitmaps ar
 
 ## Preconditions
 
-- Device is powered on and reachable on the network
+- Device is powered on and in its 10-minute diagnostic window (3-second right-button hold)
 - You know the correct device IP or have `RETERMINAL_HOST` set
 - You can run commands from `python/`
 - You are okay replacing cached display pages during the test
@@ -90,6 +90,7 @@ After the automated and manual checks, write down these answers:
 
 Once you have results:
 
-1. update `docs/device-profile.md` with verified values
-2. update `docs/refactor-plan.md` with the chosen page model
-3. remove or rewrite any docs that still claim unverified capability
+1. sanitize and replace `artifacts/probe-report.json`
+2. update `docs/device-profile.md` with verified values
+3. let the normal publisher restore the four household bitmaps on the next timer wake
+4. remove or rewrite any docs that still claim unverified capability

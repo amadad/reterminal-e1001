@@ -9,15 +9,16 @@ Before making architecture claims, use these files:
 - `docs/device-profile.md`
 - `docs/hardware-verification.md`
 - `docs/refactor-plan.md`
-- `artifacts/probe-report.json`
+- `artifacts/probe-report.json` (historical pre-pull-firmware evidence)
 
-The current flashed firmware is verified as a **4-slot** device, not a 7-slot carousel.
+The hardware is verified as a **4-slot** device, not a 7-slot carousel. The
+current tracked pull firmware still requires a fresh physical probe after flash.
 
 ## Mental model
 
 Treat this repo as a small publishing system for a monochrome ePaper target.
 
-- **Firmware**: bitmap storage, display, buttons, HTTP API
+- **Firmware**: bitmap storage, display, buttons, HTTP pull client, diagnostic API
 - **Host SDK**: capability discovery, safe slot operations
 - **Scene pipeline**: providers -> scenes -> scheduler -> renderer -> device
 
@@ -29,15 +30,18 @@ Do not reintroduce the removed legacy fixed-page system unless explicitly asked.
 - Format: `1-bit`
 - Raw image bytes: `48000`
 - Physical slots: `0..3`
-- Live firmware now exposes `/capabilities`, `/clear`, and `/snapshot`
-- Live slot names are neutral: `slot-0..slot-3`
-- `snapshot_readback` is live and can return the exact stored raw bitmap for a loaded slot
+- Tracked firmware is a deep-sleep HTTP client: timer wakes poll the host's `/content-hash` and `/content/slot-N`, persist changed slots, refresh, then sleep
+- A 3-second right-button hold opens a 10-minute diagnostic window with `/status`, `/eventlog`, `/snapshot`, `/imageraw`, `/page`, and `/sleep`
+- Slot names are neutral: `slot-0..slot-3`
+- `snapshot` can return the exact stored raw bitmap for a loaded slot during diagnostic mode
 - loaded slots persist to LittleFS across normal reboot/power cycle; host republish is still the recovery path after reflash, empty storage, or filesystem failure
-- firmware sends a gratuitous ARP every 4 min (`arp_keepalive_ms: 240000`) to keep the router's ARP table warm — primary zombie-WiFi defense. `WiFi.setAutoReconnect(true)` handles actual disconnects; `maintainWifi()` only monitors state and manages mDNS/OTA lifecycle. A full restart fires after 10 min of sustained WiFi loss (`wifi_self_restart_ms`) or after 12h uptime as a last resort (`periodic_restart_ms: 43200000`). `/capabilities` reports `arp_keepalive_ms`, `last_arp_ms`, and `last_self_restart_reason` (`periodic` | `wifi_stale` | `none`).
+- the host pull server is plain unauthenticated HTTP; keep it on a trusted LAN and enforce isolation outside the process
 - on some macOS hosts, curl-based transport can be more reliable than Python `requests` for live device mutations
 - all `ImageDraw.Draw` instances in render/provider code must set `draw.fontmode = "1"` immediately after construction — without it Pillow antialiases text into gray pixels that threshold to noise on 1-bit output
 
-The checked-in `artifacts/probe-report.json` is current sanitized evidence from the reflashed firmware. It confirms a 4-slot device and clean rejection for invalid slots.
+The checked-in `artifacts/probe-report.json` verifies the 4-slot hardware and the
+older always-on firmware. It predates the tracked deep-sleep/pull refactor and
+must not be cited as proof of the current diagnostic contract.
 
 ## Active Python modules
 
@@ -49,7 +53,7 @@ python/reterminal/
 ├── family/         # pure parsers + dataclasses for the kitchen markdown sources — calendar, missions, events, activities, camps (PIL-free)
 ├── payloads.py     # shared device/JSON payload types
 ├── protocols.py    # shared structural interfaces
-├── providers/      # scene adapters (render + SceneProvider; parsers come from reterminal.family)
+├── providers/      # scene adapters; established parsers come from family/, display-safe feature projections live in features.py
 ├── render/         # monochrome layouts, bitmap generators, art handling, viz primitives + the kitchen design tokens in kitchen.py (see docs/design.md, docs/visualizations.md)
 ├── scheduler/      # logical scenes -> 4 slots
 ├── scenes/         # scene schema
@@ -74,11 +78,10 @@ uv run reterminal doctor
 uv run reterminal status
 uv run reterminal capabilities
 uv run reterminal snapshot --png ./current.png
-uv run reterminal clear --all
 uv run reterminal probe
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews --push --live
-uv run reterminal publish --feed examples/kitchen-display.json --push --watch --live
+uv run reterminal publish --feed examples/kitchen-display.json --watch --live
 ```
 
 ## Decommissioned legacy commands
@@ -115,10 +118,11 @@ For code changes, run targeted tests from `python/`:
 ```bash
 uv run --extra dev pytest -q
 uv run --extra dev ruff check reterminal tests
+uv run --with pip-audit pip-audit --skip-editable
 ```
 
-CI mirrors these on a Python 3.10/3.12/3.13 matrix and also runs
-`pip-audit` against the lockfile, so vulnerable dependencies fail CI.
+Run all three checks locally before pushing. The dependency audit must report no
+known vulnerabilities.
 
 For live-device work, probe first:
 
@@ -126,7 +130,6 @@ For live-device work, probe first:
 uv run reterminal discover
 uv run reterminal doctor
 uv run reterminal capabilities
-uv run reterminal clear --all
 uv run reterminal probe
 ```
 

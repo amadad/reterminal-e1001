@@ -13,14 +13,7 @@ from loguru import logger
 
 from reterminal.app import DisplayPublisher, PublishResult
 from reterminal.cli._typer_app import app
-from reterminal.cli.commands._shared import (
-    HostOption,
-    _build_live_recover,
-    _discover_first_host,
-    emit_output,
-    require_live_action,
-)
-from reterminal.config import settings
+from reterminal.cli.commands._shared import HostOption, emit_output, require_live_action
 from reterminal.device import ReTerminalDevice
 from reterminal.providers import build_scene_providers, build_providers, is_manifest_shape, load_manifest
 from reterminal.render import MonoRenderer
@@ -122,25 +115,18 @@ def publish(
             typer.echo("Error: --include-system is not supported with --watch; add providers to the manifest")
             raise typer.Exit(1)
         if push:
-            require_live_action("publish --push", live=live, non_interactive=non_interactive)
+            typer.echo("Error: --push is not supported with --watch; the device pulls on wake")
+            raise typer.Exit(1)
+        if host is not None:
+            typer.echo("Error: --host is not supported with --watch; the device knows the publisher host")
+            raise typer.Exit(1)
+        if not live:
+            typer.echo("Error: --watch serves content on the LAN. Use --live to confirm.")
+            raise typer.Exit(1)
 
         from reterminal.app.live import run_live
 
-        device = None
-        recover_device = None
-        if push:
-            initial_host = host or settings.host or _discover_first_host()
-            if initial_host is None:
-                typer.echo(
-                    "Error: no reachable reTerminal host found. Set RETERMINAL_HOST, "
-                    "pass --host, or set RETERMINAL_DISCOVERY_SUBNET."
-                )
-                raise typer.Exit(1)
-            device = ReTerminalDevice(initial_host)
-            recover_device = _build_live_recover(device)
-        elif host:
-            device = ReTerminalDevice(host)
-        run_live(feed, device=device, push=push, recover_device=recover_device)
+        run_live(feed)
         return
 
     if show_slot is not None and not push:
@@ -222,19 +208,16 @@ def lint(
     feed: Path = typer.Option(..., "--feed", "-f", exists=True, dir_okay=False, help="Provider manifest JSON to lint"),
     output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
 ):
-    """Validate every markdown source named by a provider manifest.
+    """Validate every supported markdown source in a provider manifest.
 
-    Walks each file referenced by the manifest, runs the per-provider lint
+    Walks each lintable file referenced by the manifest, runs the per-provider lint
     rules (same regexes the parsers use), and reports lines that would be
     silently dropped by the renderer. Exits non-zero if any issues are found.
     """
-    from reterminal.providers.lint import lint_manifest_files
+    from reterminal.providers.lint import lint_manifest_files, manifest_lint_specs
 
     manifest = load_manifest(feed)
-    specs: list[tuple[str, Path]] = [
-        (entry.type, p) for entry in manifest.providers if (p := entry.path()) is not None
-    ]
-
+    specs = manifest_lint_specs(manifest)
     issues = lint_manifest_files(specs)
 
     if output == "json":

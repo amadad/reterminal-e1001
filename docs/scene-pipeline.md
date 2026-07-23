@@ -22,9 +22,9 @@ Truthful SDK for the current firmware contract.
 
 Responsibilities:
 
-- discover capabilities from `/capabilities` on the current firmware contract
-- validate slot operations against the live slot count
-- push PIL images safely
+- derive the fixed display contract and live slot state from diagnostic `/status`
+- validate slot operations against the reported slot count
+- push PIL images safely during a diagnostic window
 - keep firmware quirks away from the rest of the app
 
 ### `reterminal/providers`
@@ -54,8 +54,10 @@ Current providers:
 - `MissionsProvider` — reads `~/reterminal-content/family/missions.md` by default; parser in `reterminal.family.missions`
 - `EventsProvider` — reads `~/reterminal-content/family/events.md` by default; parser in `reterminal.family.events`
 - `ActivitiesProvider` — reads `~/reterminal-content/family/activities.md` by default; parser in `reterminal.family.activities`. The renderer composites an inset movie/series poster on the right side of the layout when the top Queue item is tagged `[movie]` or `[series]`; posters are fetched from Wikipedia's open REST API on first use (no API key) by `reterminal.providers._poster_fetcher` and cached at `~/.cache/reterminal/posters/<slug>.jpg`. Falls back to text-only when the network is unreachable or no Wikipedia article matches.
-- `ComingUpProvider` — the consolidated forward-looking board used by the shipped layout's slot 2. Merges `events.md` `## Upcoming` (dated, proximity-sorted) with `activities.md` `## Queue` (undated); the `## Recent` log is not shown. Multi-source: manifest config names `events` + `queue` rather than a single `path`, and `ProviderEntry.source_paths()` reports both so the watch loop tracks each.
-- `CampsProvider` — week-by-week summer grid parsed from a markdown table (parser in `reterminal.family.camps`); reads e.g. the Madad Wiki `family-summer-2026-camps.md`. Renders week / boys / Laila; the table's Notes/cost column is parsed away and never rendered.
+- `ComingUpProvider` — the consolidated forward-looking board used by the tracked public example's slot 2. Merges `events.md` `## Upcoming` (dated, proximity-sorted) with `activities.md` `## Queue` (undated); the `## Recent` log is not shown. Multi-source: manifest config names `events` + `queue` rather than a single `path`, and `ProviderEntry.source_paths()` reports both so the watch loop tracks each.
+- `CampsProvider` — summer schedule parsed from a markdown table (parser in `reterminal.family.camps`); reads e.g. the Madad Wiki `family-summer-2026-camps.md`. Renders the current week as a high-contrast hero plus four upcoming weeks; the table's Notes/cost column is parsed away and never rendered.
+- `QuestProvider` — reads only an explicit `## Kitchen Display` block from an allowlisted wiki page and renders one weekly, kid-facing challenge. Its title-seeded mark is deterministic procedural artwork, not an image-model call.
+- `TripProvider` — reads only an explicit `## Kitchen Display` block from an existing trip page and renders a countdown, safe route summary, operating rule, and next gate. Booking details outside that block cannot enter the scene model.
 - `PhotoProvider` — watches a folder of images and renders one full-bleed (Floyd-Steinberg, optional `.txt` caption sidecar). Mode `newest` (default) picks newest-by-mtime; `daily` rotates deterministically by date. No markdown source — manifest `path` is the folder.
 
 The kitchen-display providers register themselves into a manifest registry
@@ -116,8 +118,9 @@ Supported scene kinds:
 - `poster`
 - `prerendered` — provider supplies its own 800x480 1-bit PIL image via
   `SceneSpec.prerendered`; MonoRenderer short-circuits and just blits it.
-  Used by the kitchen-display providers (calendar/missions/events/activities)
-  whose layouts do not fit the chrome+content kinds above.
+  Used by the bespoke kitchen-display providers (calendar, missions, events,
+  activities, coming-up, camps, trip, and quest) whose layouts do not fit the
+  chrome+content kinds above.
 
 Current renderer behavior worth knowing:
 
@@ -140,12 +143,10 @@ Current entrypoints:
 
 - `DisplayPublisher` — single-shot publish (collect → schedule → render → push)
 - `run_live` (in `app/live.py`) — FSEvents-driven loop for `publish --watch`.
-  Watches the parent directories of every manifest provider's source file,
-  seeds startup slot hashes from `/snapshot` when available, refreshes device
-  capabilities on each tick so reboot/storage-loss resets clear the in-memory
-  digest cache, skips unchanged raw bitmaps, commits cache entries only after a
-  successful upload, and ticks every 5 minutes as a sanity fallback. No disk
-  SHA cache is kept.
+  Watches every manifest source plus the manifest itself, renders into an atomic
+  in-memory slot cache, serves `/content-hash` and `/content/slot-N`, and ticks
+  every 5 minutes as a sanity fallback. It never discovers or pushes to the
+  device; the sleeping firmware is the HTTP client.
 
 Pipeline:
 

@@ -11,7 +11,7 @@ from loguru import logger
 
 from reterminal.cli._typer_app import app
 from reterminal.cli.commands._shared import HostOption, emit_output, require_live_action
-from reterminal.config import settings
+from reterminal.config import SLOT_COUNT, settings
 from reterminal.diagnostics import build_discovery_candidates, discover_hosts, run_doctor
 from reterminal.probe import VALID_PATTERNS, format_report, run_probe
 from reterminal.providers import is_manifest_shape, load_manifest
@@ -113,12 +113,10 @@ def _lint_manifest_if_present(feed: Optional[Path]) -> list[dict[str, str | int]
         return []
     if not is_manifest_shape(data):
         return []
-    from reterminal.providers.lint import lint_manifest_files
+    from reterminal.providers.lint import lint_manifest_files, manifest_lint_specs
+
     manifest = load_manifest(feed)
-    specs: list[tuple[str, Path]] = [
-        (entry.type, p) for entry in manifest.providers if (p := entry.path()) is not None
-    ]
-    return [issue.to_dict() for issue in lint_manifest_files(specs)]
+    return [issue.to_dict() for issue in lint_manifest_files(manifest_lint_specs(manifest))]
 
 
 @app.command()
@@ -132,8 +130,8 @@ def doctor(
 ):
     """Run operational checks for connectivity, slot truth, and publish-pipeline readiness.
 
-    When `--feed` points at a provider manifest, also lints every markdown
-    source it references (same checks as `reterminal lint`). Lint findings
+    When `--feed` points at a provider manifest, also lints every supported
+    markdown source it references (same checks as `reterminal lint`). Lint findings
     surface as warnings, not errors — bad authoring shows up here instead
     of silently disappearing from the rendered display.
     """
@@ -216,7 +214,7 @@ def probe(
     ),
     slots: int = typer.Option(8, "--slots", min=1, help="How many page slots to probe"),
     expected_pages: int = typer.Option(
-        4,
+        SLOT_COUNT,
         "--expected-pages",
         min=1,
         help="Expected host-side page count to compare against",

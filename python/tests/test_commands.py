@@ -38,49 +38,14 @@ def test_next_assigned_slot_rotates_across_assigned_slots():
 
 
 
-def test_clear_command_rejects_conflicting_target_options():
-    result = runner.invoke(app, ["clear", "--all", "--page", "1"])
-
-    assert result.exit_code == 1
-    assert "--all cannot be combined with --page" in result.stdout
-
-
-
-def test_clear_command_requires_live_flag():
-    result = runner.invoke(app, ["clear", "--page", "2"])
-
-    assert result.exit_code == 1
-    assert "Use --live to confirm" in result.stdout
-
-
-
-def test_clear_command_invokes_device_clear(monkeypatch):
-    captured = {}
-
-    class StubClient:
-        host = "192.0.2.97"
-
-    class StubDevice:
-        def __init__(self, host=None):
-            captured["host"] = host
-            self.client = StubClient()
-
-        def clear(self, slot=None, all=False):
-            captured["slot"] = slot
-            captured["all"] = all
-            return {"success": True, "page": slot, "all": all}
-
-    monkeypatch.setattr("reterminal.cli.commands.device.ReTerminalDevice", StubDevice)
-
-    result = runner.invoke(
-        app,
-        ["clear", "--host", "192.0.2.97", "--page", "2", "--live", "--output", "json"],
-    )
+def test_unsupported_firmware_commands_are_not_exposed():
+    result = runner.invoke(app, ["--help"])
+    normalized = normalized_console_text(result.stdout)
 
     assert result.exit_code == 0
-    payload = json.loads(result.stdout)
-    assert payload["result"]["page"] == 2
-    assert captured == {"host": "192.0.2.97", "slot": 2, "all": False}
+    assert " beep " not in f" {normalized} "
+    assert " buttons " not in f" {normalized} "
+    assert " clear " not in f" {normalized} "
 
 
 
@@ -100,41 +65,11 @@ def test_push_preview_supports_json_output(tmp_path):
 
 
 
-def test_push_live_requires_page_unless_transient():
+def test_push_live_requires_page():
     result = runner.invoke(app, ["push", "--text", "hello", "--live"])
 
     assert result.exit_code == 1
     assert "requires --page" in result.stdout
-    assert "--transient" in result.stdout
-
-
-def test_push_transient_invokes_direct_display(monkeypatch):
-    captured = {}
-
-    class StubClient:
-        host = "192.0.2.32"
-
-        def __init__(self, host=None):
-            captured["host"] = host
-
-        def push_raw(self, raw, page=None):
-            captured["page"] = page
-            captured["raw_len"] = len(raw)
-            return {"success": True, "displayed": True}
-
-    monkeypatch.setattr("reterminal.cli.commands.device.ReTerminal", StubClient)
-
-    result = runner.invoke(
-        app,
-        ["push", "--text", "hello", "--transient", "--live", "--output", "json"],
-    )
-
-    assert result.exit_code == 0
-    payload = json.loads(result.stdout)
-    assert payload["transient"] is True
-    assert payload["result"]["displayed"] is True
-    assert captured["page"] is None
-    assert captured["raw_len"] == 48000
 
 
 def test_snapshot_command_writes_png_and_raw(monkeypatch, tmp_path):
@@ -226,6 +161,28 @@ def test_publish_watch_rejects_show_slot(tmp_path):
 
     assert result.exit_code == 1
     assert "--show-slot is not supported with --watch" in result.stdout
+
+
+def test_publish_watch_rejects_push(tmp_path):
+    feed = tmp_path / "manifest.json"
+    feed.write_text('{"providers": []}')
+
+    result = runner.invoke(app, ["publish", "--feed", str(feed), "--watch", "--push", "--live"])
+
+    assert result.exit_code == 1
+    assert "--push is not supported with --watch" in result.stdout
+    assert "device pulls" in result.stdout
+
+
+def test_publish_watch_requires_live_acknowledgement(tmp_path):
+    feed = tmp_path / "manifest.json"
+    feed.write_text('{"providers": []}')
+
+    result = runner.invoke(app, ["publish", "--feed", str(feed), "--watch"])
+
+    assert result.exit_code == 1
+    assert "--watch serves content on the LAN" in result.stdout
+    assert "--live" in result.stdout
 
 
 def test_publish_watch_rejects_include_system(tmp_path):

@@ -5,18 +5,21 @@ A host-rendered publishing pipeline for the Seeed reTerminal E1001 ePaper displa
 The repo now treats the device as a **4-slot monochrome display appliance**:
 
 - the **host** fetches data, designs scenes, renders images, and schedules what should be live
-- the **firmware** stores bitmaps, shows slots, handles buttons, and exposes a small HTTP API
+- the **firmware** stores bitmaps, shows slots, handles buttons, pulls changed content on timer wake, and exposes a short-lived diagnostic API
 
 ## Verified device profile
 
-Live probe results from the current flashed firmware confirm:
+Prior live probing and board verification confirm the hardware envelope:
 
 - **Resolution:** 800x480
 - **Color depth:** 1-bit monochrome
 - **Raw upload size:** 48,000 bytes
 - **Physical page slots:** 4 (`0..3`)
 
-The checked-in `artifacts/probe-report.json` is current sanitized probe evidence from the reflashed firmware. It confirms slots `0..3` store/select normally and invalid slots `4..7` are rejected instead of wrapping or displaying transiently.
+The checked-in `artifacts/probe-report.json` is sanitized historical evidence
+for the 4-slot hardware and the pre-pull firmware. It predates the tracked
+deep-sleep refactor; regenerate it after the next physical flash before using
+it as evidence for the current diagnostic contract.
 
 See:
 
@@ -29,7 +32,7 @@ See:
 ### Stable device layer
 
 - probe the live device
-- read status and capabilities
+- read diagnostic status and derive the fixed display capabilities
 - upload raw monochrome images
 - store/show slot `0..3`
 
@@ -209,13 +212,10 @@ reterminal status        Get raw device status
 reterminal capabilities  Show firmware/host device contract
 reterminal snapshot      Read back a stored slot bitmap
 reterminal probe         Probe live device behavior
-reterminal publish       Render/schedule/preview/push scene feeds
-reterminal push          Push ad hoc text/image/QR/pattern
-reterminal clear         Clear one slot or the stored slot cache
+reterminal publish       Render/schedule/preview scene feeds or serve pull content
+reterminal push          Push ad hoc text/image/QR/pattern during diagnostics
 reterminal config        Show current configuration
-reterminal buttons       Read button state
-reterminal page          Get/set the current device slot
-reterminal beep          Trigger the buzzer
+reterminal page          Get/set the current device slot during diagnostics
 ```
 
 ## Architecture
@@ -245,17 +245,17 @@ The repo is moving toward:
 
 ## Firmware notes
 
-The latest **verified live device** was reflashed on `2026-05-04` and exposes the newer tracked firmware contract plus Wi-Fi self-restart/watchdog health over Wi-Fi.
+Tracked firmware is the deep-sleep/pull implementation in
+`firmware/src/main.cpp`; the last checked-in physical probe predates it.
 
-Current live truth includes:
+Current source truth includes:
 
 - build-time Wi-Fi / OTA config via `platformio.local.ini`
-- `/capabilities`, `/clear`, and `/snapshot`
-- neutral slot names (`slot-0..slot-3`)
-- no firmware overlay chrome on stored pages
-- LittleFS-backed slot persistence across power cycles on the current flashed build
-- firmware build SHA exposed through `/capabilities` and compared by `reterminal doctor`
-- curl fallback in host tooling for macOS cases where Python `requests` cannot route to the device
+- host pull endpoints `/content-hash` and `/content/slot-N`
+- a 10-minute diagnostic API: `/status`, `/eventlog`, `/snapshot`, `/imageraw`, `/page`, `/sleep`
+- neutral slot names (`slot-0..slot-3`) and no firmware overlay chrome
+- LittleFS-backed slot persistence with write success checked before advancing content hashes
+- host-derived capabilities and curl fallback for macOS routing failures
 
 ## Legacy wrapper
 
@@ -288,4 +288,6 @@ Planned adapters and pipelines:
 
 ## License
 
-MIT
+The original host-side code is MIT. Firmware distribution needs an explicit
+license review because it links the GPLv3 GxEPD2 library; do not treat the root
+MIT file as resolving the combined firmware binary's obligations.

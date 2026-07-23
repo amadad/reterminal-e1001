@@ -8,6 +8,7 @@ wake.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import urllib.request
 from pathlib import Path
@@ -17,11 +18,11 @@ from PIL import Image
 from reterminal.app.live import (
     _BitmapCache,
     _LiveRuntime,
-    _publish_once,
     _render_to_cache,
     _start_content_server,
 )
 from reterminal.app.publisher import DisplayPublisher
+from reterminal.encoding import pil_to_raw
 from reterminal.providers.activities import ActivitiesProvider
 from reterminal.providers.events import EventsProvider
 from reterminal.providers.manifest import SlottedProvider
@@ -53,30 +54,33 @@ def test_bitmap_cache_detects_change_and_marks_current():
     cache = _BitmapCache()
     img = Image.new("1", (10, 10), 1)
     img_diff = Image.new("1", (10, 10), 0)
-    digest = cache.image_digest(img)
-    digest_diff = cache.image_digest(img_diff)
+    digest = hashlib.sha256(pil_to_raw(img)).hexdigest()
+    digest_diff = hashlib.sha256(pil_to_raw(img_diff)).hexdigest()
 
     assert cache.changed(0, digest) is True
     cache.mark_current(0, digest, b"\xff" * 100)
     assert cache.changed(0, digest) is False
     assert cache.changed(0, digest_diff) is True
-    assert cache.bitmaps[0] == b"\xff" * 100
+    entry = cache.entry(0)
+    assert entry is not None
+    assert entry.digest == digest
+    assert entry.raw == b"\xff" * 100
 
 
 def test_bitmap_cache_is_per_slot():
     cache = _BitmapCache()
     img = Image.new("1", (10, 10), 1)
-    digest = cache.image_digest(img)
+    digest = hashlib.sha256(pil_to_raw(img)).hexdigest()
     cache.mark_current(0, digest, b"a" * 10)
     assert cache.changed(0, digest) is False
     assert cache.changed(1, digest) is True
     cache.mark_current(1, digest, b"b" * 10)
-    assert cache.bitmaps[0] != cache.bitmaps[1]
+    assert cache.entry(0) != cache.entry(1)
 
 
 def test_content_server_closes_short_lived_requests():
     cache = _BitmapCache()
-    cache.digests[0] = "abc123"
+    cache.mark_current(0, "abc123", b"x" * 48000)
     server = _start_content_server(cache, port=0)
     host, port = server.server_address
     try:
@@ -89,6 +93,13 @@ def test_content_server_closes_short_lived_requests():
         finally:
             response.close()
         assert payload["hashes"]["slot-0"] == "abc123"
+
+        bitmap = urllib.request.urlopen(f"http://{host}:{port}/content/slot-0", timeout=2)
+        try:
+            assert bitmap.headers["X-Hash"] == "abc123"
+            assert bitmap.read() == b"x" * 48000
+        finally:
+            bitmap.close()
     finally:
         server.shutdown()
         server.server_close()
@@ -109,8 +120,8 @@ def test_render_to_cache_populates_only_changed_slots(tmp_path: Path):
 
     first = _render_to_cache(publisher, cache)
     assert first == 3
-    assert set(cache.digests.keys()) == {1, 2, 3}
-    assert all(slot in cache.bitmaps for slot in {1, 2, 3})
+    assert {slot for slot in range(4) if cache.entry(slot) is not None} == {1, 2, 3}
+    assert all(cache.entry(slot) is not None for slot in {1, 2, 3})
 
     # Unchanged source → no slots re-rendered.
     assert _render_to_cache(publisher, cache) == 0
@@ -121,20 +132,6 @@ def test_render_to_cache_populates_only_changed_slots(tmp_path: Path):
     )
     third = _render_to_cache(publisher, cache)
     assert third == 1
-
-
-def test_publish_once_is_render_only(tmp_path: Path):
-    """Backward-compat: _publish_once still works but is now pure render."""
-    missions, _events, _activities = _write_real_files(tmp_path)
-    publisher = DisplayPublisher(
-        providers=[_slotted(MissionsProvider(path=missions), 1)],
-        renderer=MonoRenderer(),
-        scheduler=PriorityScheduler(),
-    )
-    cache = _BitmapCache()
-    # push, recover_device, tracker are accepted for signature compat and ignored.
-    assert _publish_once(publisher, cache, push=True, recover_device=None) == 1
-    assert _publish_once(publisher, cache, push=False) == 0
 
 
 def test_render_handles_no_scenes_gracefully(tmp_path: Path):
@@ -176,7 +173,9 @@ def test_live_runtime_reload_repoints_path_without_restart(tmp_path: Path):
     runtime.render()
 
     assert str(events_a.resolve()) in runtime.content_watched
-    digest_a = cache.digests[2]
+    entry_a = cache.entry(2)
+    assert entry_a is not None
+    digest_a = entry_a.digest
 
     # Repoint the manifest at a different file with different content.
     _write_manifest(manifest, events_b)
@@ -185,7 +184,9 @@ def test_live_runtime_reload_repoints_path_without_restart(tmp_path: Path):
     assert str(events_a.resolve()) not in runtime.content_watched
 
     runtime.render()
-    assert cache.digests[2] != digest_a
+    entry_b = cache.entry(2)
+    assert entry_b is not None
+    assert entry_b.digest != digest_a
 
 
 def test_live_runtime_reload_keeps_config_on_broken_manifest(tmp_path: Path):

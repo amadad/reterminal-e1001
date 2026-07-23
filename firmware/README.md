@@ -1,12 +1,12 @@
 # Firmware
 
-ESP32-S3 firmware for reTerminal E1001 with HTTP API and OTA support.
+ESP32-S3 deep-sleep pull firmware for reTerminal E1001.
 
 Current tracked source is designed to stay small and truthful:
 
 - host-rendered 1-bit bitmaps
 - 4 slot buffers in PSRAM, persisted to LittleFS when storage is mounted
-- buttons + HTTP control only
+- timer-based HTTP pull plus a short-lived diagnostic API
 - no firmware overlay chrome on stored pages
 - neutral slot names (`slot-0..slot-3`) instead of semantic app page names
 
@@ -133,7 +133,8 @@ via EXT1) it:
 1. Connects WiFi (`WIFI_PS_MIN_MODEM`)
 2. `GET <publisher>/content-hash` — JSON of per-slot SHA-256s
 3. For each slot whose hash differs from the RTC-RAM fingerprint:
-   `GET <publisher>/content/slot-N` → 48000 raw bytes → save to LittleFS
+   `GET <publisher>/content/slot-N` → 48000 raw bytes → save to LittleFS;
+   advance the fingerprint only after the full flash write succeeds
 4. Refresh ePaper (only if anything changed)
 5. `esp_deep_sleep_start()`
 
@@ -197,7 +198,11 @@ post-mortem inspection.
 Managed automatically by PlatformIO:
 
 - [ArduinoJson](https://arduinojson.org/) - JSON parsing
-- [GxEPD2](https://github.com/ZinggJM/GxEPD2) - ePaper display driver
+- [GxEPD2](https://github.com/ZinggJM/GxEPD2) - GPLv3 ePaper display driver
+
+The repository's original code is MIT, but distributed firmware binaries link
+GxEPD2 and require an explicit GPL compliance decision. Do not infer the
+firmware binary's licensing solely from the root `LICENSE` file.
 
 ## Troubleshooting
 
@@ -227,7 +232,7 @@ Managed automatically by PlatformIO:
 - ePaper takes about 5-6 seconds for a visible full refresh on this panel
 - Check serial monitor for errors
 - Verify image is exactly 48000 bytes
-- If a power cycle returns with `loaded: false`, republish from the host and inspect LittleFS health in `/capabilities`; verify the firmware is mounting the `littlefs` partition label from `partitions-32mb.csv`
+- If a power cycle returns with unloaded slots, enter diagnostic mode and inspect `/status`; verify the firmware is mounting the `littlefs` partition label from `partitions-32mb.csv`, then let the next timer wake republish from the host
 
 ## Memory
 

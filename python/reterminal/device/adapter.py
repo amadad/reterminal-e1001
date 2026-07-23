@@ -9,11 +9,11 @@ from PIL import Image
 import requests
 
 from reterminal.client import ReTerminal
-from reterminal.config import HEIGHT, IMAGE_BYTES, WIDTH
+from reterminal.config import HEIGHT, IMAGE_BYTES, SLOT_COUNT, WIDTH
 from reterminal.device.capabilities import DeviceCapabilities
 from reterminal.encoding import pil_to_raw
 from reterminal.exceptions import PageError
-from reterminal.payloads import ClearResultPayload, JSONObject, PushResultPayload
+from reterminal.payloads import JSONObject, PushResultPayload
 
 
 @dataclass(slots=True)
@@ -50,61 +50,43 @@ class ReTerminalDevice:
         self._last_seen_uptime_ms: int | None = None
         self._slot_hashes: dict[int, str] = {}
 
-    def connect_host(self, host: str) -> None:
-        """Point this adapter at a newly discovered host and clear host-local caches."""
-        if host == self.client.host:
-            return
-        self.client = ReTerminal(host, timeout=self.client.timeout)
-        self._capabilities = None
-        self._last_seen_uptime_ms = None
-        self._slot_hashes.clear()
-
     def discover_capabilities(self, refresh: bool = False) -> DeviceCapabilities:
         if self._capabilities is not None and not refresh:
             return self._capabilities
 
-        firmware_caps = self.client.capabilities()
-        uptime_ms = firmware_caps.get("uptime_ms")
+        status = self.client.status()
+        uptime_ms = status.get("uptime_ms")
+        page_slots = int(status.get("page_slots", SLOT_COUNT))
+        current_page = status.get("current_page")
         self._capabilities = DeviceCapabilities(
             host=self.client.host,
-            width=int(firmware_caps.get("width", WIDTH)),
-            height=int(firmware_caps.get("height", HEIGHT)),
-            image_bytes=int(firmware_caps.get("image_bytes", IMAGE_BYTES)),
-            page_slots=int(firmware_caps.get("page_slots", 4)),
-            current_page=firmware_caps.get("current_page"),
-            current_page_name=firmware_caps.get("current_page_name"),
-            ssid=firmware_caps.get("ssid"),
-            rssi=firmware_caps.get("rssi"),
+            width=WIDTH,
+            height=HEIGHT,
+            image_bytes=IMAGE_BYTES,
+            page_slots=page_slots,
+            current_page=current_page,
+            current_page_name=(
+                f"slot-{current_page}" if isinstance(current_page, int) else None
+            ),
+            ssid=status.get("ssid"),
+            rssi=status.get("rssi"),
             uptime_ms=uptime_ms,
-            firmware_version=firmware_caps.get("firmware_version"),
-            hostname=firmware_caps.get("hostname"),
-            build_time=firmware_caps.get("build_time"),
-            build_sha=firmware_caps.get("build_sha"),
-            reset_reason=firmware_caps.get("reset_reason"),
-            wifi_connected=firmware_caps.get("wifi_connected"),
-            wifi_status=firmware_caps.get("wifi_status"),
-            wifi_reconnect_attempts=firmware_caps.get("wifi_reconnect_attempts"),
-            last_wifi_ok_ms=firmware_caps.get("last_wifi_ok_ms"),
-            last_wifi_lost_ms=firmware_caps.get("last_wifi_lost_ms"),
-            last_wifi_reconnect_ms=firmware_caps.get("last_wifi_reconnect_ms"),
-            wifi_down_ms=firmware_caps.get("wifi_down_ms"),
-            wifi_self_restart_ms=firmware_caps.get("wifi_self_restart_ms"),
-            self_restart_count=firmware_caps.get("self_restart_count"),
-            last_self_restart_reason=firmware_caps.get("last_self_restart_reason"),
-            last_self_restart_uptime_ms=firmware_caps.get("last_self_restart_uptime_ms"),
-            mdns_ready=firmware_caps.get("mdns_ready"),
-            ota_ready=firmware_caps.get("ota_ready"),
-            loop_watchdog_armed=firmware_caps.get("loop_watchdog_armed"),
-            loop_watchdog_timeout_s=firmware_caps.get("loop_watchdog_timeout_s"),
-            loop_watchdog_init_status=firmware_caps.get("loop_watchdog_init_status"),
-            loop_watchdog_add_status=firmware_caps.get("loop_watchdog_add_status"),
-            free_psram=firmware_caps.get("free_psram"),
-            min_free_heap=firmware_caps.get("min_free_heap"),
-            littlefs_total_bytes=firmware_caps.get("littlefs_total_bytes"),
-            littlefs_used_bytes=firmware_caps.get("littlefs_used_bytes"),
-            snapshot_readback=firmware_caps.get("snapshot_readback"),
-            loaded_pages=[bool(value) for value in firmware_caps.get("loaded_pages", [])],
-            slot_names=[str(value) for value in firmware_caps.get("slot_names", [])],
+            firmware_version=status.get("firmware_version"),
+            hostname=status.get("hostname"),
+            build_time=status.get("build_time"),
+            build_sha=status.get("build_sha"),
+            reset_reason=status.get("reset_reason"),
+            free_heap=status.get("free_heap"),
+            free_psram=status.get("free_psram"),
+            battery_mv=status.get("battery_mv"),
+            boot_count=status.get("boot_count"),
+            wake_interval_s=status.get("wake_interval_s"),
+            diagnostic_timeout_ms=status.get("diagnostic_timeout_ms"),
+            littlefs_used_bytes=status.get("littlefs_used_bytes"),
+            event_log_total=status.get("event_log_total"),
+            snapshot_readback=True,
+            loaded_pages=[bool(value) for value in status.get("loaded_pages", [])],
+            slot_names=[f"slot-{slot}" for slot in range(page_slots)],
         )
         if (
             isinstance(self._last_seen_uptime_ms, int)
@@ -174,17 +156,3 @@ class ReTerminalDevice:
     def show_slot(self, slot: int) -> JSONObject:
         self.ensure_valid_slot(slot)
         return self.client.set_page(slot)
-
-    def clear(self, slot: int | None = None, *, all: bool = False) -> ClearResultPayload:
-        if all:
-            self._slot_hashes.clear()
-            return self.client.clear(all=True)
-
-        target_slot = slot
-        if target_slot is None:
-            target_slot = self.discover_capabilities().current_page
-        if target_slot is None:
-            raise PageError("No current slot available to clear")
-        self.ensure_valid_slot(target_slot)
-        self._slot_hashes.pop(target_slot, None)
-        return self.client.clear(page=target_slot)

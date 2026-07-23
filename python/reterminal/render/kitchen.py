@@ -10,15 +10,16 @@ from PIL import Image, ImageDraw, ImageFont
 
 from reterminal.config import HEIGHT, WIDTH
 
-HELVETICA = Path("/System/Library/Fonts/Helvetica.ttc")
-_FACE_INDEX = {"regular": 0, "bold": 1}
+FONT_DIR = Path(__file__).parents[1] / "assets" / "fonts"
+FONT_FILES = {
+    "regular": FONT_DIR / "AtkinsonHyperlegible-Regular.ttf",
+    "bold": FONT_DIR / "AtkinsonHyperlegible-Bold.ttf",
+}
 
 
 @lru_cache(maxsize=128)
 def font(size: int, weight: str = "regular") -> ImageFont.ImageFont:
-    if not HELVETICA.exists():
-        return ImageFont.load_default()
-    return ImageFont.truetype(str(HELVETICA), size, index=_FACE_INDEX.get(weight, 0))
+    return ImageFont.truetype(str(FONT_FILES[weight]), size)
 
 
 def to_1bit(img: Image.Image) -> Image.Image:
@@ -83,7 +84,7 @@ BASE = 8
 MARGIN = 3 * BASE  # 24 — outer frame
 GUTTER = 3 * BASE  # 24 — column gap
 
-# Type ladder (Helvetica): a finite, named set of roles. Renderers reference
+# Type ladder (Atkinson Hyperlegible): a finite, named set of roles. Renderers reference
 # the role, not a raw size. Dense compositions (the missions 4-up grid) may
 # step a role down one rung inside a cell — the one documented exception.
 KICKER = font(13, "bold")    # slot label (top-left, UPPERCASE); also column heads

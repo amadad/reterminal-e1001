@@ -20,6 +20,7 @@ for env_path in _env_paths:
 WIDTH = 800
 HEIGHT = 480
 IMAGE_BYTES = WIDTH * HEIGHT // 8  # 48000 bytes
+SLOT_COUNT = 4
 
 
 @dataclass

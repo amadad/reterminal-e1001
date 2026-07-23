@@ -22,6 +22,7 @@ from reterminal.providers import calendar as _calendar  # noqa: F401
 from reterminal.providers import camps as _camps  # noqa: F401
 from reterminal.providers import comingup as _comingup  # noqa: F401
 from reterminal.providers import events as _events  # noqa: F401
+from reterminal.providers import features as _features  # noqa: F401
 from reterminal.providers import missions as _missions  # noqa: F401
 from reterminal.providers import photos as _photos  # noqa: F401
 

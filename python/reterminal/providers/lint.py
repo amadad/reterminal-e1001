@@ -1,7 +1,7 @@
 """Per-provider lint for the markdown sources feeding the kitchen display.
 
-The four parsers (`calendar`, `missions`, `events`, `activities`) silently
-drop lines they don't understand: a typo like `3:00pmm` in `calendar.md`
+The markdown parsers are deliberately tolerant of surrounding prose and some
+malformed lines: a typo like `3:00pmm` in `calendar.md`
 just doesn't appear on the display, with no error anywhere. That's fine for
 the renderer (we'd rather show a stale-but-clean board than crash on a
 typo) but it makes authoring brittle — you only notice when you look at
@@ -20,14 +20,20 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from reterminal.family.activities import ISO_DATE as ACTIVITY_ISO_DATE
 from reterminal.family.activities import TAG_RE as ACTIVITY_TAG_RE
 from reterminal.family.calendar import DATE_HEADER_RE, LEGACY_HEADER_RE
+from reterminal.family.camps import parse_camps
 from reterminal.family.events import ISO_DATE as EVENT_ISO_DATE
 from reterminal.family.events import TAG_RE as EVENT_TAG_RE
 from reterminal.family.missions import _KEYVAL
+
+if TYPE_CHECKING:
+    from reterminal.providers.manifest import FeedManifest
 
 
 _MISSION_KEYS = {"kind", "title", "progress", "streak", "next"}
@@ -143,6 +149,44 @@ def lint_activities(path: Path) -> list[LintIssue]:
     return issues
 
 
+def lint_camps(path: Path) -> list[LintIssue]:
+    camps = parse_camps(path)
+    if not camps:
+        return [LintIssue(str(path), 0, "", "no camp schedule rows found")]
+    issues: list[LintIssue] = []
+    for camp in camps:
+        try:
+            datetime.strptime(camp.week, "%b %d")
+        except ValueError:
+            issues.append(
+                LintIssue(str(path), 0, camp.week, "invalid camp week; expected `Mon DD`")
+            )
+    return issues
+
+
+def _lint_feature(path: Path, parser: Callable[[Path], object]) -> list[LintIssue]:
+    try:
+        parser(path)
+    except ValueError as exc:
+        reason = str(exc)
+        if "date" in reason:
+            reason += "; expected ISO date YYYY-MM-DD"
+        return [LintIssue(str(path), 0, "", reason)]
+    return []
+
+
+def lint_quest(path: Path) -> list[LintIssue]:
+    from reterminal.providers.features import parse_quest
+
+    return _lint_feature(path, parse_quest)
+
+
+def lint_trip(path: Path) -> list[LintIssue]:
+    from reterminal.providers.features import parse_trip
+
+    return _lint_feature(path, parse_trip)
+
+
 def lint_missions(path: Path) -> list[LintIssue]:
     issues: list[LintIssue] = []
     in_active = False
@@ -217,11 +261,30 @@ def lint_missions(path: Path) -> list[LintIssue]:
 
 
 LINTERS: dict[str, Callable[[Path], list[LintIssue]]] = {
-    "calendar": lint_calendar,
-    "missions": lint_missions,
-    "events": lint_events,
     "activities": lint_activities,
+    "calendar": lint_calendar,
+    "camps": lint_camps,
+    "events": lint_events,
+    "missions": lint_missions,
+    "quest": lint_quest,
+    "trip": lint_trip,
 }
+
+
+def manifest_lint_specs(manifest: FeedManifest) -> list[tuple[str, Path]]:
+    """Return only source files that have a truthful linter."""
+    specs: list[tuple[str, Path]] = []
+    for entry in manifest.providers:
+        if entry.type == "comingup":
+            for key, source_type in (("events", "events"), ("queue", "activities")):
+                raw = entry.config.get(key)
+                if isinstance(raw, str) and raw:
+                    specs.append((source_type, Path(raw).expanduser()))
+            continue
+        path = entry.path()
+        if path is not None and entry.type in LINTERS:
+            specs.append((entry.type, path))
+    return specs
 
 
 def lint_manifest_files(provider_specs: list[tuple[str, Path]]) -> list[LintIssue]:

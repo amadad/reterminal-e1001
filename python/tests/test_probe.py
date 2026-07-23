@@ -16,10 +16,10 @@ def test_missing_status_fields_reports_only_missing_items():
         "uptime_ms": 1234,
     }
 
-    assert missing_status_fields(status) == ["free_heap", "current_page", "current_page_name/page_name"]
+    assert missing_status_fields(status) == ["free_heap", "current_page"]
 
 
-def test_missing_status_fields_accepts_current_page_name_alias():
+def test_missing_status_fields_accepts_tracked_status_contract():
     status = {
         "ip": "192.0.2.77",
         "rssi": -40,
@@ -27,7 +27,6 @@ def test_missing_status_fields_accepts_current_page_name_alias():
         "uptime_ms": 1234,
         "free_heap": 200000,
         "current_page": 0,
-        "current_page_name": "slot-0",
     }
 
     assert missing_status_fields(status) == []

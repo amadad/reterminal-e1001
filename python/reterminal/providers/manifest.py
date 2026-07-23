@@ -25,6 +25,8 @@ import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+
+from reterminal.config import SLOT_COUNT
 from reterminal.payloads import JSONValue
 from reterminal.providers.base import SceneProvider
 from reterminal.scenes import SceneSpec
@@ -85,8 +87,12 @@ class ProviderEntry:
 
         raw_slot = data.get("slot")
         if raw_slot is not None:
-            if not isinstance(raw_slot, int) or isinstance(raw_slot, bool) or raw_slot < 0:
-                raise ValueError("Provider 'slot' must be a non-negative integer")
+            if (
+                not isinstance(raw_slot, int)
+                or isinstance(raw_slot, bool)
+                or not 0 <= raw_slot < SLOT_COUNT
+            ):
+                raise ValueError(f"Provider 'slot' must be between 0 and {SLOT_COUNT - 1}")
             slot = raw_slot
         else:
             slot = None

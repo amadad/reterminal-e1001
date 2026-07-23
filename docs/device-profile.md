@@ -1,8 +1,10 @@
 # reTerminal device profile
 
-Status: working draft, verification-first.
+Status: tracked-source profile; current pull firmware awaits physical re-probe.
 
-This file is the source of truth for the refactor. Do not treat the legacy README, AGENTS, or page tables as authoritative until the hardware verification steps in `docs/hardware-verification.md` have been completed on the real device.
+Use the **Current evidence from code inspection** section for the tracked
+contract. Dated live sections document older flashed builds and must not be
+projected onto the current source without a new hardware run.
 
 ## Why this exists
 
@@ -14,9 +16,12 @@ The repo has drifted in three places:
 
 The refactor should converge those three into one canonical device profile.
 
-## Latest verified live results (2026-05-04)
+## Last verified pre-pull firmware results (2026-05-04)
 
-The device was reflashed over USB from `firmware/` and re-verified over Wi-Fi. Network and serial identifiers below are intentionally public-safe and should be rediscovered per session.
+These results belong to the always-on firmware flashed before the 2026-05-12
+deep-sleep/pull refactor. They verify the physical 4-slot device but not the
+tracked diagnostic API. Network and serial identifiers are intentionally
+public-safe and should be rediscovered per session.
 
 - **USB flash:** succeeded via `/dev/cu.usbserial-*` using PlatformIO `env:reterminal`
 - **Firmware provenance:** `/capabilities` reports `firmware_version: local-dev`, build time `May 4 2026`, and a `build_sha` matching the current dirty checkout
@@ -24,7 +29,7 @@ The device was reflashed over USB from `firmware/` and re-verified over Wi-Fi. N
 - **Wi-Fi/HTTP:** `/status`, `/capabilities`, `/page`, `/snapshot`, and `/imageraw` reachable over HTTP; CLI falls back to curl on hosts where Python `requests` reports `No route to host`
 - **LittleFS persistence:** live boot log shows `LittleFS ready`, `Loaded slot 0..3 from flash`, and `Restored 4 slots from flash`; `/capabilities` reports LittleFS total/used bytes and all four slots loaded after reboot
 - **Launchd watcher:** local watcher runs `publish --watch --live` from the ignored local manifest, discovers the DHCP host, seeds 4 slot digests from `/snapshot`, and preserves the visible slot
-- **Destructive slot probe:** current sanitized `artifacts/probe-report.json` confirms slots `0..3` store/select normally and invalid slots `4..7` are rejected cleanly
+- **Destructive slot probe:** `artifacts/probe-report.json` confirms slots `0..3` store/select normally on that pre-pull build and rejects invalid slots `4..7`
 - **Stability status:** bounded Wi-Fi self-restart firmware is flashed and reports `wifi_down_ms`, `self_restart_count`, `last_self_restart_reason`, and `loop_watchdog_armed`; final closure gate is still a 48–72h soak with reachable `/status`, acceptable reset reasons, and clean watcher logs
 
 ## Earlier verified live results (2026-04-16)
@@ -63,7 +68,7 @@ Operational notes:
 
 - DHCP lease is not a stable identity signal for this device. Treat observed IPs as session evidence, not as part of the device contract, and prefer discovery/doctor before making network assumptions.
 - On some macOS hosts, plain `curl` has been more reliable than Python `requests` for live device transport.
-- As of this session, `/capabilities`, `/clear`, `/snapshot`, neutral slot names, and no firmware overlay chrome are now **live truth**, not just tracked-source intent.
+- `/capabilities`, `/clear`, `/buttons`, and `/beep` in this dated section are historical endpoints, not part of tracked pull firmware.
 - The practical performance model is: hidden-slot staging is cheap, visible-slot changes are slow. Design for preloading plus infrequent visible flips, not animation or second-by-second interaction.
 - Current invalid-input semantics are re-verified by the sanitized destructive probe report. Repeat the probe only after firmware changes that touch slot validation/storage.
 
@@ -83,7 +88,8 @@ These results describe the older flashed firmware that was replaced on `2026-04-
 - **Invalid image size behavior:** short raw upload returned `400 Bad Request` with expected and received byte counts
 - **Visible older-firmware quirks:** `Page X/4` overlay chrome, no `/capabilities`, no `/clear`, and cache state that could come back effectively unloaded after power cycle
 
-Historical evidence was replaced by the current sanitized `artifacts/probe-report.json`; older wraparound/display-immediate behavior survives only in this historical notes section.
+The sanitized `artifacts/probe-report.json` replaced the oldest wraparound
+evidence, but it is itself now historical because it predates pull firmware.
 
 ## Measured operating constraints (2026-04-16)
 
@@ -120,18 +126,14 @@ These are facts supported by the current codebase, not yet by live hardware meas
 
 Until hardware verification says otherwise, the refactor should assume this model:
 
-1. **Host renders pages**
-   - Python fetches external data
-   - Python renders 1-bit bitmaps
-   - Python uploads finished images to the device
+1. **Host renders and serves pages**
+   - Python fetches external data and renders 1-bit bitmaps
+   - the LAN publisher serves per-slot hashes and raw bitmaps
 
-2. **Firmware acts as display/cache/navigation**
-   - store bitmap in slot `N`
-   - display slot `N`
-   - next/prev page navigation
-   - buttons
-   - status endpoints
-   - OTA if explicitly kept and secured
+2. **Firmware pulls, caches, and displays**
+   - timer wake fetches changed slots and persists them
+   - button wake navigates cached slots
+   - a physical long press enables the diagnostic API and OTA window
 
 3. **Firmware does not own external integrations**
    - no Schwab/GitHub/weather logic on the ESP32
@@ -146,71 +148,65 @@ These are the remaining checks before calling the physical deployment fully clos
    - OTA persistence should still be rechecked after the next OTA-capable flash.
 
 2. **Button parity with API**
-   - Do physical buttons navigate exactly the same slot range and naming as `/page` on the reflashed build?
+   - Do physical buttons navigate the same four slots as diagnostic `/page` after flashing tracked pull firmware?
 
 3. **Refresh characteristics**
-   - Preliminary live timing is now known: visible refreshes are about `5–6s`, hidden-slot staging about `0.2s`
+   - Earlier live timing measured visible refreshes at about `5–6s`
    - visual artifacts / ghosting still need manual optical verification
-   - whether partial updates are worth supporting later remains open
+   - tracked firmware intentionally uses full refresh only
 
 4. **OTA viability in repeated use**
    - Is OTA reliable enough to keep in the default workflow over time?
    - Does it preserve expected cache behavior?
 
-## Contract we want after verification
+## Tracked contract to verify
 
-Once verified, the firmware contract should be explicit and machine-readable.
-
-### Required firmware-reported capabilities
-
-The device should eventually expose enough information for the host to adapt without guessing:
-
-- firmware version
-- display width
-- display height
-- `image_bytes`
-- page slot count
-- current page
-- loaded page map, if cheap to expose
-- optional build info / git SHA
-- whether slot snapshot readback is supported
-- Wi-Fi health, self-restart state, and watchdog arm status
+The host owns the fixed geometry (`800x480`, 48,000 bytes, four slots).
+Diagnostic `/status` reports firmware/build provenance, current and loaded slots,
+battery, RSSI, heap, boot count, and event-log count. There is deliberately no
+second `/capabilities` representation.
 
 ### Required API behavior
 
+Normal pull contract:
+
 | Endpoint | Requirement |
 |---|---|
-| `GET /status` | Returns stable health fields and basic capability fields |
-| `GET /capabilities` | Returns firmware version, geometry, slot count, loaded slot map, and current slot info |
-| `GET /buttons` | Returns current button state |
+| host `GET /content-hash` | Returns four per-slot content hashes |
+| host `GET /content/slot-N` | Returns exactly 48,000 raw bytes for a loaded cache entry |
+
+Diagnostic-mode device contract:
+
+| Endpoint | Requirement |
+|---|---|
+| `GET /status` | Returns provenance, health, slot count, current slot, and loaded map |
 | `GET /page` | Returns current page and total slot count |
 | `POST /page` | Rejects invalid input explicitly, no unsafe wraparound |
-| `GET /snapshot` | Returns the exact stored raw bitmap for a loaded slot or a clear error if none is stored |
-| `POST /imageraw?page=N` | Either stores slot `N` or returns a clear error |
-| `GET /eventlog` | (Diagnostic-mode only) Persistent ring buffer of boot, wake_timer, wake_button, diagnostic, and wifi_fail events with battery + RSSI per entry. Survives reboot via LittleFS. |
-| `POST /sleep` | (Diagnostic-mode only) Returns the device to deep sleep immediately. |
+| `GET /snapshot` | Returns the exact stored raw bitmap or a clear error |
+| `POST /imageraw?page=N` | Stores valid slot `N` only after a full LittleFS write |
+| `GET /eventlog` | Returns the persistent wake/diagnostic/Wi-Fi-failure ring |
+| `POST /sleep` | Returns the device to deep sleep immediately |
 
 ### Required host behavior
 
-- Read device-reported slot count before assuming page capacity
+- Derive slot state from diagnostic `/status` before manual slot operations
 - Never assume 7 slots unless the firmware proves it
 - Treat external integrations as optional providers, not core runtime requirements
 - Prefer one Python path: `python/reterminal/`
 
-## Decision rules for the refactor
+## Decision rules
 
-- If the verified slot count is **4**, the host may still expose more logical pages, but only 4 may be cached on-device at once.
-- If the verified slot count is **7 or more**, then a true 7-page carousel is allowed.
-- If stored pages do **not** survive reboot, reboot persistence must not be part of the contract.
-- If OTA is flaky or insecure, remove it from the default workflow until secured.
+- Treat four slots as fixed until both firmware and a fresh probe prove otherwise.
+- Do not claim persistence until the post-flash power-cycle check passes.
+- Keep OTA outside the default workflow unless it remains password-protected and reliable.
 
 ## Verification gate
 
-We are closer, but **not done yet**. The repo is only ready for structural closure after:
+The tracked architecture is structurally coherent but physical closure still requires:
 
-1. manual button/display checks are recorded on the reflashed firmware
-2. the 48–72h stability soak passes without unreachable `/status` or watchdog/panic reset reason
-3. the chosen architecture is updated in `docs/refactor-plan.md` if it changes again
+1. flash the tracked pull firmware and regenerate `artifacts/probe-report.json`
+2. record button, display, snapshot, and LittleFS persistence checks
+3. observe several timer wakes with successful pulls and no repeated `wifi_fail` events
 
 ## Related docs
 

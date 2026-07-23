@@ -250,20 +250,22 @@ String slotPath(int page) {
   return String(SLOT_DIR) + "/slot-" + String(page) + ".raw";
 }
 
-void saveSlotToFlash(int page) {
-  if (!fsReady || !pageLoaded[page] || !pageStorage[page]) return;
+bool saveSlotToFlash(int page) {
+  if (!fsReady || !pageLoaded[page] || !pageStorage[page]) return false;
   File f = LittleFS.open(slotPath(page), "w");
-  if (!f) return;
-  f.write(pageStorage[page], IMAGE_BYTES);
+  if (!f) return false;
+  size_t written = f.write(pageStorage[page], IMAGE_BYTES);
   f.close();
+  return written == IMAGE_BYTES;
 }
 
 bool loadSlotFromFlash(int page) {
   if (!fsReady || !pageStorage[page]) return false;
   File f = LittleFS.open(slotPath(page), "r");
   if (!f || f.size() != IMAGE_BYTES) { if (f) f.close(); return false; }
-  f.read(pageStorage[page], IMAGE_BYTES);
+  size_t read = f.read(pageStorage[page], IMAGE_BYTES);
   f.close();
+  if (read != IMAGE_BYTES) return false;
   pageLoaded[page] = true;
   return true;
 }
@@ -351,7 +353,7 @@ int wakePoll() {
     h2.end();
     if (got != IMAGE_BYTES) continue;
     pageLoaded[i] = true;
-    saveSlotToFlash(i);
+    if (!saveSlotToFlash(i)) continue;
     slotHash[i] = fp;
     updated++;
   }
@@ -520,7 +522,10 @@ void handleImageRaw() {
   }
   memcpy(pageStorage[uploadTargetPage], uploadBuffer, IMAGE_BYTES);
   pageLoaded[uploadTargetPage] = true;
-  saveSlotToFlash(uploadTargetPage);
+  if (!saveSlotToFlash(uploadTargetPage)) {
+    sendJson(500, "{\"error\":\"slot write failed\"}");
+    return;
+  }
   if (uploadTargetPage == currentPage) showPage(currentPage);
   sendJson(200, "{\"success\":true,\"page\":" + String(uploadTargetPage) + "}");
 }

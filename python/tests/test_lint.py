@@ -13,10 +13,15 @@ from pathlib import Path
 from reterminal.providers.lint import (
     lint_activities,
     lint_calendar,
+    lint_camps,
     lint_events,
-    lint_missions,
     lint_manifest_files,
+    lint_missions,
+    lint_quest,
+    lint_trip,
+    manifest_lint_specs,
 )
+from reterminal.providers.manifest import FeedManifest, ProviderEntry
 
 
 def _w(path: Path, body: str) -> Path:
@@ -140,6 +145,74 @@ def test_missions_lint_flags_unknown_key(tmp_path: Path):
     )
     issues = lint_missions(md)
     assert any("unknown key 'stretch'" in i.reason for i in issues)
+
+
+def test_camps_lint_requires_schedule_rows(tmp_path: Path):
+    md = _w(tmp_path / "camps.md", "# Summer\n\nNo schedule yet.\n")
+    issues = lint_camps(md)
+    assert [issue.reason for issue in issues] == ["no camp schedule rows found"]
+
+
+def test_camps_lint_rejects_invalid_week(tmp_path: Path):
+    md = _w(
+        tmp_path / "camps.md",
+        "| Week | Kids | Laila | Notes |\n"
+        "|---|---|---|---|\n"
+        "| Someday | Sailing | Camp Rock | private |\n",
+    )
+    issues = lint_camps(md)
+    assert len(issues) == 1
+    assert "invalid camp week" in issues[0].reason
+
+
+def test_quest_lint_uses_display_block_contract(tmp_path: Path):
+    md = _w(
+        tmp_path / "quest.md",
+        "## Kitchen Display\n"
+        "- **Title:** Build It\n"
+        "- **Deck:** Try one change.\n"
+        "- **Spark:** Draw it.\n"
+        "- **Build:** Make it.\n"
+        "- **Guide:** Explain it.\n"
+        "- **Valid until:** 2026-07-30\n",
+    )
+    issues = lint_quest(md)
+    assert len(issues) == 1
+    assert "dinner" in issues[0].reason
+
+
+def test_trip_lint_rejects_invalid_start_date(tmp_path: Path):
+    md = _w(
+        tmp_path / "trip.md",
+        "## Kitchen Display\n"
+        "- **Title:** Yellowstone\n"
+        "- **Dates:** Aug 24-30\n"
+        "- **Starts:** soon\n"
+        "- **Route:** Jackson | Teton\n"
+        "- **Next:** Verify lodging.\n"
+        "- **Rule:** Protect the reset.\n"
+        "- **Reviewed:** 2026-07-10\n",
+    )
+    issues = lint_trip(md)
+    assert len(issues) == 1
+    assert "ISO date" in issues[0].reason
+
+
+def test_manifest_lint_specs_maps_multi_source_provider(tmp_path: Path):
+    events = tmp_path / "events.md"
+    queue = tmp_path / "activities.md"
+    manifest = FeedManifest(
+        providers=[
+            ProviderEntry(
+                type="comingup",
+                config={"events": str(events), "queue": str(queue)},
+                slot=2,
+            ),
+            ProviderEntry(type="photo", config={"path": str(tmp_path / "photos")}, slot=3),
+        ]
+    )
+
+    assert manifest_lint_specs(manifest) == [("events", events), ("activities", queue)]
 
 
 def test_lint_manifest_reports_missing_file(tmp_path: Path):

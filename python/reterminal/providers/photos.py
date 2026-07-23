@@ -7,7 +7,7 @@ a caption from a sidecar `.txt` next to the image (e.g. `family.jpg` +
 
 Manifest example:
 
-    {"type": "photo", "path": "~/madad/photos/wall", "slot": 3, "mode": "daily"}
+    {"type": "photo", "path": "~/reterminal-content/photos/wall", "slot": 3, "mode": "daily"}
 
 Selection modes:
 

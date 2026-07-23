@@ -79,9 +79,10 @@ def test_build_providers_applies_manifest_slot_without_passing_it_to_factory():
     assert provider.provider.config == {"path": "/x"}
 
 
-def test_provider_entry_rejects_invalid_slot():
+@pytest.mark.parametrize("slot", [-1, 4])
+def test_provider_entry_rejects_invalid_slot(slot: int):
     with pytest.raises(ValueError, match="slot"):
-        ProviderEntry.from_dict({"type": "missions", "slot": -1})
+        ProviderEntry.from_dict({"type": "missions", "slot": slot})
 
 
 def test_unknown_provider_type_fails_loudly():

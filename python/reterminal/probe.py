@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 import requests
 
 from reterminal.client import ReTerminal
+from reterminal.config import SLOT_COUNT
 from reterminal.encoding import create_pattern
 from reterminal.payloads import JSONObject, PageInfoPayload, StatusPayload
 
@@ -30,8 +31,6 @@ EXPECTED_STATUS_FIELDS = (
     "free_heap",
     "current_page",
 )
-PAGE_NAME_FIELDS = ("current_page_name", "page_name")
-
 VALID_PATTERNS = ("checkerboard", "horizontal", "vertical", "diagonal")
 
 MANUAL_CHECKS = (
@@ -81,10 +80,7 @@ class ProbeReport:
 
 def missing_status_fields(status: StatusPayload) -> list[str]:
     """Return expected status fields missing from the device response."""
-    missing = [field for field in EXPECTED_STATUS_FIELDS if field not in status]
-    if not any(field in status for field in PAGE_NAME_FIELDS):
-        missing.append("current_page_name/page_name")
-    return missing
+    return [field for field in EXPECTED_STATUS_FIELDS if field not in status]
 
 
 def page_name_from_status(status: StatusPayload) -> str:
@@ -171,7 +167,7 @@ def infer_contiguous_slot_count(slot_results: list[SlotProbeResult]) -> int:
 def run_probe(
     host: str | None = None,
     *,
-    expected_pages: int = 4,
+    expected_pages: int = SLOT_COUNT,
     requested_slots: int = 8,
     pattern: str = "checkerboard",
     upload_pages: bool = False,

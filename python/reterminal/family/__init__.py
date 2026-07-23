@@ -1,7 +1,7 @@
 """Pure parsers + dataclasses for the four family-state markdown files.
 
-The grammars are documented in `~/madad/family/CONVENTIONS.md` (or your own
-family root). They live here rather than inside `reterminal.providers` so
+The active files and their paths are declared by the provider manifest. The parsers live here
+rather than inside `reterminal.providers` so
 non-display tools — morning briefs, recall CLIs, OC flows, Apple Shortcuts,
 weekly digests — can import them without dragging in PIL or the render
 pipeline.

@@ -1,4 +1,6 @@
 {
+  "evidence_scope": "historical pre-pull firmware; does not verify tracked deep-sleep diagnostic contract",
+  "current_contract_verified": false,
   "generated_at": "2026-05-04T13:49:04.788422+00:00",
   "host": "192.0.2.46",
   "expected_pages": 4,

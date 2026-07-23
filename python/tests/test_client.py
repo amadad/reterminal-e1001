@@ -60,6 +60,33 @@ def test_curl_fallback_rewinds_file_payload_after_requests_failure(monkeypatch):
     assert observed["upload"] == b"abc123"
 
 
+def test_page_navigation_composes_get_and_set(monkeypatch):
+    client = ReTerminal("192.0.2.10")
+    calls = []
+
+    def fake_request(method, endpoint, **kwargs):
+        calls.append((method, endpoint, kwargs.get("json")))
+        response = requests.Response()
+        response.status_code = 200
+        response._content = (
+            b'{"page":1,"total":4}'
+            if method == "GET"
+            else f'{{"page":{kwargs["json"]["page"]}}}'.encode()
+        )
+        return response
+
+    monkeypatch.setattr(client, "_request", fake_request)
+
+    assert client.next_page() == {"page": 2}
+    assert client.prev_page() == {"page": 0}
+    assert calls == [
+        ("GET", "/page", None),
+        ("POST", "/page", {"page": 2}),
+        ("GET", "/page", None),
+        ("POST", "/page", {"page": 0}),
+    ]
+
+
 def test_request_preserves_curl_http_errors(monkeypatch):
     client = ReTerminal("192.0.2.10")
 

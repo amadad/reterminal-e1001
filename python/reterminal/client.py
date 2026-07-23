@@ -21,8 +21,6 @@ from tenacity import (
 from reterminal.config import IMAGE_BYTES, get_host, settings
 from reterminal.exceptions import ConnectionError, ImageError
 from reterminal.payloads import (
-    CapabilitiesPayload,
-    ClearResultPayload,
     JSONObject,
     PageInfoPayload,
     PushResultPayload,
@@ -169,24 +167,6 @@ class ReTerminal:
         return response.json()
 
     @_get_retry_decorator()
-    def capabilities(self) -> CapabilitiesPayload:
-        logger.debug("Getting firmware capabilities")
-        response = self._request("GET", "/capabilities")
-        return response.json()
-
-    @_get_retry_decorator()
-    def buttons(self) -> JSONObject:
-        logger.debug("Getting button states")
-        response = self._request("GET", "/buttons")
-        return response.json()
-
-    @_get_retry_decorator()
-    def beep(self) -> bool:
-        logger.debug("Triggering buzzer")
-        response = self._request("GET", "/beep")
-        return bool(response.json().get("beeped", False))
-
-    @_get_retry_decorator()
     def get_page(self) -> PageInfoPayload:
         logger.debug("Getting current page")
         response = self._request("GET", "/page")
@@ -201,24 +181,20 @@ class ReTerminal:
     @_get_retry_decorator()
     def next_page(self) -> JSONObject:
         logger.debug("Navigating to next page")
-        response = self._request("POST", "/page", json={"action": "next"})
-        return response.json()
+        page = self.get_page()
+        current, total = page.get("page"), page.get("total")
+        if not isinstance(current, int) or not isinstance(total, int) or total < 1:
+            raise ValueError("GET /page did not return integer page and total values")
+        return self.set_page((current + 1) % total)
 
     @_get_retry_decorator()
     def prev_page(self) -> JSONObject:
         logger.debug("Navigating to previous page")
-        response = self._request("POST", "/page", json={"action": "prev"})
-        return response.json()
-
-    @_get_retry_decorator()
-    def clear(self, *, page: int | None = None, all: bool = False) -> ClearResultPayload:
-        payload = {"all": True} if all else ({"page": page} if page is not None else {})
-        logger.info(
-            f"Clearing device cache on {self.host}"
-            + (" (all slots)" if all else (f" page {page}" if page is not None else " current page"))
-        )
-        response = self._request("POST", "/clear", json=payload)
-        return response.json()
+        page = self.get_page()
+        current, total = page.get("page"), page.get("total")
+        if not isinstance(current, int) or not isinstance(total, int) or total < 1:
+            raise ValueError("GET /page did not return integer page and total values")
+        return self.set_page((current - 1) % total)
 
     @_get_retry_decorator()
     def snapshot_raw(self, page: int | None = None) -> bytes:
@@ -230,15 +206,12 @@ class ReTerminal:
         return response.content
 
     @_get_retry_decorator()
-    def push_raw(self, data: bytes, page: int | None = None) -> PushResultPayload:
+    def push_raw(self, data: bytes, page: int) -> PushResultPayload:
         if len(data) != IMAGE_BYTES:
             raise ImageError(f"Image must be {IMAGE_BYTES} bytes, got {len(data)}")
 
-        endpoint = "/imageraw"
-        if page is not None:
-            endpoint += f"?page={page}"
-
-        logger.info(f"Pushing image to {self.host}" + (f" page {page}" if page is not None else ""))
+        endpoint = f"/imageraw?page={page}"
+        logger.info(f"Pushing image to {self.host} page {page}")
 
         files = {"image": ("image.raw", io.BytesIO(data), "application/octet-stream")}
         response = self._request("POST", endpoint, files=files)
@@ -247,7 +220,7 @@ class ReTerminal:
     def push_image(
         self,
         image_path: str,
-        page: int | None = None,
+        page: int,
         invert: bool = False,
         dither: bool = True,
     ) -> PushResultPayload:
@@ -260,7 +233,7 @@ class ReTerminal:
     def push_text(
         self,
         text: str,
-        page: int | None = None,
+        page: int,
         font_size: int = 48,
         align: str = "center",
     ) -> PushResultPayload:

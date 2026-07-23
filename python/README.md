@@ -7,18 +7,18 @@ It now has two layers:
 - a **truthful device SDK** for the current 4-slot firmware contract
 - a **scene publishing pipeline** for provider-driven monochrome layouts
 
-## Verified contract
+## Device contract
 
-The live device currently behaves as:
+Verified hardware plus current tracked source establish:
 
 - 800x480 monochrome
 - 48,000-byte raw upload payloads
 - 4 physical slots
 - current tracked firmware rejects invalid `page` requests with `400 Page out of range`
 - current tracked firmware rejects invalid `imageraw?page=N` uploads with `400 Page out of range`
-- current flashed firmware persists loaded slots in LittleFS across normal power cycles
+- tracked firmware persists loaded slots in LittleFS and operates as a deep-sleep HTTP pull client
 
-Use `reterminal probe`, `reterminal capabilities`, and `reterminal doctor` before assuming anything else. On newer firmware builds, `reterminal capabilities` reads the firmware-reported contract from `/capabilities`, `reterminal snapshot` can read back the exact stored slot bitmap, and `reterminal clear --all` can blank the stored slot cache for ghosting/recovery workflows. `doctor` compares firmware build SHA to the current checkout when possible. The HTTP client falls back to `curl` on macOS route failures where Python `requests` cannot reach a device that `curl` can.
+Use `reterminal probe`, `reterminal capabilities`, and `reterminal doctor` before assuming anything else. During the 10-minute diagnostic window, `capabilities` derives the fixed display contract and live slot state from `/status`, while `snapshot` reads back an exact stored bitmap. `doctor` compares firmware build SHA to the checkout when possible. The HTTP client falls back to `curl` on macOS route failures where Python `requests` cannot reach a device that `curl` can.
 
 ## Install
 
@@ -45,11 +45,10 @@ uv run reterminal doctor
 uv run reterminal status
 uv run reterminal capabilities
 uv run reterminal snapshot --png ./current.png
-uv run reterminal clear --all
 uv run reterminal probe
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews
 uv run reterminal publish --feed examples/agent-feed.json --preview ./previews --push --live
-uv run reterminal publish --feed examples/kitchen-display.json --push --watch --live
+uv run reterminal publish --feed examples/kitchen-display.json --watch --live
 ```
 
 The CLI no longer falls back to a baked-in host IP. Set `RETERMINAL_HOST` or pass `--host` explicitly after discovery. Use `reterminal discover` and `reterminal doctor` when DHCP or network behavior is unclear; earlier leases are not stable identity.
@@ -59,6 +58,7 @@ The CLI no longer falls back to a baked-in host IP. Set `RETERMINAL_HOST` or pas
 ```text
 reterminal/
 ├── app/            # publish scenes -> previews/device slots
+├── assets/fonts/   # bundled deterministic ePaper fonts + OFL license
 ├── cli/            # Typer commands
 ├── device/         # device SDK and capability model
 ├── payloads.py     # shared device/JSON payload types
@@ -83,10 +83,14 @@ These are logical scenes. The scheduler maps them into the 4 physical slots the 
 
 Current providers include:
 
-- `CalendarProvider` — today/tomorrow agenda from a markdown file
+- `CalendarProvider` — today-first agenda with a tomorrow rail from a generated markdown projection
 - `MissionsProvider` — mission cards from a markdown file
 - `EventsProvider` — upcoming events from a markdown file
 - `ActivitiesProvider` — recent and queued activities from a markdown file
+- `ComingUpProvider` — consolidated events and activities queue
+- `CampsProvider` — current camp week plus a four-week lookahead
+- `TripProvider` / `QuestProvider` — feature pages that read only an explicit `## Kitchen Display` block
+- `PhotoProvider` — deterministic folder image selection and 1-bit dithering
 - `FileSceneProvider` — generic scene-list JSON feed
 - `PaperclipSceneProvider` — remote HTTP feed adapter
 - `SystemSceneProvider` — device health scene

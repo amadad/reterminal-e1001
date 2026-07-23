@@ -15,9 +15,9 @@ font dependency; no runtime beyond what's already in the repo).
 2. **Match the primitive to the data, not the aesthetic.** Picking a ring
    because it "looks nice" on a streak is miscommunication. Kids reading
    this at a glance should get a correct intuition in <2s.
-3. **Consistency across slots.** A progress bar on the missions slot
-   should read the same as a progress bar on an events slot if one ever
-   appears there. Same metaphor, same visual encoding.
+3. **Consistency across slots.** A progress bar in one provider should read
+   the same as a progress bar in any other provider. Same metaphor, same visual
+   encoding.
 
 ## Primitives
 
@@ -95,13 +95,20 @@ Deploy with a legend-free assumption (readers learn the vocabulary).
 
 ## Cross-slot conventions
 
-- **Agenda (slot 0):** today/tomorrow columns; no quantitative
-  primitives yet.
-- **Missions (slot 1):** use `progress_bar` for projects, `heatmap`
-  for habits, `dots` for small counters.
-- **Coming Up (slot 2):** use `shape` for the event category tag
-  (the `kitchen.shape_for` map) alongside the big day-count numerals.
-- **Summer / camps (slot 3):** a week × who table; no primitives.
+Active household edition:
+
+- **Agenda (slot 0):** today as the primary field plus a tomorrow rail; no
+  quantitative primitives.
+- **Summer / camps (slot 1):** current-week hero plus a four-week lookahead; no
+  quantitative primitives.
+- **Trip (slot 2):** route dots encode ordered stops, not completion; the
+  deterministic mountain line is artwork, not a chart.
+- **Family Quest (slot 3):** the title-seeded mirrored mark is identity artwork,
+  not a score, ranking, streak, or completion signal.
+
+Compatibility providers retain their original vocabulary: Missions may use
+`progress_bar`, `heatmap`, or `dots` when the source supplies truthful bounded
+data; Coming Up may use `shape` via `kitchen.shape_for` for event categories.
 
 The canonical tag→shape map lives in `kitchen.shape_for`; see
 `docs/design.md` for the broader design system (type ladder, slot

@@ -61,10 +61,11 @@ Each scene kind must constrain how much content it can successfully display.
 
 #### `agenda`
 - supports schedule-oriented compositions where rows have ownership markers, time labels, and short titles
-- current renderer supports two agenda modes:
+- the generic renderer supports two agenda modes:
   - **two-day**: `Today` / `Tomorrow` columns plus a dinner band
   - **grouped**: stacked future-day sections with short event rows
-- current live kitchen feed uses the **two-day** agenda for slot 0; grouped agenda remains available as a renderer pattern but is no longer the default fourth page
+- the active `CalendarProvider` uses a bespoke today-first composition with an inverted tomorrow rail; it does not render a dinner band
+- grouped agenda remains available as a renderer pattern but is not part of the active four-slot edition
 - event rows should prefer monogram chips, simple 1-bit icons, and short titles over raw calendar strings
 - sports rows may use variant icons so practice vs game survives even when the title is shortened
 

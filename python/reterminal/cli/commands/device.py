@@ -1,10 +1,8 @@
-"""Direct device operations: status, beep, buttons, page, clear, push, snapshot, capabilities."""
+"""Direct operations supported by the tracked diagnostic firmware."""
 
 from __future__ import annotations
 
 import json
-import time
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -44,63 +42,6 @@ def status(
             typer.echo(f"{'─' * 40}")
     except Exception as e:
         logger.error(f"Failed to get status: {e}")
-        raise typer.Exit(1)
-
-
-@app.command()
-def beep(
-    host: Optional[str] = HostOption,
-    count: int = typer.Option(1, "--count", "-n", help="Number of beeps"),
-    delay: float = typer.Option(0.3, "--delay", "-d", help="Delay between beeps"),
-    live: bool = typer.Option(False, "--live", help="Confirm a live device mutation"),
-    non_interactive: bool = typer.Option(False, "--non-interactive", help="Fail instead of mutating the live device"),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
-):
-    """Trigger the buzzer."""
-    require_live_action("beep", live=live, non_interactive=non_interactive)
-    try:
-        client = ReTerminal(host)
-        for i in range(count):
-            client.beep()
-            if i < count - 1:
-                time.sleep(delay)
-        payload = {"host": client.host, "count": count, "delay": delay, "status": "ok"}
-        if not emit_output(payload, output):
-            typer.echo(f"Beeped {count}x!")
-    except Exception as e:
-        logger.error(f"Failed to beep: {e}")
-        raise typer.Exit(1)
-
-
-@app.command()
-def buttons(
-    host: Optional[str] = HostOption,
-    watch: bool = typer.Option(False, "--watch", "-w", help="Watch button states continuously"),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
-):
-    """Get button states."""
-    try:
-        client = ReTerminal(host)
-        if watch:
-            if output == "json":
-                typer.echo("Error: --watch does not support JSON output.")
-                raise typer.Exit(1)
-            typer.echo("Watching buttons (Ctrl+C to stop)...")
-            last_state = None
-            while True:
-                result = client.buttons()
-                if result != last_state:
-                    typer.echo(f"[{datetime.now().strftime('%H:%M:%S')}] {result}")
-                    last_state = result
-                time.sleep(0.1)
-        else:
-            result = client.buttons()
-            if not emit_output({"host": client.host, "buttons": result}, output):
-                typer.echo(json.dumps(result, indent=2))
-    except KeyboardInterrupt:
-        typer.echo("\nStopped watching.")
-    except Exception as e:
-        logger.error(f"Failed to get buttons: {e}")
         raise typer.Exit(1)
 
 
@@ -145,33 +86,6 @@ def page(
 
 
 @app.command()
-def clear(
-    host: Optional[str] = HostOption,
-    page_num: Optional[int] = PageOption,
-    clear_all: bool = typer.Option(False, "--all", help="Clear all cached slots and blank the display"),
-    live: bool = typer.Option(False, "--live", help="Confirm a live device mutation"),
-    non_interactive: bool = typer.Option(False, "--non-interactive", help="Fail instead of mutating the live device"),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
-):
-    """Clear one cached slot or the full volatile device cache."""
-    if clear_all and page_num is not None:
-        typer.echo("Error: --all cannot be combined with --page")
-        raise typer.Exit(1)
-
-    require_live_action("clear", live=live, non_interactive=non_interactive)
-
-    try:
-        device = ReTerminalDevice(host)
-        result = device.clear(page_num, all=clear_all)
-        payload = {"host": device.client.host, "result": result}
-        if not emit_output(payload, output):
-            typer.echo(json.dumps(result, indent=2))
-    except Exception as e:
-        logger.error(f"Failed to clear device cache: {e}")
-        raise typer.Exit(1)
-
-
-@app.command()
 def push(
     host: Optional[str] = HostOption,
     text: Optional[str] = typer.Option(None, "--text", "-t", help="Text to display"),
@@ -179,7 +93,6 @@ def push(
     qr: Optional[str] = typer.Option(None, "--qr", "-q", help="Generate QR code from text/URL"),
     pattern: Optional[str] = typer.Option(None, "--pattern", "-p", help="Test pattern"),
     page_num: Optional[int] = PageOption,
-    transient: bool = typer.Option(False, "--transient", help="Display directly without storing in a slot"),
     font_size: int = typer.Option(48, "--font-size", "-s", help="Font size for text"),
     invert: bool = typer.Option(False, "--invert", help="Invert colors"),
     preview: Optional[Path] = typer.Option(None, "--preview", help="Save preview PNG instead of pushing"),
@@ -192,13 +105,10 @@ def push(
         typer.echo("Error: Specify --text, --image, --qr, or --pattern")
         raise typer.Exit(1)
 
-    if transient and page_num is not None:
-        typer.echo("Error: --transient cannot be combined with --page")
-        raise typer.Exit(1)
     if preview is None:
         require_live_action("push", live=live, non_interactive=non_interactive)
-        if page_num is None and not transient:
-            typer.echo("Error: live push requires --page. Use --transient for direct display-only pushes.")
+        if page_num is None:
+            typer.echo("Error: live push requires --page")
             raise typer.Exit(1)
 
     from PIL import Image, ImageDraw
@@ -274,7 +184,6 @@ def push(
                 "mode": "preview",
                 "content_type": content_type,
                 "page": page_num,
-                "transient": transient,
                 "preview_path": str(preview),
             }
             if not emit_output(payload, output):
@@ -287,7 +196,6 @@ def push(
                 "content_type": content_type,
                 "host": client.host,
                 "page": page_num,
-                "transient": transient,
                 "result": result,
             }
             if not emit_output(payload, output):
@@ -337,16 +245,12 @@ def capabilities(
         typer.echo(f"  {'RSSI':20} {caps.rssi}")
         if caps.reset_reason is not None:
             typer.echo(f"  {'Reset Reason':20} {caps.reset_reason}")
-        if caps.wifi_reconnect_attempts is not None:
-            typer.echo(f"  {'WiFi Reconnects':20} {caps.wifi_reconnect_attempts}")
-        if caps.wifi_down_ms is not None:
-            typer.echo(f"  {'WiFi Down':20} {caps.wifi_down_ms} ms")
-        if caps.self_restart_count is not None:
-            typer.echo(f"  {'Self Restarts':20} {caps.self_restart_count}")
-        if caps.last_self_restart_reason is not None:
-            typer.echo(f"  {'Last Self Restart':20} {caps.last_self_restart_reason}")
-        if caps.loop_watchdog_armed is not None:
-            typer.echo(f"  {'Loop Watchdog':20} {'armed' if caps.loop_watchdog_armed else 'not armed'}")
+        if caps.battery_mv is not None:
+            typer.echo(f"  {'Battery':20} {caps.battery_mv} mV")
+        if caps.boot_count is not None:
+            typer.echo(f"  {'Boot Count':20} {caps.boot_count}")
+        if caps.event_log_total is not None:
+            typer.echo(f"  {'Event Log Entries':20} {caps.event_log_total}")
         typer.echo(f"  {'Uptime':20} {caps.uptime_ms} ms")
         typer.echo(f"{'─' * 48}")
     except Exception as e:

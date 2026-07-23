@@ -6,9 +6,9 @@ Public-safe operational notes for Claude Code, pi, and other headless coding age
 
 There are two separate access paths:
 
-1. **HTTP over Wi-Fi** — the device control plane.
-   - Used for `status`, `capabilities`, `snapshot`, `clear`, slot upload, and page selection.
-   - Driven by the Python CLI in `./python`.
+1. **HTTP over Wi-Fi** — two explicit directions.
+   - Normal operation: the sleeping device wakes and pulls bitmaps from the host publisher.
+   - Diagnostic window: the host may read `/status`/`/eventlog`/`/snapshot` or use `/imageraw`, `/page`, and `/sleep`.
 2. **USB serial** — diagnostics and firmware maintenance.
    - Used for boot logs, bootloader interrogation, serial monitor, and PlatformIO flashing.
    - It is **not** a slot upload/status API. If Wi-Fi discovery fails, USB can prove the device is alive, but slot operations still require HTTP reachability.
@@ -93,7 +93,7 @@ For OTA flashing, plug the device into USB *or* trigger diagnostic mode, then
 
 ### The publisher's content server
 
-The publisher (`reterminal publish --watch`) runs an HTTP server on
+The publisher (`reterminal publish --watch --live`) runs an HTTP server on
 **port 8765** that the device polls on every wake:
 
 ```
@@ -103,7 +103,9 @@ GET /content/slot-N     → 48000-byte raw 1-bit bitmap
 
 The launchd plist at `~/Library/LaunchAgents/sh.reterminal.publish.plist`
 runs this in the background. The device picks up content changes within one
-wake cycle (~30 min default).
+wake cycle (~30 min default). The content protocol is plain unauthenticated
+HTTP; run it only on a trusted LAN and enforce isolation with the router/VLAN or
+host firewall rather than treating the Python process as a security boundary.
 
 Verify the server from both sides of the host network stack:
 

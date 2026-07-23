@@ -2,6 +2,13 @@
 
 Newest first. Keep entries short, dated, and evidence-oriented.
 
+## 2026-07-23 — Cleanup made the pull contract and quality gates honest again
+
+- **Symptoms:** CI dependency audit failed on Click/Pillow; all kitchen bitmap snapshots silently skipped on Linux because rendering depended on macOS Helvetica; host commands still targeted firmware endpoints removed by the pull refactor; active-manifest lint claimed four checked sources while skipping camps/trip/quest; and a failed LittleFS write could still advance the RTC slot fingerprint.
+- **Fix:** upgraded the vulnerable lock entries; bundled OFL Atkinson Hyperlegible fonts and packaged them in wheels; derived host capabilities from diagnostic `/status` and removed unsupported beep/buttons/clear commands; made watch mode pull-only; linted every active markdown source including `comingup`'s two inputs; published digest+bitmap as one locked cache entry; and advanced firmware slot hashes only after a complete flash write.
+- **Evidence:** 139 pytest pass with renderer goldens active, Ruff clean, `pip-audit` reports no known vulnerabilities, the wheel contains both fonts plus `OFL.txt`, the active four-source manifest lints and previews, and PlatformIO builds at 30.1% RAM / 29.5% flash. Physical flash/re-probe remains intentionally pending.
+- **Boundary:** the pull server is still plain HTTP. Run it only on a trusted LAN and use router/VLAN or host-firewall isolation; no token was added as security theater without an end-to-end transport design.
+
 ## 2026-05-29 — Device showed "no source found" for days: stale daemon held pre-move manifest paths
 
 - **Symptoms / why this entry exists:** the panel rendered `calendar source missing` / `missions source missing` for every slot. The tracked manifest was correct (`~/madad/display/*.md`, files present), yet the live publisher was serving "source missing" notices pointing at `~/madad/family/display/*.md` — a path deleted weeks earlier.

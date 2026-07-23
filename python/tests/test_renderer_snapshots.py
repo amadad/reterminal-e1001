@@ -1,4 +1,4 @@
-"""Snapshot tests for the four kitchen-display renderers.
+"""Snapshot tests for the kitchen-display renderers.
 
 Each renderer is pure: markdown → PIL.Image (1-bit, 800x480). We freeze a
 fixture file at a known mtime, render it, hash the raw bitmap, and compare
@@ -40,18 +40,9 @@ from reterminal.providers.calendar import render_calendar
 from reterminal.providers.camps import render_camps
 from reterminal.providers.comingup import render_comingup
 from reterminal.providers.events import render_events
+from reterminal.providers.features import parse_quest, parse_trip, render_quest, render_trip
 from reterminal.providers.missions import render_missions
-from reterminal.render.kitchen import HELVETICA, draw_source_stamp
-
-
-# Snapshot bitmaps are pinned to Helvetica.ttc (macOS). On Linux CI the
-# kitchen renderer falls back to PIL's default bitmap font, which produces
-# completely different pixels — so the goldens (and any ink-counting
-# assertions) are only meaningful on a host that actually has Helvetica.
-pytestmark = pytest.mark.skipif(
-    not HELVETICA.exists(),
-    reason="Helvetica.ttc not available; renderer falls back to PIL default font",
-)
+from reterminal.render.kitchen import FONT_FILES, draw_source_stamp
 
 
 GOLDENS_FILE = Path(__file__).parent / "fixtures" / "kitchen_renderer_goldens.json"
@@ -143,6 +134,32 @@ CAMPS_FIXTURE = """\
 | Jul 06 | CoderSchool: Indy 3D 🏎️     | Camp Rock | $649 × 2     |
 | Jul 27 | ⛵ Sailing                   | Camp Rock | 2,995        |
 """
+
+QUEST_FIXTURE = """\
+## Kitchen Display
+- **Title:** The One-Change Challenge
+- **Deck:** Make it. Test it. Change one thing.
+- **Spark:** Draw a machine with one moving part.
+- **Build:** Make something, test it, and change one thing.
+- **Guide:** Teach someone why your change worked.
+- **Dinner:** What changed after testing?
+- **Valid until:** 2026-07-26
+"""
+
+TRIP_FIXTURE = """\
+## Kitchen Display
+- **Title:** Yellowstone
+- **Dates:** Aug 24–30
+- **Starts:** 2026-08-24
+- **Route:** Jackson | Teton | Yellowstone | Gardiner
+- **Next:** Verify family lodging by Jul 29.
+- **Rule:** One anchor. One optional add-on. Protect the reset.
+- **Reviewed:** 2026-07-10
+"""
+
+
+def test_renderer_fonts_are_bundled():
+    assert all(path.is_file() for path in FONT_FILES.values())
 
 
 def _digest(image) -> str:
@@ -243,11 +260,28 @@ def test_comingup_render_snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
 def test_camps_render_snapshot(tmp_path: Path):
     md = _write_frozen(tmp_path / "camps.md", CAMPS_FIXTURE)
-    # source_path=None: the camp grid is reference content, and a wall-clock
-    # stamp would make the snapshot time-dependent. Stamp logic is covered by
-    # the dedicated stale-glyph tests.
-    image = render_camps(parse_camps(md), source_path=None)
+    image = render_camps(parse_camps(md), today=FROZEN_TODAY)
     _check_or_update("camps", image)
+
+
+def test_camps_advances_current_week(tmp_path: Path):
+    md = _write_frozen(tmp_path / "camps.md", CAMPS_FIXTURE)
+    camps = parse_camps(md)
+    july_6 = render_camps(camps, today=date(2026, 7, 6))
+    july_27 = render_camps(camps, today=date(2026, 7, 27))
+    assert pil_to_raw(july_6) != pil_to_raw(july_27)
+
+
+def test_quest_render_snapshot(tmp_path: Path):
+    md = _write_frozen(tmp_path / "quest.md", QUEST_FIXTURE)
+    image = render_quest(parse_quest(md))
+    _check_or_update("quest", image)
+
+
+def test_trip_render_snapshot(tmp_path: Path):
+    md = _write_frozen(tmp_path / "trip.md", TRIP_FIXTURE)
+    image = render_trip(parse_trip(md), today=date(2026, 7, 23))
+    _check_or_update("trip", image)
 
 
 def test_renderers_are_deterministic(tmp_path: Path):
@@ -289,8 +323,10 @@ def test_stale_glyph_when_threshold_exceeded_vs_fresh(tmp_path: Path):
     fresh_t = datetime(2026, 5, 5, 8, 30, 0).timestamp()
     os.utime(md, (fresh_t, fresh_t))
     fresh_img = Image.new("L", (WIDTH, HEIGHT), color=255)
+    fresh_draw = ImageDraw.Draw(fresh_img)
+    fresh_draw.fontmode = "1"
     draw_source_stamp(
-        ImageDraw.Draw(fresh_img),
+        fresh_draw,
         md,
         stale_after=timedelta(hours=2),
         now=datetime(2026, 5, 5, 9, 0, 0),
@@ -300,8 +336,10 @@ def test_stale_glyph_when_threshold_exceeded_vs_fresh(tmp_path: Path):
     stale_t = datetime(2026, 5, 5, 0, 0, 0).timestamp()
     os.utime(md, (stale_t, stale_t))
     stale_img = Image.new("L", (WIDTH, HEIGHT), color=255)
+    stale_draw = ImageDraw.Draw(stale_img)
+    stale_draw.fontmode = "1"
     draw_source_stamp(
-        ImageDraw.Draw(stale_img),
+        stale_draw,
         md,
         stale_after=timedelta(hours=2),
         now=datetime(2026, 5, 5, 6, 0, 0),
@@ -330,7 +368,9 @@ def test_stamp_omitted_when_no_threshold_set(tmp_path: Path):
     os.utime(md, (very_old, very_old))
 
     img = Image.new("L", (WIDTH, HEIGHT), color=255)
-    draw_source_stamp(ImageDraw.Draw(img), md)  # no stale_after
+    draw = ImageDraw.Draw(img)
+    draw.fontmode = "1"
+    draw_source_stamp(draw, md)  # no stale_after
     region = (WIDTH - 220, HEIGHT - 26, WIDTH - 20, HEIGHT - 6)
     ink = _stamp_ink_count(img, *region)
     # Just glyphs, never a filled pill — ink is bounded.
