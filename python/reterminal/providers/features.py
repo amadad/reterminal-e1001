@@ -56,6 +56,7 @@ class TripCard:
     route: tuple[str, ...]
     next_action: str
     rule: str
+    ready: tuple[str, ...] = ()
     reviewed: date | None = None
 
 
@@ -124,6 +125,7 @@ def parse_trip(path: Path) -> TripCard:
         route=route,
         next_action=fields["next"],
         rule=fields["rule"],
+        ready=tuple(fields[key] for key in ("ready 1", "ready 2", "ready 3") if fields.get(key)),
         reviewed=_iso_date(reviewed, "reviewed") if reviewed else None,
     )
 
@@ -191,40 +193,34 @@ def _draw_quest_mark(draw: ImageDraw.ImageDraw, title: str) -> None:
 
 
 def render_quest(card: QuestCard) -> Image.Image:
+    """Render the current household action as a legible kitchen punchlist."""
     img, draw = new_canvas()
     right = f"THRU {card.valid_until.strftime('%b %-d').upper()}"
-    draw_kicker(draw, "Family Quest", right=right)
-    _draw_quest_mark(draw, card.title)
+    draw_kicker(draw, "Action", right=right)
 
-    x = 280
-    width = WIDTH - MARGIN - x
-    title_lines = _text_lines(draw, card.title.upper(), HEADLINE, width, 2)
-    cursor = _draw_lines(draw, title_lines, x=x, y=66, f=HEADLINE, line_height=34)
-    deck_lines = _text_lines(draw, card.deck, BODY, width, 2)
-    cursor = _draw_lines(draw, deck_lines, x=x, y=cursor + 4, f=BODY, line_height=26)
+    title_lines = _text_lines(draw, card.title.upper(), HEADLINE, WIDTH - MARGIN * 2, 2)
+    cursor = _draw_lines(draw, title_lines, x=MARGIN, y=66, f=HEADLINE, line_height=34)
+    deck_lines = _text_lines(draw, card.deck, BODY, WIDTH - MARGIN * 2, 2)
+    cursor = _draw_lines(draw, deck_lines, x=MARGIN, y=cursor + 4, f=BODY, line_height=26)
 
-    levels_top = max(174, cursor + 14)
-    label_w = 78
-    for index, (label, text) in enumerate(card.levels):
-        y = levels_top + index * 66
-        draw.rectangle([x, y, x + label_w, y + 25], fill=0)
-        label_x = x + (label_w - draw.textlength(label, font=KICKER)) / 2
-        draw.text((label_x, y + 5), label, font=KICKER, fill=255)
-        lines = _text_lines(draw, text, BODY, width - label_w - 16, 2)
-        _draw_lines(
-            draw,
-            lines,
-            x=x + label_w + 16,
-            y=y,
-            f=BODY,
-            line_height=25,
-        )
+    list_top = max(154, cursor + 18)
+    label_w = 94
+    action_labels = ("FIND", "WED", "FRI")
+    for index, (_, text) in enumerate(card.levels):
+        label = action_labels[index]
+        y = list_top + index * 72
+        draw.rectangle([MARGIN, y + 4, MARGIN + 20, y + 24], outline=0, width=2)
+        draw.rectangle([MARGIN + 38, y, MARGIN + 38 + label_w, y + 28], fill=0)
+        label_x = MARGIN + 38 + (label_w - draw.textlength(label, font=KICKER)) / 2
+        draw.text((label_x, y + 6), label, font=KICKER, fill=255)
+        lines = _text_lines(draw, text, BODY_BOLD, WIDTH - MARGIN * 2 - label_w - 62, 2)
+        _draw_lines(draw, lines, x=MARGIN + label_w + 116, y=y, f=BODY_BOLD, line_height=26)
 
-    question_top = 384
-    draw.rectangle([x, question_top, WIDTH - MARGIN, 446], fill=0)
-    draw.text((x + 16, question_top + 9), "DINNER UNLOCK", font=KICKER, fill=255)
-    question = _text_lines(draw, card.dinner, BODY_BOLD, width - 32, 1)[0]
-    draw.text((x + 16, question_top + 29), question, font=BODY_BOLD, fill=255)
+    question_top = 392
+    draw.rectangle([MARGIN, question_top, WIDTH - MARGIN, 452], fill=0)
+    draw.text((MARGIN + 16, question_top + 9), "CHECK TOGETHER", font=KICKER, fill=255)
+    question = _text_lines(draw, card.dinner, BODY_BOLD, WIDTH - MARGIN * 2 - 32, 1)[0]
+    draw.text((MARGIN + 16, question_top + 31), question, font=BODY_BOLD, fill=255)
 
     return to_1bit(img)
 
@@ -265,36 +261,29 @@ def _draw_route(draw: ImageDraw.ImageDraw, route: tuple[str, ...]) -> None:
 def render_trip(card: TripCard, *, today: date | None = None) -> Image.Image:
     today = today or date.today()
     img, draw = new_canvas()
-    right = f"REVIEWED {card.reviewed.strftime('%b %-d').upper()}" if card.reviewed else card.dates.upper()
-    draw_kicker(draw, card.title, right=right)
-    _draw_mountain_panel(draw, card.title)
+    draw_kicker(draw, "Focus", right=card.dates.upper())
 
     delta = (card.starts - today).days
-    x = 344
     if delta > 0:
         number = str(delta)
-        draw.text((x, 66), number, font=DISPLAY, fill=0)
+        draw.text((MARGIN, 72), number, font=DISPLAY, fill=0)
         number_w = draw.textlength(number, font=DISPLAY)
-        draw.text((x + number_w + 12, 96), "DAYS", font=BODY_BOLD, fill=0)
+        draw.text((MARGIN + number_w + 16, 106), "DAYS TO", font=BODY_BOLD, fill=0)
     elif delta == 0:
-        draw.text((x, 76), "TODAY", font=DISPLAY, fill=0)
+        draw.text((MARGIN, 80), "TODAY", font=DISPLAY, fill=0)
     else:
-        draw.text((x, 76), "ON TRIP", font=HEADLINE, fill=0)
+        draw.text((MARGIN, 84), "ON TRIP", font=HEADLINE, fill=0)
 
-    draw.text((x, 142), card.dates.upper(), font=HEADLINE, fill=0)
-    draw.text((x, 190), "THE RULE", font=KICKER, fill=0)
-    rule_lines = _text_lines(draw, card.rule, BODY_BOLD, WIDTH - MARGIN - x, 3)
-    _draw_lines(draw, rule_lines, x=x, y=214, f=BODY_BOLD, line_height=27)
+    draw.text((MARGIN, 162), card.title.upper(), font=HEADLINE, fill=0)
+    draw.text((MARGIN, 220), "NEXT", font=KICKER, fill=0)
+    action_text = (card.ready or (card.next_action,))[0]
+    action_lines = _text_lines(draw, action_text, HEADLINE, WIDTH - MARGIN * 2, 2)
+    _draw_lines(draw, action_lines, x=MARGIN, y=250, f=HEADLINE, line_height=36)
 
-    _draw_route(draw, card.route)
-
-    next_top = 408
-    draw.rectangle([MARGIN, next_top, WIDTH - MARGIN, 452], fill=0)
-    draw.text((MARGIN + 14, next_top + 14), "NEXT", font=KICKER, fill=255)
-    action_x = MARGIN + 88
-    action_w = WIDTH - MARGIN - 14 - action_x
-    action = _text_lines(draw, card.next_action, BODY_BOLD, action_w, 1)[0]
-    draw.text((action_x, next_top + 10), action, font=BODY_BOLD, fill=255)
+    footer_top = 378
+    draw.rectangle([MARGIN, footer_top, WIDTH - MARGIN, 452], fill=0)
+    rule = _text_lines(draw, card.rule, BODY_BOLD, WIDTH - MARGIN * 2 - 32, 2)
+    _draw_lines(draw, rule, x=MARGIN + 16, y=footer_top + 15, f=BODY_BOLD, fill=255, line_height=27)
 
     return to_1bit(img)
 

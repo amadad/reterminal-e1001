@@ -30,8 +30,8 @@ from reterminal.render.kitchen import (
     new_canvas,
     render_notice,
     to_1bit,
-    truncate_text,
 )
+from reterminal.render.layout import clamp_lines, wrap_text
 from reterminal.scenes import SceneSpec
 
 
@@ -88,45 +88,32 @@ def render_camps(
     current = camps[current_index]
     draw_kicker(draw, title, right=f"WEEK OF {current.week.upper()}")
 
-    hero_top, hero_bottom = 64, 218
-    draw.rectangle([MARGIN, hero_top, WIDTH - MARGIN, hero_bottom], fill=0)
-    draw.text((MARGIN + 16, hero_top + 16), "THIS WEEK", font=KICKER, fill=255)
-    draw.text((MARGIN + 16, hero_top + 45), current.week.upper(), font=HEADLINE, fill=255)
-    draw.line([(MARGIN + 128, hero_top + 16), (MARGIN + 128, hero_bottom - 16)], fill=255, width=1)
-
-    boys_x = MARGIN + 152
-    laila_x = MARGIN + 488
-    draw.text((boys_x, hero_top + 18), "AMMAR + HASAN", font=KICKER, fill=255)
     boys = _strip_emoji(current.boys) or "Open week"
-    draw.text((boys_x, hero_top + 54), truncate_text(draw, boys, HEADLINE, 310), font=HEADLINE, fill=255)
-    draw.text((laila_x, hero_top + 18), "LAILA", font=KICKER, fill=255)
     laila = _strip_emoji(current.laila) or "Open week"
-    draw.text((laila_x, hero_top + 54), truncate_text(draw, laila, HEADLINE, 250), font=HEADLINE, fill=255)
+    rows = (
+        ("AMMAR + HASAN", boys),
+        ("LAILA", laila),
+    )
+    for index, (who, activity) in enumerate(rows):
+        y = 92 + index * 126
+        draw.text((MARGIN, y), who, font=KICKER, fill=0)
+        measure = WIDTH - MARGIN * 2
+        lines = clamp_lines(draw, wrap_text(draw, activity, HEADLINE, measure), HEADLINE, measure, 2)
+        line_y = y + 30
+        for line in lines:
+            draw.text((MARGIN, line_y), line, font=HEADLINE, fill=0)
+            line_y += 34
+        draw_rule(draw, y + 96)
 
-    rows = camps[current_index + 1 : current_index + 5]
-    rows_top = 254
-    draw.text((MARGIN, rows_top), "COMING NEXT", font=KICKER, fill=0)
-    draw.text((MARGIN + 116, rows_top), "AMMAR + HASAN", font=KICKER, fill=0)
-    draw.text((WIDTH - MARGIN - 210, rows_top), "LAILA", font=KICKER, fill=0)
-    draw_rule(draw, rows_top + 22)
-
-    for index, camp in enumerate(rows):
-        y = rows_top + 36 + index * 45
-        draw.text((MARGIN, y), camp.week, font=BODY_BOLD, fill=0)
-        boys = _strip_emoji(camp.boys) or "—"
-        draw.text(
-            (MARGIN + 116, y),
-            truncate_text(draw, boys, BODY, 390),
-            font=BODY,
-            fill=0,
-        )
-        laila = _strip_emoji(camp.laila) or "—"
-        draw.text(
-            (WIDTH - MARGIN - 210, y),
-            truncate_text(draw, laila, BODY, 210),
-            font=BODY,
-            fill=0,
-        )
+    next_week = camps[current_index + 1] if current_index + 1 < len(camps) else None
+    if next_week:
+        footer_top = 366
+        draw.rectangle([MARGIN, footer_top, WIDTH - MARGIN, 452], fill=0)
+        draw.text((MARGIN + 16, footer_top + 14), f"NEXT · {next_week.week.upper()}", font=KICKER, fill=255)
+        next_text = f"{_strip_emoji(next_week.boys) or 'Open'} · {_strip_emoji(next_week.laila) or 'Open'}"
+        measure = WIDTH - MARGIN * 2 - 32
+        next_lines = clamp_lines(draw, wrap_text(draw, next_text, BODY_BOLD, measure), BODY_BOLD, measure, 1)
+        draw.text((MARGIN + 16, footer_top + 40), next_lines[0], font=BODY_BOLD, fill=255)
 
     return to_1bit(img)
 

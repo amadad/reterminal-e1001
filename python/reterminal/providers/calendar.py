@@ -43,8 +43,8 @@ from reterminal.render.kitchen import (
     new_canvas,
     render_notice,
     to_1bit,
-    truncate_text,
 )
+from reterminal.render.layout import clamp_lines, wrap_text
 from reterminal.scenes import SceneSpec
 
 
@@ -80,18 +80,21 @@ def _draw_today_items(
         return
 
     time_w = 108
-    for index, item in enumerate(items[:5]):
-        row_y = y + index * 54
+    for index, item in enumerate(items[:3]):
+        row_y = y + index * 76
         time_label = item.time or "ALL DAY"
         draw.text((x, row_y), time_label, font=BODY_BOLD, fill=0)
         content_x = x + time_w
         if item.who:
             draw.text((content_x, row_y + 1), item.who.upper(), font=KICKER, fill=0)
-            label_y = row_y + 19
+            label_y = row_y + 20
         else:
             label_y = row_y
-        label = truncate_text(draw, _strip_emoji(item.label), BODY, width - time_w)
-        draw.text((content_x, label_y), label, font=BODY, fill=0)
+        measure = width - time_w
+        lines = clamp_lines(draw, wrap_text(draw, _strip_emoji(item.label), BODY, measure), BODY, measure, 2)
+        for line in lines:
+            draw.text((content_x, label_y), line, font=BODY, fill=0)
+            label_y += 25
 
 
 def _draw_tomorrow_panel(
@@ -103,29 +106,32 @@ def _draw_tomorrow_panel(
     width: int,
 ) -> None:
     top, bottom = 64, 446
-    draw.rectangle([x, top, x + width, bottom], fill=0)
-    draw.text((x + 16, top + 16), "TOMORROW", font=KICKER, fill=255)
+    draw.rectangle([x, top, x + width, bottom], outline=0, width=2)
+    draw.rectangle([x, top, x + width, top + 80], fill=0)
+    draw.text((x + 16, top + 14), "TOMORROW", font=KICKER, fill=255)
     day_label = str(tomorrow.day)
-    draw.text((x + 16, top + 42), day_label, font=DISPLAY, fill=255)
-    weekday_x = x + 30 + draw.textlength(day_label, font=DISPLAY)
-    draw.text((weekday_x, top + 72), tomorrow.strftime("%A").upper(), font=KICKER, fill=255)
-    draw.line([(x + 16, top + 116), (x + width - 16, top + 116)], fill=255, width=1)
+    draw.text((x + 16, top + 30), day_label, font=HEADLINE, fill=255)
+    weekday_x = x + 34 + draw.textlength(day_label, font=HEADLINE)
+    draw.text((weekday_x, top + 48), tomorrow.strftime("%A").upper(), font=KICKER, fill=255)
 
     if not items:
-        draw.text((x + 16, top + 140), "Nothing scheduled.", font=BODY, fill=255)
+        draw.text((x + 16, top + 104), "Nothing scheduled.", font=BODY, fill=0)
         return
 
-    cursor = top + 140
+    cursor = top + 100
     inner_w = width - 32
-    for item in items[:4]:
+    for item in items[:3]:
         time_label = item.time or "ALL DAY"
-        draw.text((x + 16, cursor), time_label, font=META, fill=255)
+        draw.text((x + 16, cursor), time_label, font=META, fill=0)
         if item.who:
             who_w = draw.textlength(item.who.upper(), font=KICKER)
-            draw.text((x + width - 16 - who_w, cursor + 2), item.who.upper(), font=KICKER, fill=255)
-        label = truncate_text(draw, _strip_emoji(item.label), BODY, inner_w)
-        draw.text((x + 16, cursor + 23), label, font=BODY, fill=255)
-        cursor += 66
+            draw.text((x + width - 16 - who_w, cursor + 2), item.who.upper(), font=KICKER, fill=0)
+        label_y = cursor + 23
+        lines = clamp_lines(draw, wrap_text(draw, _strip_emoji(item.label), BODY, inner_w), BODY, inner_w, 2)
+        for line in lines:
+            draw.text((x + 16, label_y), line, font=BODY, fill=0)
+            label_y += 25
+        cursor += 88
 
 
 def render_calendar(
@@ -137,9 +143,9 @@ def render_calendar(
     dropped: int = 0,
 ) -> Image.Image:
     img, draw = new_canvas()
-    draw_kicker(draw, "Agenda", right=today.strftime("%A · %b %-d").upper())
+    draw_kicker(draw, "Now", right=today.strftime("%A · %b %-d").upper())
 
-    panel_w = 216
+    panel_w = 300
     panel_x = WIDTH - MARGIN - panel_w
     today_w = panel_x - MARGIN - 24
 

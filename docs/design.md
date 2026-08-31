@@ -26,7 +26,9 @@ data-encoding vocabulary it draws on.
 ## Principles
 
 1. **Glance, not read.** A slot answers one question from across the kitchen.
-   Fewer items, larger type, more whitespace. When in doubt, cut a row.
+   Fewer items, larger type, more whitespace. Now shows at most three items per
+   day; Week shows one line per child group; Focus shows one action; Action shows
+   at most three checks. When in doubt, cut a row.
 2. **One frame, many bodies.** Every slot opens with the same chrome (kicker →
    optional rule → body → authoritative metadata when available). The body
    differs by content; the frame never does. That sameness-of-frame is what
@@ -63,7 +65,9 @@ so rendering is identical on macOS and Linux.
 | `DISPLAY` | 54 bold | big numerals (day-countdowns) |
 
 **Legibility floor:** body text is never below 22px; labels are bold. Thin
-weights and sub-20px body copy turn to mush on the panel.
+weights and sub-20px body copy turn to mush on the panel. Primary content wraps
+within a deliberate measure instead of shrinking or ending in an ellipsis;
+content limits create the space required for complete words and balanced lines.
 
 **The one exception:** a genuinely dense composition (the missions 4-up grid,
 four cards in one slot) may step a role down one rung *inside a cell*. Dense
@@ -77,10 +81,10 @@ exceptions are noted in code with a comment; do not let them spread.
 │ ─────────────────────────────────────────────────────  │  ← draw_rule() (optional)
 │                                                         │
 │   body — composed per slot:                             │
-│     calendar : TODAY masthead + inverted TOMORROW rail  │
-│     camps    : current-week hero + four-week lookahead  │
-│     trip     : countdown + route + next gate            │
-│     quest    : generated mark + three entry levels      │
+│     now      : TODAY masthead + bordered TOMORROW rail  │
+│     week     : current-week hero + short lookahead      │
+│     focus    : countdown + one next action              │
+│     action   : three-row household punchlist            │
 │                                                         │
 │                        [generated-feed freshness stamp]  │
 └─────────────────────────────────────────────────────────┘
@@ -99,10 +103,10 @@ exceptions are noted in code with a comment; do not let them spread.
 ## Generated graphics
 
 Feature pages may generate deterministic monochrome artwork from their content.
-The Family Quest uses a title-seeded 5×5 mirrored mark; the trip feature draws a
-title-seeded mountain line. These are reproducible render primitives, not
-image-model calls: identical content must always produce identical pixels and
-pass the snapshot gate.
+The trip focus draws a title-seeded mountain line; the action page deliberately
+uses the space for large checklist rows instead of decorative art. Rendered
+primitives are reproducible, not image-model calls: identical content must
+always produce identical pixels and pass the snapshot gate.
 
 ## Iconography
 
