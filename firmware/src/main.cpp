@@ -8,8 +8,8 @@
  * Long-press right button (3s) enters diagnostic mode: HTTP server +
  * mDNS + OTA up for 10 minutes, then back to deep sleep.
  *
- * Slots persist in LittleFS; per-slot content fingerprints persist in
- * RTC RAM across sleep so we only fetch what actually changed.
+ * Slots persist in LittleFS. Full hashes are recomputed from stored bytes
+ * on wake; delivery receipts follow pulls and returned display refresh calls.
  */
 
 #include <Arduino.h>
@@ -23,6 +23,8 @@
 #include <Fonts/FreeMonoBold18pt7b.h>
 #include <LittleFS.h>
 #include <esp_sleep.h>
+#include <mbedtls/sha256.h>
+#include <sys/time.h>
 #include <driver/rtc_io.h>
 
 // ---- Build flags ----
@@ -87,6 +89,8 @@ const char* EVENT_LOG_PATH = "/eventlog.bin";
 // ---- Runtime state ----
 uint8_t* pageStorage[NUM_PAGES] = {nullptr};
 bool pageLoaded[NUM_PAGES] = {false};
+char storedHashes[NUM_PAGES][65] = {};
+bool refreshReturned = false;
 int currentPage = 0;
 bool fsReady = false;
 HardwareSerial& usbSerial = Serial1;
@@ -100,15 +104,20 @@ size_t uploadBytesReceived = 0;
 int uploadTargetPage = -1;
 
 // ---- RTC state (survives deep sleep, lost on poweron) ----
-const uint32_t RTC_MAGIC = 0x52455445;  // 'RETE'
+const uint32_t RTC_MAGIC = 0x52455447;  // RTC layout includes display hash and poll deadline
 RTC_DATA_ATTR uint32_t rtcMagic = 0;
 RTC_DATA_ATTR uint32_t bootCount = 0;
-RTC_DATA_ATTR uint32_t slotHash[NUM_PAGES] = {0};
+RTC_DATA_ATTR char rtcDisplayedHash[65] = {};
 RTC_DATA_ATTR int rtcVisibleSlot = 0;
+RTC_DATA_ATTR int64_t nextPollAtUs = 0;
 
 // ---- Diagnostic mode (long-press right) ----
 bool diagnosticMode = false;
 unsigned long diagnosticEntryMs = 0;
+const char* wakeReason = "boot";
+String pullOutcome = "not_attempted";
+String pullError;
+String slotErrors[NUM_PAGES];
 
 // =====================================================================
 // Event log — small ring buffer in LittleFS, post-mortem only.
@@ -121,6 +130,11 @@ enum EventCode : uint8_t {
   EVENT_WAKE_BUTTON = 3,
   EVENT_DIAGNOSTIC = 4,
   EVENT_WIFI_FAIL = 5,
+  EVENT_PULL_UPDATED = 6,
+  EVENT_PULL_UNCHANGED = 7,
+  EVENT_PULL_PARTIAL = 8,
+  EVENT_PULL_ERROR = 9,
+  EVENT_RECEIPT_FAIL = 10,
 };
 
 struct EventEntry {
@@ -192,6 +206,11 @@ const char* eventName(uint8_t c) {
     case EVENT_WAKE_BUTTON: return "wake_button";
     case EVENT_DIAGNOSTIC: return "diagnostic";
     case EVENT_WIFI_FAIL: return "wifi_fail";
+    case EVENT_PULL_UPDATED: return "pull_updated";
+    case EVENT_PULL_UNCHANGED: return "pull_unchanged";
+    case EVENT_PULL_PARTIAL: return "pull_partial";
+    case EVENT_PULL_ERROR: return "pull_error";
+    case EVENT_RECEIPT_FAIL: return "receipt_fail";
     default: return "none";
   }
 }
@@ -225,6 +244,8 @@ void showPage(int page) {
     delay(1);
   } while (display.nextPage());
   display.hibernate();
+  refreshReturned = true;
+  strlcpy(rtcDisplayedHash, pageLoaded[page] ? storedHashes[page] : "", sizeof(rtcDisplayedHash));
 }
 
 void showCenteredScreen(const char* l1, const char* l2 = nullptr, const char* l3 = nullptr) {
@@ -240,6 +261,7 @@ void showCenteredScreen(const char* l1, const char* l2 = nullptr, const char* l3
     delay(1);
   } while (display.nextPage());
   display.hibernate();
+  rtcDisplayedHash[0] = 0;
 }
 
 // =====================================================================
@@ -250,13 +272,39 @@ String slotPath(int page) {
   return String(SLOT_DIR) + "/slot-" + String(page) + ".raw";
 }
 
-bool saveSlotToFlash(int page) {
-  if (!fsReady || !pageLoaded[page] || !pageStorage[page]) return false;
-  File f = LittleFS.open(slotPath(page), "w");
+bool bitmapHash(const uint8_t* data, char* hex) {
+  uint8_t digest[32];
+  if (mbedtls_sha256_ret(data, IMAGE_BYTES, digest, 0) != 0) return false;
+  for (int i = 0; i < 32; i++) snprintf(hex + i * 2, 3, "%02x", digest[i]);
+  return true;
+}
+
+// Stage and verify before replacing the last good file or in-memory page.
+bool saveSlotToFlash(int page, const uint8_t* data) {
+  if (!fsReady || !data || !pageStorage[page]) return false;
+  String temporary = slotPath(page) + ".tmp";
+  File f = LittleFS.open(temporary, "w");
   if (!f) return false;
-  size_t written = f.write(pageStorage[page], IMAGE_BYTES);
+  size_t written = f.write(data, IMAGE_BYTES);
   f.close();
-  return written == IMAGE_BYTES;
+  bool valid = written == IMAGE_BYTES;
+  f = LittleFS.open(temporary, "r");
+  valid = valid && f && f.size() == IMAGE_BYTES;
+  uint8_t chunk[1024];
+  for (size_t offset = 0; valid && offset < IMAGE_BYTES; offset += sizeof(chunk)) {
+    size_t count = min(sizeof(chunk), static_cast<size_t>(IMAGE_BYTES) - offset);
+    valid = f.read(chunk, count) == count && memcmp(chunk, data + offset, count) == 0;
+  }
+  if (f) f.close();
+  char digest[65];
+  if (!valid || !bitmapHash(data, digest) || !LittleFS.rename(temporary, slotPath(page))) {
+    LittleFS.remove(temporary);
+    return false;
+  }
+  memcpy(pageStorage[page], data, IMAGE_BYTES);
+  pageLoaded[page] = true;
+  strlcpy(storedHashes[page], digest, sizeof(storedHashes[page]));
+  return true;
 }
 
 bool loadSlotFromFlash(int page) {
@@ -265,7 +313,7 @@ bool loadSlotFromFlash(int page) {
   if (!f || f.size() != IMAGE_BYTES) { if (f) f.close(); return false; }
   size_t read = f.read(pageStorage[page], IMAGE_BYTES);
   f.close();
-  if (read != IMAGE_BYTES) return false;
+  if (read != IMAGE_BYTES || !bitmapHash(pageStorage[page], storedHashes[page])) return false;
   pageLoaded[page] = true;
   return true;
 }
@@ -295,6 +343,18 @@ int loadState() {
 // WiFi + HTTP pull
 // =====================================================================
 
+// The configured RTC + high-resolution system clock survives deep sleep.
+// No SNTP is used: these relative deadlines do not require calendar time.
+int64_t clockUs() {
+  timeval now;
+  gettimeofday(&now, nullptr);
+  return static_cast<int64_t>(now.tv_sec) * 1000000LL + now.tv_usec;
+}
+
+void scheduleNextPoll() {
+  nextPollAtUs = clockUs() + static_cast<int64_t>(RETERMINAL_WAKE_INTERVAL_S) * 1000000LL;
+}
+
 bool connectWifi(unsigned long timeout_ms) {
   if (strlen(RETERMINAL_WIFI_SSID) == 0) return false;
   WiFi.persistent(false);
@@ -310,11 +370,12 @@ bool connectWifi(unsigned long timeout_ms) {
   return true;
 }
 
-uint32_t hashFingerprint(const char* hex) {
-  if (!hex || strlen(hex) < 8) return 0;
-  char buf[9];
-  memcpy(buf, hex, 8); buf[8] = 0;
-  return static_cast<uint32_t>(strtoul(buf, nullptr, 16));
+bool validHash(const char* hex) {
+  if (!hex || strlen(hex) != 64) return false;
+  for (int i = 0; i < 64; i++) {
+    if (!((hex[i] >= '0' && hex[i] <= '9') || (hex[i] >= 'a' && hex[i] <= 'f'))) return false;
+  }
+  return true;
 }
 
 String publisherBase() {
@@ -322,42 +383,178 @@ String publisherBase() {
          String(RETERMINAL_PUBLISHER_PORT);
 }
 
-// Returns slots updated (>=0), or -1 on hash-endpoint failure.
-int wakePoll() {
-  if (strlen(RETERMINAL_PUBLISHER_HOST) == 0) return -1;
-  WiFiClient client; HTTPClient http;
-  if (!http.begin(client, publisherBase() + "/content-hash")) return -1;
-  http.setTimeout(5000);
-  if (http.GET() != 200) { http.end(); return -1; }
-  JsonDocument doc;
-  if (deserializeJson(doc, http.getString()) != DeserializationError::Ok) {
-    http.end(); return -1;
+// Stream::readBytes resets its timeout for each byte. Use an absolute body
+// deadline so a stalled or trickling response cannot prolong this read forever.
+size_t readBodyWithin(HTTPClient& http, uint8_t* destination, size_t expected,
+                      unsigned long timeoutMs) {
+  WiFiClient* stream = http.getStreamPtr();
+  unsigned long started = millis();
+  size_t got = 0;
+  while (got < expected && millis() - started < timeoutMs) {
+    int available = stream->available();
+    if (available > 0) {
+      size_t count = min(static_cast<size_t>(available), expected - got);
+      int read = stream->read(destination + got, count);
+      if (read <= 0) break;
+      got += read;
+    } else if (!http.connected()) {
+      break;
+    } else {
+      delay(1);
+    }
   }
+  return got;
+}
+
+// Errors never replace the last good bitmap. Return the number of updated slots.
+int wakePoll() {
+  pullOutcome = "error";
+  pullError = "";
+  for (int i = 0; i < NUM_PAGES; i++) slotErrors[i] = "";
+  if (strlen(RETERMINAL_PUBLISHER_HOST) == 0) {
+    pullError = "publisher_not_configured";
+    return 0;
+  }
+  WiFiClient client; HTTPClient http;
+  if (!http.begin(client, publisherBase() + "/content-hash")) {
+    pullError = "hash_connect_failed";
+    return 0;
+  }
+  http.setTimeout(5000);
+  int status = http.GET();
+  if (status != 200) {
+    pullError = String("hash_http_") + status;
+    http.end();
+    return 0;
+  }
+  int bodySize = http.getSize();
+  if (bodySize <= 0 || bodySize > 4096) {
+    pullError = "invalid_hash_manifest_length";
+    http.end();
+    return 0;
+  }
+  uint8_t* body = static_cast<uint8_t*>(malloc(bodySize));
+  if (!body || readBodyWithin(http, body, bodySize, 5000) != static_cast<size_t>(bodySize)) {
+    if (body) free(body);
+    pullError = body ? "incomplete_hash_manifest" : "out_of_memory";
+    http.end();
+    return 0;
+  }
+  JsonDocument doc;
+  DeserializationError parsed = deserializeJson(doc, static_cast<const uint8_t*>(body), bodySize);
+  free(body);
   http.end();
+  if (parsed != DeserializationError::Ok || !doc["hashes"].is<JsonObject>()) {
+    pullError = "invalid_hash_manifest";
+    return 0;
+  }
 
   int updated = 0;
+  int failures = 0;
+  uint8_t* candidate = nullptr;
   for (int i = 0; i < NUM_PAGES; i++) {
-    uint32_t fp = hashFingerprint(doc["hashes"][String("slot-") + i]);
-    if (fp == 0 || fp == slotHash[i] || !pageStorage[i]) continue;
-    HTTPClient h2;
-    if (!h2.begin(client, publisherBase() + "/content/slot-" + i)) continue;
-    h2.setTimeout(10000);
-    if (h2.GET() != 200) { h2.end(); continue; }
-    WiFiClient* s = h2.getStreamPtr();
-    size_t got = 0;
-    while (got < IMAGE_BYTES && (h2.connected() || s->available())) {
-      int n = s->readBytes(pageStorage[i] + got, IMAGE_BYTES - got);
-      if (n <= 0) break;
-      got += n;
+    JsonObject hashes = doc["hashes"].as<JsonObject>();
+    // An explicit null is an unassigned slot, not a deletion request. Keep its
+    // last good bitmap; retiring visible content requires a rendered fallback.
+    if (!hashes[PAGE_NAMES[i]].isUnbound() && hashes[PAGE_NAMES[i]].isNull()) continue;
+    const char* desired = hashes[PAGE_NAMES[i]];
+    if (!validHash(desired)) {
+      slotErrors[i] = "invalid_hash";
+      failures++;
+      continue;
     }
-    h2.end();
-    if (got != IMAGE_BYTES) continue;
-    pageLoaded[i] = true;
-    if (!saveSlotToFlash(i)) continue;
-    slotHash[i] = fp;
-    updated++;
+    if (pageLoaded[i] && strcmp(desired, storedHashes[i]) == 0) continue;
+    if (!candidate) candidate = static_cast<uint8_t*>(ps_malloc(IMAGE_BYTES));
+    if (!candidate) candidate = static_cast<uint8_t*>(malloc(IMAGE_BYTES));
+    if (!candidate || !pageStorage[i]) {
+      slotErrors[i] = "out_of_memory";
+      failures++;
+      continue;
+    }
+    HTTPClient content;
+    if (!content.begin(client, publisherBase() + "/content/" + PAGE_NAMES[i] + "?hash=" + desired)) {
+      slotErrors[i] = "connect_failed";
+      failures++;
+      continue;
+    }
+    content.setTimeout(10000);
+    status = content.GET();
+    if (status != 200 || content.getSize() != IMAGE_BYTES) {
+      slotErrors[i] = status != 200 ? String("http_") + status : "invalid_length";
+      content.end();
+      failures++;
+      continue;
+    }
+    size_t got = readBodyWithin(content, candidate, IMAGE_BYTES, 10000);
+    content.end();
+    char actual[65];
+    if (got != IMAGE_BYTES) slotErrors[i] = "incomplete_download";
+    else if (!bitmapHash(candidate, actual) || strcmp(actual, desired) != 0) slotErrors[i] = "hash_mismatch";
+    else if (!saveSlotToFlash(i, candidate)) slotErrors[i] = "storage_write_failed";
+    else { updated++; continue; }
+    failures++;
   }
+  if (candidate) free(candidate);
+  pullOutcome = failures ? (updated ? "partial" : "error") : (updated ? "updated" : "unchanged");
+  if (failures) pullError = "slot_update_failed";
   return updated;
+}
+
+void addDeliveryState(JsonDocument& doc) {
+  doc["device_id"] = WiFi.macAddress();
+  doc["wake_reason"] = wakeReason;
+  int64_t remaining = (nextPollAtUs - clockUs()) / 1000000LL;
+  doc["next_poll_in_s"] = remaining > 0 ? remaining : 0;
+  doc["outcome"] = pullOutcome;
+  if (pullError.length()) doc["error"] = pullError;
+  else doc["error"] = nullptr;
+  doc["refresh_returned"] = refreshReturned;
+  if (rtcDisplayedHash[0]) doc["displayed_hash"] = rtcDisplayedHash;
+  else doc["displayed_hash"] = nullptr;
+  JsonObject hashes = doc["hashes"].to<JsonObject>();
+  JsonObject errors = doc["slot_errors"].to<JsonObject>();
+  for (int i = 0; i < NUM_PAGES; i++) {
+    if (pageLoaded[i]) hashes[PAGE_NAMES[i]] = storedHashes[i];
+    else hashes[PAGE_NAMES[i]] = nullptr;
+    if (slotErrors[i].length()) errors[PAGE_NAMES[i]] = slotErrors[i];
+  }
+}
+
+void postReceipt() {
+  if (strlen(RETERMINAL_PUBLISHER_HOST) == 0) return;
+  JsonDocument doc;
+  doc["schema_version"] = 1;
+  doc["hostname"] = RETERMINAL_HOSTNAME;
+  doc["firmware_version"] = RETERMINAL_FIRMWARE_VERSION;
+  doc["build_sha"] = RETERMINAL_BUILD_SHA;
+  doc["boot_count"] = bootCount;
+  doc["wake_interval_s"] = RETERMINAL_WAKE_INTERVAL_S;
+  doc["current_page"] = currentPage;
+  doc["uptime_ms"] = millis();
+  doc["battery_mv"] = readBatteryMv();
+  doc["rssi"] = WiFi.RSSI();
+  addDeliveryState(doc);
+  String body;
+  serializeJson(doc, body);
+  WiFiClient client; HTTPClient http;
+  bool acknowledged = false;
+  if (http.begin(client, publisherBase() + "/receipt")) {
+    http.setTimeout(5000);
+    http.addHeader("Content-Type", "application/json");
+    int status = http.POST(body);
+    acknowledged = status >= 200 && status < 300;
+    http.end();
+  }
+  if (!acknowledged) eventLogAppend(EVENT_RECEIPT_FAIL);
+}
+
+void pullAndReport() {
+  int updated = wakePoll();
+  if (updated > 0) showPage(currentPage);
+  eventLogAppend(pullOutcome == "updated" ? EVENT_PULL_UPDATED
+                 : pullOutcome == "unchanged" ? EVENT_PULL_UNCHANGED
+                 : pullOutcome == "partial" ? EVENT_PULL_PARTIAL : EVENT_PULL_ERROR);
+  postReceipt();
 }
 
 // =====================================================================
@@ -370,8 +567,14 @@ void enterDeepSleep() {
   WiFi.disconnect(true, true);
   WiFi.mode(WIFI_OFF);
 
-  esp_sleep_enable_timer_wakeup(
-      static_cast<uint64_t>(RETERMINAL_WAKE_INTERVAL_S) * 1000000ULL);
+  int64_t now = clockUs();
+  int64_t interval = static_cast<int64_t>(RETERMINAL_WAKE_INTERVAL_S) * 1000000LL;
+  // Keep the original deadline through navigation wakes. A due poll wakes in
+  // one second, after this button interaction, instead of being postponed.
+  if (nextPollAtUs <= 0 || nextPollAtUs > now + interval) scheduleNextPoll();
+  int64_t remaining = nextPollAtUs - now;
+  uint64_t sleepUs = remaining > 1000000LL ? remaining : 1000000ULL;
+  esp_sleep_enable_timer_wakeup(sleepUs);
 
   gpio_num_t pins[] = {(gpio_num_t)BTN_LEFT, (gpio_num_t)BTN_MIDDLE, (gpio_num_t)BTN_RIGHT};
   for (gpio_num_t pin : pins) {
@@ -385,7 +588,7 @@ void enterDeepSleep() {
   esp_sleep_enable_ext1_wakeup(mask, ESP_EXT1_WAKEUP_ANY_LOW);
 
   usbSerial.printf("Deep sleep: %lus or button. uptime=%lums\n",
-                   static_cast<unsigned long>(RETERMINAL_WAKE_INTERVAL_S),
+                   static_cast<unsigned long>(sleepUs / 1000000ULL),
                    static_cast<unsigned long>(millis()));
   delay(50);
   esp_deep_sleep_start();
@@ -450,6 +653,7 @@ void handleStatus() {
   doc["reset_reason"] = static_cast<int>(esp_reset_reason());
   doc["littlefs_used_bytes"] = fsReady ? LittleFS.usedBytes() : 0;
   doc["event_log_total"] = eventLogHeader.total_appended;
+  addDeliveryState(doc);
   JsonArray loaded = doc["loaded_pages"].to<JsonArray>();
   for (int i = 0; i < NUM_PAGES; i++) loaded.add(pageLoaded[i]);
   String body; serializeJson(doc, body);
@@ -520,9 +724,7 @@ void handleImageRaw() {
     sendJson(400, "{\"error\":\"bad upload\"}");
     return;
   }
-  memcpy(pageStorage[uploadTargetPage], uploadBuffer, IMAGE_BYTES);
-  pageLoaded[uploadTargetPage] = true;
-  if (!saveSlotToFlash(uploadTargetPage)) {
+  if (!saveSlotToFlash(uploadTargetPage, uploadBuffer)) {
     sendJson(500, "{\"error\":\"slot write failed\"}");
     return;
   }
@@ -596,8 +798,9 @@ void setup() {
   if (firstBoot) {
     rtcMagic = RTC_MAGIC;
     bootCount = 0;
-    memset(reinterpret_cast<void*>(slotHash), 0, sizeof(slotHash));
+    rtcDisplayedHash[0] = 0;
     rtcVisibleSlot = 0;
+    nextPollAtUs = 0;
   }
   bootCount++;
   usbSerial.printf("\nWake cause=%d firstBoot=%d bootCount=%lu\n",
@@ -650,12 +853,15 @@ void setup() {
   if (cause == ESP_SLEEP_WAKEUP_EXT1) {
     handleButtonWake();
     if (diagnosticMode) {
-      // Need WiFi for the HTTP API in diagnostic mode.
+      // Need WiFi for the fresh pull and HTTP API in diagnostic mode.
+      scheduleNextPoll();
       if (!connectWifi(15000)) {
         eventLogAppend(EVENT_WIFI_FAIL);
         enterDeepSleep();
         return;
       }
+      wakeReason = "diagnostic";
+      pullAndReport();
       enterDiagnosticMode();
       return;  // setup returns; loop() services HTTP + OTA until timeout.
     }
@@ -664,9 +870,10 @@ void setup() {
   }
 
   if (cause == ESP_SLEEP_WAKEUP_TIMER) {
+    scheduleNextPoll();
     if (connectWifi(15000)) {
-      int updated = wakePoll();
-      if (updated > 0) showPage(currentPage);
+      wakeReason = "timer";
+      pullAndReport();
     } else {
       eventLogAppend(EVENT_WIFI_FAIL);
     }
@@ -675,6 +882,7 @@ void setup() {
   }
 
   // Cold boot (poweron / brownout / first ever / SW reset).
+  scheduleNextPoll();
   bool anyLoaded = false;
   for (int i = 0; i < NUM_PAGES; i++) if (pageLoaded[i]) { anyLoaded = true; break; }
   if (anyLoaded && pageLoaded[currentPage]) {
@@ -686,8 +894,7 @@ void setup() {
     if (!anyLoaded) {
       showCenteredScreen("reTerminal E1001", "Ready!", WiFi.localIP().toString().c_str());
     }
-    int updated = wakePoll();
-    if (updated > 0) showPage(currentPage);
+    pullAndReport();
     beep(100);
   } else if (firstBoot) {
     showCenteredScreen("WiFi connect failed", "Check platformio.local.ini");

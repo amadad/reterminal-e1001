@@ -43,6 +43,12 @@ See:
 - render editorial monochrome layouts
 - preview locally or push to the device
 
+For an automatically advancing kitchen calendar, preview
+`python/examples/kitchen-calendar.json`: **Now, Week, Quest/Tomorrow, Weekend**.
+Expired quests yield to tomorrow's calendar details. See [the kitchen SOP](docs/kitchen-display-sop.md),
+[structured calendar acquisition](docs/calendar-source.md), and
+[delivery verification](docs/delivery.md) for activation, freshness, and device receipts.
+
 ### Removed legacy page system
 
 The older fixed page modules have been removed. The active direction is provider-driven scenes, not a hardcoded carousel.

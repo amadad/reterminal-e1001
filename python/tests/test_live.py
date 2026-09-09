@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import urllib.request
+import pytest
 from pathlib import Path
 
 from PIL import Image
@@ -22,6 +23,7 @@ from reterminal.app.live import (
     _start_content_server,
 )
 from reterminal.app.publisher import DisplayPublisher
+from reterminal.app.delivery import DeliveryState
 from reterminal.encoding import pil_to_raw
 from reterminal.providers.activities import ActivitiesProvider
 from reterminal.providers.events import EventsProvider
@@ -193,13 +195,19 @@ def test_live_runtime_reload_keeps_config_on_broken_manifest(tmp_path: Path):
     events = tmp_path / "events.md"
     events.write_text("## Upcoming\n\n- 2099-01-01 Alpha Event [event]\n")
     manifest = _write_manifest(tmp_path / "manifest.json", events)
-    runtime = _LiveRuntime(manifest, _BitmapCache())
+    delivery = DeliveryState()
+    runtime = _LiveRuntime(manifest, _BitmapCache(), delivery)
     good_publisher = runtime.publisher
 
     manifest.write_text("{ not valid json")
     assert runtime.reload() is False
     assert runtime.publisher is good_publisher
     assert str(events.resolve()) in runtime.content_watched
+    runtime.render()
+    assert delivery.health(runtime.cache.hashes())["config_error"] is not None
+    _write_manifest(manifest, events)
+    assert runtime.reload()
+    assert delivery.config_error is None
 
 
 def test_render_skips_scene_without_prerendered_via_normal_renderer(tmp_path: Path):
@@ -219,3 +227,25 @@ def test_render_skips_scene_without_prerendered_via_normal_renderer(tmp_path: Pa
     # no crash and the function returns an int.
     result = _render_to_cache(publisher, cache)
     assert isinstance(result, int)
+
+
+def test_failed_render_preserves_entire_previous_edition():
+    """A later slot failure must not publish a mixture of old and new slots."""
+    class Provider:
+        name = "test"
+
+        def fetch(self):
+            return [SceneSpec(id=f"x{n}", kind="hero", title="New", preferred_slot=n) for n in range(2)]
+
+    class Renderer:
+        def render(self, scene, *, slot, total_slots):
+            if slot == 1:
+                raise ValueError("failed slot")
+            return Image.new("1", (800, 480), 0)
+
+    publisher = DisplayPublisher(providers=[Provider()], renderer=Renderer(), scheduler=PriorityScheduler())
+    cache = _BitmapCache()
+    cache.mark_current(0, "old", b"old")
+    with pytest.raises(ValueError, match="failed slot"):
+        _render_to_cache(publisher, cache)
+    assert cache.entry(0).digest == "old"

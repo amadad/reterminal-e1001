@@ -25,10 +25,10 @@ Based on live probing plus USB bootloader interrogation on a macOS host:
 - the display contract is `800x480`, `1-bit`, `48000` bytes per raw image
 - firmware allocates **4** physical slots with neutral names `slot-0..slot-3`
 - a 3-second right-button hold opens a 10-minute diagnostic window exposing `/status`, `/eventlog`, `/snapshot`, `/imageraw`, `/page`, and `/sleep`
-- slots persist to LittleFS across normal power cycles; a failed slot write must not advance its RTC content fingerprint
+- slots persist to LittleFS across normal power cycles; a failed slot write must preserve its previous bytes and full SHA-256
 - on boot, firmware restores persisted slots and shows the last active page
 - display uses **full refresh on every path**. Partial refresh produced layered artifacts between dissimilar pages; every refresh calls `display.hibernate()`
-- button wakes navigate cached pages without first polling the host; timer wake is the freshness path
+- short button wakes navigate cached pages without postponing the polling deadline; timer wakes and diagnostic long holds pull fresh content
 - USB interrogation identified the board as `ESP32-S3` with embedded `8MB` PSRAM and `32MB` flash behind a `CH340` serial bridge
 
 The checked-in `artifacts/probe-report.json` is sanitized evidence for the
@@ -54,7 +54,7 @@ reterminal-e1001/
 │       ├── app/
 │       ├── cli/
 │       ├── device/
-│       ├── family/              # pure markdown parsers + dataclasses for established kitchen grammars; PIL-free
+│       ├── family/              # PIL-free parsers/projections plus explicit calendar acquisition
 │       ├── providers/
 │       ├── render/              # mono renderer, layout/bitmap primitives, shared viz vocabulary (see docs/visualizations.md)
 │       ├── scheduler/
@@ -115,11 +115,10 @@ The old fixed-page `refresh` / `watch` CLI commands and `reterminal/pages/*` mod
 
 ## Live feed architecture
 
-The kitchen display is driven by **four allowlisted local markdown sources**, watched via FSEvents by `reterminal publish --watch`. Machine-specific source paths and slot ownership belong in the ignored `python/examples/kitchen-display.local.json`; `python/examples/kitchen-display.json` remains a public compatibility/example manifest. The display pipeline has zero required calendar/chat/cloud API dependencies: external systems such as Google Calendar write a narrow markdown projection upstream of this repo.
+The everyday kitchen edition uses **three calendar pages plus a current Quest or Tomorrow fallback**, watched via FSEvents by `reterminal publish --watch`. Machine-specific source paths and live slot ownership belong in the ignored `python/examples/kitchen-display.local.json`; `python/examples/kitchen-calendar.json` defines the everyday edition, while `kitchen-display.json` remains a mixed-provider compatibility example. Rendering reads local sources without requiring calendar/chat/cloud APIs. The explicit `calendar-export` command acquires a structured Google Calendar projection through the installed gws CLI; markdown projections remain supported.
 
 ```
-Google Family Calendar exporter ─►  ~/reterminal-content/family/calendar.md
-Canonical family wiki          ─►  camps page + display-safe trip/quest blocks
+Google Family Calendar exporter ─►  manifest-selected calendar.md or calendar JSON
                                                         │
                                                         ▼  (FSEvents on all sources)
                                        reterminal publish --watch
@@ -131,16 +130,24 @@ Canonical family wiki          ─►  camps page + display-safe trip/quest bloc
                                   deep-sleeping device pulls on its next wake
 ```
 
-Active machine-local layout, one provider per slot:
+Everyday edition (check the local manifest for actual activation):
 
-- **slot 0**: `calendar` — today's date/agenda as the primary field plus an inverted tomorrow rail. Sections are absolute dates (`## 2026-05-08 Fri`); the renderer selects today/tomorrow from `date.today()`. Retired `## Today` / `## Tomorrow` headers trigger a migration notice. See `docs/oc-calendar-heartbeat.md`.
-- **slot 1**: `camps` — current summer week as a hero plus four upcoming weeks from the canonical camps table. Notes/cost are parsed away and never shown on the shared wall.
-- **slot 2**: `trip` — countdown, safe route summary, operating rule, and next gate from the trip page's explicit `## Kitchen Display` block.
-- **slot 3**: `quest` — one weekly, kid-facing challenge from `family-quest.md`'s explicit `## Kitchen Display` block.
+- **slot 0**: `calendar`, `view: now` (the default) — today/tomorrow. Absolute-date sections distinguish missing data from no scheduled events.
+- **slot 1**: `calendar`, `view: week` — first event on up to four scheduled days within the next week, with counts for extra events.
+- **slot 2**: optional current `quest`, falling back to `calendar`, `view: prepare` — tomorrow's first event and its recorded location. Missing, invalid, and expired quests yield their slot automatically.
+- **slot 3**: `calendar`, `view: weekend` — Saturday/Sunday plans, advancing on Monday.
+
+The calendar exporter runs every 20 minutes as system LaunchDaemon `sh.reterminal.family-calendar`; the continuous publisher is `sh.reterminal.publish` in the same system domain. Use `launchctl print system/<label>` for current state and `sudo launchctl kickstart -k system/sh.reterminal.publish` after Python code changes. Manifest edits hot-reload configuration but cannot reload already-imported Python modules. No new cron is needed for these calendar views. Date selection lives in `family/agenda.py`, composition in `render/agenda.py`, and adapter wiring in `providers/calendar.py`.
 
 The tracked public example still demonstrates `calendar` / `missions` / `comingup` / `camps`. Standalone `missions`, `events`, `activities`, and consolidated `comingup` providers remain registered and tested for other manifests.
 
-The wiring lives in a provider manifest such as `python/examples/kitchen-display.json` (a provider manifest, not a scene list). Provider implementations are in `python/reterminal/providers/{calendar,missions,events,activities,comingup,camps,features}.py` — each owns a renderer + `SceneProvider` class. The established family grammars import parsers/dataclasses from `reterminal.family.<name>`; `features.py` instead reads only an explicit `## Kitchen Display` projection from an allowlisted wiki page so private surrounding prose cannot enter the scene model. The `reterminal.family` package remains the pure parsing layer (markdown → dataclasses, no PIL) so non-display consumers (briefs, OC flows, recall CLIs) can `from reterminal.family import parse_calendar, parse_missions, ...` without dragging in the render pipeline. Each provider returns a `SceneSpec` carrying a prerendered 800x480 1-bit bitmap; `MonoRenderer` short-circuits on prerendered scenes and just blits.
+The structured JSON exporter preserves full days, event ends, timezone, status, and
+source check time; markdown remains supported. See `docs/calendar-source.md` for
+the recurring job replacement. See `docs/delivery.md` for host-first firmware
+rollout, receipts, and the three-timer-update physical gate. Never infer delivery
+from server availability or optical success from a returned driver call.
+
+The wiring lives in a provider manifest such as `python/examples/kitchen-display.json` (a provider manifest, not a scene list). Provider implementations are in `python/reterminal/providers/{calendar,missions,events,activities,comingup,camps,features}.py` — each owns a renderer + `SceneProvider` class. The established family grammars import parsers/dataclasses from `reterminal.family.<name>`; `features.py` instead reads only an explicit `## Kitchen Display` projection from an allowlisted wiki page so private surrounding prose cannot enter the scene model. The public `reterminal.family` parsing API remains PIL-free (markdown/JSON → dataclasses), so non-display consumers can `from reterminal.family import parse_calendar, parse_missions, ...` without the render pipeline. The separate `family/calendar_export.py` module performs explicit Google acquisition for `calendar-export`; parsers never call it. Each provider returns a `SceneSpec` carrying a prerendered 800x480 1-bit bitmap; `MonoRenderer` short-circuits on prerendered scenes and just blits.
 
 Markdown sources can be linted with `reterminal lint --feed <manifest>`; `reterminal doctor --feed <manifest>` runs the same lint as part of standard health checks (use `--skip-lint` to opt out). Generated/local feeds surface a black `STALE` pill when file mtime is authoritative: calendar 2h, missions 3d, events/activities 14d. Canonical trip/quest/camps pages use explicit reviewed/valid-through content instead, so unrelated private-page edits do not change pixels.
 
@@ -148,7 +155,7 @@ Beyond the original markdown providers, `quest` and `trip` can take a slot by re
 
 `reterminal brief --feed <manifest>` is a sample non-display consumer of `reterminal.family`: reads the manifest's calendar/missions/events/activities files and prints a daily readout. Useful as-is and as a worked example of what other tools (digests, recall CLIs, OC flows) can build on the family API.
 
-The trigger loop (`python/reterminal/app/live.py`) uses `watchdog` for FSEvents on the parent directories of every source file the manifest names (a provider like `comingup` contributes more than one), plus the manifest file itself — editing the manifest hot-reloads providers in place, no restart. There is a 5-minute sanity tick. It renders changed slots into an in-memory cache and serves `GET /content-hash` plus `GET /content/slot-N` on port 8765. The firmware is the HTTP client; it wakes, compares hashes, fetches changed raw bitmaps, refreshes the panel, then sleeps. Slot pins live in the provider manifest (`slot: 0..3`), not in provider code. The public launchd template at `scripts/sh.reterminal.publish.example.plist` runs `scripts/reterminal-publish-watch.sh`.
+The trigger loop (`python/reterminal/app/live.py`) uses `watchdog` for FSEvents on the parent directories of every source file the manifest names (a provider like `comingup` contributes more than one), plus the manifest file itself — editing the manifest hot-reloads providers in place, no restart. There is a 5-minute sanity tick. It atomically installs complete rendered editions in an in-memory cache and serves `GET /content-hash`, hash-bound `GET /content/slot-N`, `GET /health`, and `POST /receipt` on port 8765. Receipt history persists alongside the manifest; configuration errors remain visible until a successful reload. The firmware is the HTTP client; it wakes, compares hashes, fetches changed raw bitmaps, refreshes the panel, then sleeps. Slot pins live in the provider manifest (`slot: 0..3`), not in provider code. The public launchd template at `scripts/sh.reterminal.publish.example.plist` runs `scripts/reterminal-publish-watch.sh`.
 
 Operational invariant: localhost health is not enough. The publisher must respond on the MacBook LAN IP because that is the path the device uses. If `curl http://127.0.0.1:8765/content-hash` works but `curl http://<macbook-lan-ip>:8765/content-hash` hangs, fix macOS Application Firewall for the Python runtime used by `uv`, then restart `sh.reterminal.publish`. The pull protocol is plain unauthenticated HTTP; run it only on a trusted LAN and use router/VLAN or host-firewall isolation rather than pretending the Python process is a security boundary.
 

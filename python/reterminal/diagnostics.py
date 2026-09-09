@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import subprocess
@@ -44,6 +45,7 @@ class DoctorReport:
     assignment_count: int = 0
     repo_build_sha: str | None = None
     firmware_match: str | None = None
+    publisher: dict | None = None
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -88,7 +90,7 @@ def firmware_match_status(caps: DeviceCapabilities, repo_sha: str | None = None)
     if repo_sha is None:
         return "unknown"
     if build_sha.endswith("-dirty") or repo_sha.endswith("-dirty"):
-        return "match" if build_sha == repo_sha else "mismatch"
+        return "unknown" if build_sha == repo_sha else "mismatch"
     return "match" if repo_sha.startswith(build_sha) or build_sha.startswith(repo_sha) else "mismatch"
 
 
@@ -196,29 +198,59 @@ def run_doctor(
     feed: Path | None = None,
     paperclip_url: str | None = None,
     include_system: bool = True,
+    publisher_url: str | None = None,
 ) -> DoctorReport:
     """Run operational checks against a device and optional publish inputs."""
     configured_host = (host or settings.host).strip() or None
     report = DoctorReport(configured_host=configured_host)
 
+    if publisher_url:
+        try:
+            report.publisher = _get_json(publisher_url.rstrip("/") + "/health", 3)
+            if "delivery_status" not in report.publisher:
+                raise ValueError("publisher does not report delivery status")
+            state = report.publisher["delivery_status"]
+            if state != "stored":
+                report.warnings.append(f"Device delivery is {state}; server availability is not device confirmation.")
+            if state in {"stale", "failed"}:
+                report.errors.append(f"Device delivery is {state}.")
+            for key in ("render_error", "config_error", "state_error"):
+                if report.publisher.get(key):
+                    report.errors.append(str(report.publisher[key]))
+            for source in report.publisher.get("sources", []):
+                if not source.get("exists"):
+                    report.warnings.append(f"Source unavailable: {source.get('path')}")
+                elif source.get("checked_at"):
+                    checked = datetime.fromisoformat(source["checked_at"].replace("Z", "+00:00"))
+                    if checked.tzinfo is None or (datetime.now(timezone.utc) - checked).total_seconds() > 7200:
+                        report.errors.append(f"Source has not been checked in over two hours: {source.get('path')}")
+            if feed and report.publisher.get("manifest") != str(feed.resolve()):
+                report.warnings.append("Publisher is serving a different manifest than --feed.")
+        except (requests.RequestException, ValueError, OSError, subprocess.SubprocessError) as exc:
+            report.errors.append(f"Publisher health unavailable: {exc}")
+
     if configured_host is None:
-        report.errors.append("Set RETERMINAL_HOST or pass --host with the device IP")
-        return report
+        if not publisher_url:
+            report.errors.append("Set RETERMINAL_HOST or pass --host with the device IP")
+            return report
 
-    try:
-        device = ReTerminalDevice(configured_host)
-        capabilities = device.discover_capabilities(refresh=True)
-    except Exception as exc:
-        report.errors.append(str(exc))
-        return report
+    capabilities = None
+    if configured_host:
+        try:
+            device = ReTerminalDevice(configured_host)
+            capabilities = device.discover_capabilities(refresh=True)
+        except Exception as exc:
+            report.errors.append(str(exc))
+            return report
 
-    report.reachable = True
-    report.resolved_host = capabilities.host
-    report.capabilities = capabilities
-    report.repo_build_sha = current_repo_sha()
-    report.firmware_match = firmware_match_status(capabilities, report.repo_build_sha)
+    if capabilities:
+        report.reachable = True
+        report.resolved_host = capabilities.host
+        report.capabilities = capabilities
+        report.repo_build_sha = current_repo_sha()
+        report.firmware_match = firmware_match_status(capabilities, report.repo_build_sha)
     if report.firmware_match == "unknown":
-        report.warnings.append("Firmware build SHA is unknown; cannot compare device firmware to this checkout.")
+        report.warnings.append("Firmware identity is unknown or dirty; a matching commit label cannot prove the flashed source.")
     elif report.firmware_match == "mismatch":
         report.warnings.append(
             f"Firmware build SHA {capabilities.build_sha} does not match checkout {report.repo_build_sha}."
@@ -257,7 +289,7 @@ def run_doctor(
             scheduler=PriorityScheduler(),
             device=None,
         )
-        result = publisher.publish(push=False, slot_count=capabilities.page_slots)
+        result = publisher.publish(push=False, slot_count=capabilities.page_slots if capabilities else None)
         report.scene_count = len(result.scenes)
         report.assignment_count = len(result.assignments)
         if report.assignment_count == 0:

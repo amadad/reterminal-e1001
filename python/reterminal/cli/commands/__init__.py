@@ -12,7 +12,7 @@ from :mod:`reterminal.cli._typer_app`:
 have in common.
 """
 
-from reterminal.cli.commands import device, diagnostics, publish  # noqa: F401  -- side-effect registration
+from reterminal.cli.commands import calendar, device, diagnostics, publish  # noqa: F401  -- side-effect registration
 from reterminal.cli.commands._shared import emit_output, require_live_action
 from reterminal.cli.commands.publish import (
     build_publish_payload,

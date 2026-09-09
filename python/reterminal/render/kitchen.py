@@ -95,6 +95,12 @@ BODY_BOLD = font(22, "bold")
 HEADLINE = font(28, "bold")  # hero / item headline
 DISPLAY = font(54, "bold")   # big numerals (countdowns)
 
+# Everyday calendar pages use a larger reading scale for the physical panel.
+AGENDA_BODY = font(28)
+AGENDA_LABEL = font(18, "bold")
+AGENDA_TITLE = font(34, "bold")
+AGENDA_LEADING = 36
+
 # Iconography: the one canonical tag→shape map (viz.py owns the primitives),
 # centralized so events and comingup share it instead of each defining a copy.
 TAG_SHAPES = {
@@ -117,15 +123,16 @@ def draw_kicker(
     text: str,
     *,
     right: str | None = None,
+    label_font: ImageFont.ImageFont = KICKER,
 ) -> int:
     """Standard slot header: UPPERCASE kicker at the top-left, optional
     right-aligned meta on the same baseline. Returns the y where body content
     should begin, so every slot opens the same way.
     """
-    draw.text((MARGIN, MARGIN), text.upper(), font=KICKER, fill=0)
+    draw.text((MARGIN, MARGIN), text.upper(), font=label_font, fill=0)
     if right:
-        w = draw.textlength(right, font=KICKER)
-        draw.text((WIDTH - MARGIN - w, MARGIN), right, font=KICKER, fill=0)
+        w = draw.textlength(right, font=label_font)
+        draw.text((WIDTH - MARGIN - w, MARGIN), right, font=label_font, fill=0)
     return MARGIN + 4 * BASE  # body top = 56
 
 
@@ -141,3 +148,30 @@ def render_notice(title: str, message: str, detail: str | None = None) -> Image.
     if detail:
         draw.text((MARGIN, 238), truncate_text(draw, detail, META, WIDTH - 2 * MARGIN), font=META, fill=0)
     return to_1bit(img)
+
+
+def draw_calendar_stamp(
+    draw: ImageDraw.ImageDraw,
+    source_path: Path | None,
+    *,
+    checked_at: datetime | None = None,
+    now: datetime | None = None,
+) -> None:
+    """Readable source freshness; rendering an old source never renews it."""
+    if checked_at is None:
+        if source_path is None or not source_path.exists():
+            return
+        updated = datetime.fromtimestamp(source_path.stat().st_mtime)
+        prefix = "Source updated"
+    else:
+        updated = checked_at
+        prefix = "Source checked"
+    clock = now or datetime.now(updated.tzinfo)
+    if clock.tzinfo is None and updated.tzinfo is not None:
+        clock = clock.replace(tzinfo=updated.tzinfo)
+    stale = clock - updated > timedelta(hours=2)
+    label = f"{prefix} {updated:%b %-d · %-I:%M%p}"
+    if stale:
+        label = "STALE · " + label
+    draw_rule(draw, 446)
+    draw.text((MARGIN, 450), label, font=AGENDA_LABEL, fill=0)

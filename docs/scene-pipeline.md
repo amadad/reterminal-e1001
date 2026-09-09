@@ -50,13 +50,13 @@ Current providers:
 - `FileSceneProvider` (legacy `{"scenes": [...]}` feed shape)
 - `SystemSceneProvider`
 - `PaperclipSceneProvider` (remote HTTP feed adapter)
-- `CalendarProvider` — reads `~/reterminal-content/family/calendar.md` by default; parser in `reterminal.family.calendar`
+- `CalendarProvider` — reads markdown or structured calendar JSON from the manifest path; parser in `reterminal.family.calendar`, date-relative views in `family/agenda.py`, compositions in `render/agenda.py`
 - `MissionsProvider` — reads `~/reterminal-content/family/missions.md` by default; parser in `reterminal.family.missions`
 - `EventsProvider` — reads `~/reterminal-content/family/events.md` by default; parser in `reterminal.family.events`
 - `ActivitiesProvider` — reads `~/reterminal-content/family/activities.md` by default; parser in `reterminal.family.activities`. The renderer composites an inset movie/series poster on the right side of the layout when the top Queue item is tagged `[movie]` or `[series]`; posters are fetched from Wikipedia's open REST API on first use (no API key) by `reterminal.providers._poster_fetcher` and cached at `~/.cache/reterminal/posters/<slug>.jpg`. Falls back to text-only when the network is unreachable or no Wikipedia article matches.
 - `ComingUpProvider` — the consolidated forward-looking board used by the tracked public example's slot 2. Merges `events.md` `## Upcoming` (dated, proximity-sorted) with `activities.md` `## Queue` (undated); the `## Recent` log is not shown. Multi-source: manifest config names `events` + `queue` rather than a single `path`, and `ProviderEntry.source_paths()` reports both so the watch loop tracks each.
 - `CampsProvider` — summer schedule parsed from a markdown table (parser in `reterminal.family.camps`); reads e.g. the Madad Wiki `family-summer-2026-camps.md`. Renders the current week as a high-contrast hero plus four upcoming weeks; the table's Notes/cost column is parsed away and never rendered.
-- `QuestProvider` — reads only an explicit `## Kitchen Display` block from an allowlisted wiki page and renders one weekly, kid-facing challenge. Its title-seeded mark is deterministic procedural artwork, not an image-model call.
+- `QuestProvider` — reads only an explicit `## Kitchen Display` block from an allowlisted wiki page and renders one weekly, kid-facing challenge. The large-type layout shows its sourced Spark idea and an explicit validity date.
 - `TripProvider` — reads only an explicit `## Kitchen Display` block from an existing trip page and renders a countdown, safe route summary, operating rule, and next gate. Booking details outside that block cannot enter the scene model.
 - `PhotoProvider` — watches a folder of images and renders one full-bleed (Floyd-Steinberg, optional `.txt` caption sidecar). Mode `newest` (default) picks newest-by-mtime; `daily` rotates deterministically by date. No markdown source — manifest `path` is the folder.
 
@@ -66,7 +66,9 @@ The kitchen-display providers register themselves into a manifest registry
 Provider factories receive their per-entry config dict (typically `path`)
 and return a SceneProvider instance. The manifest may also include `slot` to
 pin returned scenes to a physical slot; that pin is applied by the manifest
-builder, not by provider code.
+builder, not by provider code. Trip and Quest entries may also declare a nested
+`fallback` provider; missing, invalid, or expired primary content yields the
+same slot to that provider. Both source paths participate in file watching.
 
 Additional providers worth adding:
 
@@ -144,9 +146,16 @@ Current entrypoints:
 - `DisplayPublisher` — single-shot publish (collect → schedule → render → push)
 - `run_live` (in `app/live.py`) — FSEvents-driven loop for `publish --watch`.
   Watches every manifest source plus the manifest itself, renders into an atomic
-  in-memory slot cache, serves `/content-hash` and `/content/slot-N`, and ticks
+  in-memory edition cache, serves `/content-hash`, hash-bound `/content/slot-N`,
+  `/health`, and `/receipt`, and ticks
   every 5 minutes as a sanity fallback. It never discovers or pushes to the
-  device; the sleeping firmware is the HTTP client.
+  device; the sleeping firmware is the HTTP client. `DeliveryState` in
+  `app/delivery.py` persists bounded device receipts beside the manifest. See
+  [delivery.md](delivery.md) for what each stage proves.
+- `calendar-export` — explicitly calls the installed gws CLI through
+  `family/calendar_export.py`, writing complete-day JSON only after a successful
+  validated fetch. The existing calendar launchd job owns this acquisition;
+  calendar providers remain local readers.
 
 Pipeline:
 

@@ -208,6 +208,25 @@ def test_calendar_render_snapshot(tmp_path: Path):
     _check_or_update("calendar", image)
 
 
+@pytest.mark.parametrize("view", ["week", "next", "weekend", "prepare"])
+def test_calendar_agenda_snapshot(tmp_path: Path, view):
+    from reterminal.family.agenda import calendar_days, upcoming_events, weekend_start
+    from reterminal.render.agenda import render_next, render_week, render_weekend, render_prepare
+
+    md = _write_frozen(tmp_path / "calendar.md", CALENDAR_FIXTURE + "\n## 2026-05-09 Sat\n- 10:00am Park\n\n## 2026-05-10 Sun\n")
+    parsed = parse_calendar(md)
+    now = datetime(2026, 5, 5, 13)
+    if view == "week":
+        image = render_week(calendar_days(parsed, FROZEN_TODAY, 7), source_path=md)
+    elif view == "next":
+        image = render_next(upcoming_events(parsed, now), now=now, source_path=md)
+    elif view == "prepare":
+        image = render_prepare(calendar_days(parsed, date(2026, 5, 6), 1)[0], source_path=md)
+    else:
+        image = render_weekend(calendar_days(parsed, weekend_start(FROZEN_TODAY), 2), source_path=md)
+    _check_or_update(f"calendar-{view}", image)
+
+
 def test_missions_render_snapshot(tmp_path: Path):
     md = _write_frozen(tmp_path / "missions.md", MISSIONS_FIXTURE)
     missions = parse_missions(md)

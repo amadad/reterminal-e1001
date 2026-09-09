@@ -99,13 +99,26 @@ The publisher (`reterminal publish --watch --live`) runs an HTTP server on
 ```
 GET /content-hash       → JSON {"hashes": {"slot-0": "<sha256>", ...}}
 GET /content/slot-N     → 48000-byte raw 1-bit bitmap
+GET /health             → source/render state and device delivery receipts
+POST /receipt           → firmware-reported persisted hashes and refresh evidence
 ```
 
-The launchd plist at `~/Library/LaunchAgents/sh.reterminal.publish.plist`
-runs this in the background. The device picks up content changes within one
+The current Mac runs `/Library/LaunchDaemons/sh.reterminal.publish.plist`
+as the operator's user. Inspect it with `launchctl print system/sh.reterminal.publish`;
+restart it with `sudo launchctl kickstart -k system/sh.reterminal.publish`.
+The calendar exporter is the separate system job `sh.reterminal.family-calendar`,
+scheduled every 1200 seconds. Older per-user plists are archived; do not start
+a duplicate publisher from them. The device picks up rendered content changes within one
 wake cycle (~30 min default). The content protocol is plain unauthenticated
 HTTP; run it only on a trusted LAN and enforce isolation with the router/VLAN or
 host firewall rather than treating the Python process as a security boundary.
+
+The receipt-capable host must be activated before new firmware; verify the
+hash-bound `/content/slot-N?hash=<digest>` route before flashing. Old running
+publishers return 404 for `/health`. See [delivery.md](delivery.md) for the
+doctor command and evidence limits. The new long-hold firmware pulls fresh
+content before opening diagnostics; previous installed builds may only open
+the API. Navigation preserves the poll deadline only after the new flash.
 
 Verify the server from both sides of the host network stack:
 
@@ -123,7 +136,7 @@ Allow and unblock the exact `Python.app`, then restart the publisher:
 ```bash
 /usr/libexec/ApplicationFirewall/socketfilterfw --add /path/to/Python.app
 /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp /path/to/Python.app
-launchctl kickstart -k gui/$(id -u)/sh.reterminal.publish
+sudo launchctl kickstart -k system/sh.reterminal.publish
 ```
 
 On Kunst on 2026-05-21, the blocked runtime was:

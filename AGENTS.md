@@ -35,6 +35,7 @@ Do not reintroduce the removed legacy fixed-page system unless explicitly asked.
 - Slot names are neutral: `slot-0..slot-3`
 - `snapshot` can return the exact stored raw bitmap for a loaded slot during diagnostic mode
 - loaded slots persist to LittleFS across normal reboot/power cycle; host republish is still the recovery path after reflash, empty storage, or filesystem failure
+- New receipt firmware requires the hash-query-capable host first; see `docs/delivery.md`. Stored hashes and a returned display-driver call are separate evidence, neither optical proof. Keep the three-timer-update physical gate explicit until measured.
 - the host pull server is plain unauthenticated HTTP; keep it on a trusted LAN and enforce isolation outside the process
 - on some macOS hosts, curl-based transport can be more reliable than Python `requests` for live device mutations
 - all `ImageDraw.Draw` instances in render/provider code must set `draw.fontmode = "1"` immediately after construction — without it Pillow antialiases text into gray pixels that threshold to noise on 1-bit output
@@ -50,7 +51,7 @@ python/reterminal/
 ├── app/            # publish scenes to previews/device slots
 ├── cli/            # active CLI
 ├── device/         # device SDK + capabilities
-├── family/         # pure parsers + dataclasses for the kitchen markdown sources — calendar, missions, events, activities, camps (PIL-free)
+├── family/         # PIL-free source parsers/projections; calendar_export.py acquires structured Google data
 ├── payloads.py     # shared device/JSON payload types
 ├── protocols.py    # shared structural interfaces
 ├── providers/      # scene adapters; established parsers come from family/, display-safe feature projections live in features.py

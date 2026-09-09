@@ -135,3 +135,42 @@ def test_trip_countdown_changes_with_date(tmp_path: Path):
     next_day = pil_to_raw(render_trip(trip, today=date(2026, 7, 24)))
 
     assert before != next_day
+
+
+@pytest.mark.parametrize("kind, body", [("quest", QUEST), ("trip", TRIP)])
+def test_seasonal_cards_fall_back_and_watch_both_sources(tmp_path, kind, body):
+    from reterminal.providers.manifest import FeedManifest, build_providers
+    path = _write(tmp_path, f"{kind}.md", body)
+    calendar = _write(tmp_path, "calendar.md", f"## {date.today()}\n")
+    manifest = FeedManifest.from_dict({"providers": [{
+        "type": kind, "path": str(path), "slot": 2,
+        "fallback": {"type": "calendar", "path": str(calendar), "view": "prepare"},
+    }]})
+    assert manifest.providers[0].source_paths() == [path, calendar]
+    provider = build_providers(manifest)[0]
+    scene = provider.fetch()[0]
+    assert scene.id == "calendar-prepare" and scene.preferred_slot == 2
+    path.write_text("Invalid card")
+    assert provider.fetch()[0].id == "calendar-prepare"
+    path.unlink()
+    assert provider.fetch()[0].id == "calendar-prepare"
+
+
+def test_trip_expiry_is_explicit_and_inclusive(tmp_path, monkeypatch):
+    from reterminal.providers.features import TripProvider
+
+    path = _write(tmp_path, "trip.md", TRIP.replace("- **Reviewed:**", "- **Valid until:** 2026-08-30\n- **Reviewed:**"))
+    assert parse_trip(path).valid_until == date(2026, 8, 30)
+
+    class Clock(date):
+        current = date(2026, 8, 30)
+
+        @classmethod
+        def today(cls):
+            return cls.current
+
+    monkeypatch.setattr("reterminal.providers.features.date", Clock)
+    provider = TripProvider(path, omit_unavailable=True)
+    assert len(provider.fetch()) == 1
+    Clock.current = date(2026, 8, 31)
+    assert provider.fetch() == []

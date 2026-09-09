@@ -133,7 +133,9 @@ Until hardware verification says otherwise, the refactor should assume this mode
 2. **Firmware pulls, caches, and displays**
    - timer wake fetches changed slots and persists them
    - button wake navigates cached slots
-   - a physical long press enables the diagnostic API and OTA window
+   - a physical long press pulls fresh content, then enables the diagnostic API and OTA window
+   - navigation preserves the existing next-poll deadline
+   - pulls report stored hashes and returned refresh-call evidence to the host
 
 3. **Firmware does not own external integrations**
    - no Schwab/GitHub/weather logic on the ESP32
@@ -159,6 +161,11 @@ These are the remaining checks before calling the physical deployment fully clos
    - Is OTA reliable enough to keep in the default workflow over time?
    - Does it preserve expected cache behavior?
 
+5. **Receipt and polling behavior**
+   - Activate the hash-query-capable host before the new firmware.
+   - Verify three changed editions through unattended timer receipts, including
+     navigation across a polling deadline. See [delivery.md](delivery.md).
+
 ## Tracked contract to verify
 
 The host owns the fixed geometry (`800x480`, 48,000 bytes, four slots).
@@ -172,8 +179,11 @@ Normal pull contract:
 
 | Endpoint | Requirement |
 |---|---|
-| host `GET /content-hash` | Returns four per-slot content hashes |
+| host `GET /content-hash` | Returns four per-slot SHA-256 hashes, or null for unassigned slots |
 | host `GET /content/slot-N` | Returns exactly 48,000 raw bytes for a loaded cache entry |
+| host `GET /content/slot-N?hash=<digest>` | Returns the requested content or 409 if the edition changed |
+| host `GET /health` | Separately reports sources, rendering, HTTP requests, and device receipts |
+| host `POST /receipt` | Validates and persists device-reported stored hashes and refresh-call evidence |
 
 Diagnostic-mode device contract:
 
@@ -184,7 +194,7 @@ Diagnostic-mode device contract:
 | `POST /page` | Rejects invalid input explicitly, no unsafe wraparound |
 | `GET /snapshot` | Returns the exact stored raw bitmap or a clear error |
 | `POST /imageraw?page=N` | Stores valid slot `N` only after a full LittleFS write |
-| `GET /eventlog` | Returns the persistent wake/diagnostic/Wi-Fi-failure ring |
+| `GET /eventlog` | Returns the persistent wake/diagnostic/Wi-Fi/pull/receipt outcome ring |
 | `POST /sleep` | Returns the device to deep sleep immediately |
 
 ### Required host behavior
@@ -193,6 +203,8 @@ Diagnostic-mode device contract:
 - Never assume 7 slots unless the firmware proves it
 - Treat external integrations as optional providers, not core runtime requirements
 - Prefer one Python path: `python/reterminal/`
+- Do not infer device storage from served bytes or optical success from
+  `refresh_returned` / `displayed_hash`; those describe a returned driver call.
 
 ## Decision rules
 

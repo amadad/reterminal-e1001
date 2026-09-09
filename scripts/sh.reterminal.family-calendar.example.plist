@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- System LaunchDaemon template. Replace username and checkout paths locally.
+     Replaces the existing sh.reterminal.family-calendar job; do not add a second job.
+     Keep the installed machine-specific plist and exported family data untracked. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>sh.reterminal.family-calendar</string>
+    <key>UserName</key><string>YOUR_USERNAME</string>
+    <key>GroupName</key><string>staff</string>
+    <key>WorkingDirectory</key><string>/path/to/reterminal-e1001</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/path/to/reterminal-e1001/scripts/reterminal-calendar-export.sh</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key><string>/Users/YOUR_USERNAME</string>
+        <key>PATH</key><string>/Users/YOUR_USERNAME/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND</key><string>file</string>
+    </dict>
+    <key>RunAtLoad</key><true/>
+    <key>StartInterval</key><integer>1200</integer>
+    <key>StandardOutPath</key><string>/path/to/reterminal-e1001/artifacts/local/calendar-export.log</string>
+    <key>StandardErrorPath</key><string>/path/to/reterminal-e1001/artifacts/local/calendar-export.log</string>
+</dict>
+</plist>

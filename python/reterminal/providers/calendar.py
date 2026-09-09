@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
-from PIL import Image, ImageDraw
+from zoneinfo import ZoneInfo
+from PIL import Image
 
 from reterminal.family.calendar import (
     DEFAULT_PATH,
@@ -25,26 +26,11 @@ from reterminal.family.calendar import (
     events_for,
     parse_calendar,
 )
+from reterminal.family.agenda import CalendarDay, calendar_days, upcoming_events, weekend_start, remaining_today
+from reterminal.render.agenda import render_day_columns, render_next, render_week, render_weekend, render_prepare
 from reterminal.payloads import JSONValue
 from reterminal.providers.manifest import register_provider
-from reterminal.render.kitchen import (
-    BODY,
-    BODY_BOLD,
-    DISPLAY,
-    HEADLINE,
-    HEIGHT,
-    KICKER,
-    MARGIN,
-    META,
-    WIDTH,
-    draw_kicker,
-    draw_source_stamp,
-    font,
-    new_canvas,
-    render_notice,
-    to_1bit,
-)
-from reterminal.render.layout import clamp_lines, wrap_text
+from reterminal.render.kitchen import render_notice
 from reterminal.scenes import SceneSpec
 
 
@@ -67,72 +53,6 @@ def _strip_emoji(text: str) -> str:
     return re.sub(r"^Camp week \d+\s*-\s*(?:CoderSchool:\s*)?", "", cleaned, flags=re.IGNORECASE)
 
 
-def _draw_today_items(
-    draw: ImageDraw.ImageDraw,
-    items: list[CalendarItem],
-    *,
-    x: int,
-    y: int,
-    width: int,
-) -> None:
-    if not items:
-        draw.text((x, y), "Nothing scheduled.", font=BODY, fill=0)
-        return
-
-    time_w = 108
-    for index, item in enumerate(items[:3]):
-        row_y = y + index * 76
-        time_label = item.time or "ALL DAY"
-        draw.text((x, row_y), time_label, font=BODY_BOLD, fill=0)
-        content_x = x + time_w
-        if item.who:
-            draw.text((content_x, row_y + 1), item.who.upper(), font=KICKER, fill=0)
-            label_y = row_y + 20
-        else:
-            label_y = row_y
-        measure = width - time_w
-        lines = clamp_lines(draw, wrap_text(draw, _strip_emoji(item.label), BODY, measure), BODY, measure, 2)
-        for line in lines:
-            draw.text((content_x, label_y), line, font=BODY, fill=0)
-            label_y += 25
-
-
-def _draw_tomorrow_panel(
-    draw: ImageDraw.ImageDraw,
-    items: list[CalendarItem],
-    *,
-    tomorrow: date,
-    x: int,
-    width: int,
-) -> None:
-    top, bottom = 64, 446
-    draw.rectangle([x, top, x + width, bottom], outline=0, width=2)
-    draw.rectangle([x, top, x + width, top + 80], fill=0)
-    draw.text((x + 16, top + 14), "TOMORROW", font=KICKER, fill=255)
-    day_label = str(tomorrow.day)
-    draw.text((x + 16, top + 30), day_label, font=HEADLINE, fill=255)
-    weekday_x = x + 34 + draw.textlength(day_label, font=HEADLINE)
-    draw.text((weekday_x, top + 48), tomorrow.strftime("%A").upper(), font=KICKER, fill=255)
-
-    if not items:
-        draw.text((x + 16, top + 104), "Nothing scheduled.", font=BODY, fill=0)
-        return
-
-    cursor = top + 100
-    inner_w = width - 32
-    for item in items[:3]:
-        time_label = item.time or "ALL DAY"
-        draw.text((x + 16, cursor), time_label, font=META, fill=0)
-        if item.who:
-            who_w = draw.textlength(item.who.upper(), font=KICKER)
-            draw.text((x + width - 16 - who_w, cursor + 2), item.who.upper(), font=KICKER, fill=0)
-        label_y = cursor + 23
-        lines = clamp_lines(draw, wrap_text(draw, _strip_emoji(item.label), BODY, inner_w), BODY, inner_w, 2)
-        for line in lines:
-            draw.text((x + 16, label_y), line, font=BODY, fill=0)
-            label_y += 25
-        cursor += 88
-
 
 def render_calendar(
     todays: list[CalendarItem],
@@ -141,67 +61,75 @@ def render_calendar(
     today: date,
     source_path: Path | None = None,
     dropped: int = 0,
+    tomorrow_available: bool = True,
+    checked_at: datetime | None = None,
 ) -> Image.Image:
-    img, draw = new_canvas()
-    draw_kicker(draw, "Now", right=today.strftime("%A · %b %-d").upper())
-
-    panel_w = 300
-    panel_x = WIDTH - MARGIN - panel_w
-    today_w = panel_x - MARGIN - 24
-
-    date_top = 64
-    draw.rectangle([MARGIN, date_top, MARGIN + 112, date_top + 96], fill=0)
-    draw.text((MARGIN + 12, date_top + 4), str(today.day), font=DISPLAY, fill=255)
-    draw.text((MARGIN + 14, date_top + 70), today.strftime("%b").upper(), font=KICKER, fill=255)
-    draw.text((MARGIN + 136, date_top + 12), "TODAY", font=HEADLINE, fill=0)
-    count_label = f"{len(todays)} ITEM{'S' if len(todays) != 1 else ''}"
-    draw.text((MARGIN + 136, date_top + 54), count_label, font=META, fill=0)
-    draw.line([(MARGIN, 176), (MARGIN + today_w, 176)], fill=0, width=1)
-
-    _draw_today_items(draw, todays, x=MARGIN, y=190, width=today_w)
-    _draw_tomorrow_panel(draw, tomorrows, tomorrow=today + timedelta(days=1), x=panel_x, width=panel_w)
-
-    if dropped:
-        warn_f = font(12)
-        warn = f"({dropped} line{'s' if dropped != 1 else ''} couldn't parse — see lint)"
-        draw.text((MARGIN, HEIGHT - MARGIN - 12), warn, font=warn_f, fill=0)
-
-    draw_source_stamp(draw, source_path, stale_after=timedelta(hours=2))
-    return to_1bit(img)
+    days = [
+        CalendarDay(today, tuple(todays), True, remaining=True),
+        CalendarDay(today + timedelta(days=1), tuple(tomorrows), tomorrow_available),
+    ]
+    return render_day_columns(
+        days, title="Now", headings=("Today", "Tomorrow"), source_path=source_path,
+        notice="Some calendar entries could not be read" if dropped else None,
+        checked_at=checked_at,
+    )
 
 
 class CalendarProvider:
     name = "calendar"
 
-    def __init__(self, path: Path | str = DEFAULT_PATH):
+    def __init__(self, path: Path | str = DEFAULT_PATH, *, view: str = "now"):
+        if view not in {"now", "week", "next", "weekend", "prepare"}:
+            raise ValueError("calendar view must be now, week, next, weekend, or prepare")
         self.path = Path(path).expanduser()
+        self.view = view
 
     def fetch(self) -> list[SceneSpec]:
         if not self.path.exists():
             image = render_notice("Agenda", "calendar source missing", str(self.path))
         else:
-            parsed = parse_calendar(self.path)
+            try:
+                parsed = parse_calendar(self.path)
+            except (ValueError, KeyError, TypeError) as exc:
+                image = render_notice("Calendar", "calendar source invalid", str(exc))
+                return [SceneSpec(id=f"calendar-{self.view}", kind="prerendered", title=self.view.title(), priority=100, prerendered=image)]
+            now = datetime.now(ZoneInfo(parsed.timezone)) if parsed.timezone else datetime.now()
             if parsed.legacy_headers and not parsed.by_date:
                 image = render_notice(
                     "Agenda",
                     "retired calendar.md schema",
                     "writer must emit `## YYYY-MM-DD Day` headers",
                 )
+            elif now.date() not in parsed.by_date:
+                image = render_notice("Calendar", "calendar needs an update", "Today's calendar data is unavailable.")
+            elif self.view == "week":
+                days = calendar_days(parsed, now.date() + timedelta(days=1), 7)
+                image = render_week(days, source_path=self.path, checked_at=parsed.checked_at)
+            elif self.view == "next":
+                image = render_next(upcoming_events(parsed, now), now=now, source_path=self.path, checked_at=parsed.checked_at)
+            elif self.view == "prepare":
+                day = calendar_days(parsed, now.date() + timedelta(days=1), 1)[0]
+                image = render_prepare(day, source_path=self.path, checked_at=parsed.checked_at)
+            elif self.view == "weekend":
+                days = calendar_days(parsed, weekend_start(now.date()), 2)
+                image = render_weekend(days, source_path=self.path, checked_at=parsed.checked_at)
             else:
-                today = date.today()
+                today = now.date()
                 tomorrow = today + timedelta(days=1)
                 image = render_calendar(
-                    events_for(parsed, today),
+                    remaining_today(events_for(parsed, today), now),
                     events_for(parsed, tomorrow),
                     today=today,
                     source_path=self.path,
                     dropped=parsed.dropped,
+                    checked_at=parsed.checked_at,
+                    tomorrow_available=tomorrow in parsed.by_date,
                 )
         return [
             SceneSpec(
-                id="calendar",
+                id="calendar" if self.view == "now" else f"calendar-{self.view}",
                 kind="prerendered",
-                title="Agenda",
+                title=self.view.title(),
                 priority=100,
                 prerendered=image,
             )
@@ -210,7 +138,7 @@ class CalendarProvider:
 
 def _factory(config: Mapping[str, JSONValue]) -> CalendarProvider:
     path = config.get("path", str(DEFAULT_PATH))
-    return CalendarProvider(path=path)
+    return CalendarProvider(path=path, view=config.get("view", "now"))
 
 
 register_provider("calendar", _factory)

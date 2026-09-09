@@ -12,7 +12,7 @@ The main operational risks are:
 - accidentally running multiple publishers that disagree about slot ownership
 - manually maintaining source files that OpenClaw should generate
 
-## Current slot ownership
+## Everyday slot ownership
 
 Keep machine-specific paths in `python/examples/kitchen-display.local.json`
 (or set `RETERMINAL_FEED`) rather than editing public examples with private
@@ -20,18 +20,31 @@ paths. The ignored local manifest owns the active household edition; the tracked
 `python/examples/kitchen-display.json` remains a public compatibility/example
 manifest.
 
-| Slot | Active page | Source | Provider |
+| Slot | Everyday edition page | Source | Provider |
 | --- | --- | --- | --- |
 | 0 | Now: today + tomorrow | `~/reterminal-content/family/calendar.md` | `python/reterminal/providers/calendar.py` |
-| 1 | Week: current camp/family week + lookahead | `~/reterminal-content/family/summer-camps.md` | `python/reterminal/providers/camps.py` |
-| 2 | Focus: Yellowstone readiness | `~/reterminal-content/family/trip.md` `## Kitchen Display` | `python/reterminal/providers/features.py` (`trip`) |
-| 3 | Action: current household punchlist | `~/reterminal-content/family/quest.md` `## Kitchen Display` | `python/reterminal/providers/features.py` (`quest`) |
+| 1 | Week: first event on up to four scheduled days within the next week, with additional-event counts | same calendar | `calendar`, `view: week` |
+| 2 | Current Quest, or tomorrow's first event and recorded location | optional `quest.md`, calendar fallback | `quest` with `calendar`, `view: prepare` fallback |
+| 3 | Weekend: Saturday/Sunday plans | same calendar | `calendar`, `view: weekend` |
 
-All four slots are markdown-backed. Slot pins live in the provider manifest
-(`slot: 0..3`) rather than in provider code. The trip and quest providers read
-only their named display block; surrounding wiki prose cannot enter the scene
-model. Their feature art is deterministic 1-bit drawing, not a runtime image-model
-call.
+The everyday edition is `python/examples/kitchen-calendar.json`; the installed
+local manifest remains the authority for what is actually live. Preview this
+edition before copying it to the local manifest. New Python code requires a
+publisher restart; manifest edits alone hot-reload configuration, not modules.
+
+Calendar views share one generated source and the existing scheduler. The
+[structured exporter](calendar-source.md) replaces the old writer in the same
+20-minute job, retaining complete days, end times, timezone, status, and locations.
+Point local calendar paths at its JSON destination on activation; the example's
+markdown source is still supported. Week advances daily, Weekend on Monday, and
+Today retains ongoing events while dropping those with known elapsed end times.
+Missing dates mean unavailable data. Calendar pages show a readable source-check
+timestamp and STALE after two hours; rendering never renews that timestamp.
+See [delivery verification](delivery.md) for receipts and the physical rollout gate.
+
+The former summer edition (camps, Yellowstone, expired quest) is retired from
+everyday use. Seasonal providers remain available for deliberately maintained
+manifests. Slot pins live in the manifest (`slot: 0..3`), never in provider code.
 
 The public example still demonstrates `calendar`, `missions`, `comingup`, and
 `camps`. `comingup` merges upcoming dated events with the activities queue;
@@ -47,18 +60,23 @@ fixed-page JSON feeds are not live slot owners.
 Each file is either a generated projection or an allowlisted projection of a
 canonical source; ownership must stay explicit.
 
-- `calendar.md` is generated from the Google Family Calendar every 20 minutes by
-  launchd job `sh.reterminal.family-calendar`. Humans should not maintain it manually.
+- The calendar source is generated from the Google Family Calendar every 20 minutes by
+  launchd job `sh.reterminal.family-calendar`, with a 21-day window. Before migration
+  this is the external markdown exporter; after migration the repo-owned exporter
+  writes structured JSON covering today and the following 20 days. Humans
+  should not maintain it manually. On the current Mac this is a system
+  LaunchDaemon, running as the operator, with its last exit code visible via
+  `launchctl print system/sh.reterminal.family-calendar`.
 - The camps provider reads the first three columns of matching schedule-table
   rows from the canonical camps page and drops every later column before
   rendering.
 - The trip and quest providers read only explicit `## Kitchen Display` blocks
   from canonical wiki pages. Keep booking, health, school, identity, and other
   private prose outside those blocks.
-- Failed upstream fetches should leave the last-good markdown in place. Do not
+- Failed upstream fetches should leave the last-good source in place. Do not
   replace a good file with an auth error, empty export, or diagnostic text.
 
-After source content becomes markdown, every slot follows the same downstream
+After source content is written as markdown or JSON, every slot follows the same downstream
 path: file write -> FSEvents -> render cache -> publisher HTTP API -> device
 pull on next wake.
 
@@ -104,7 +122,28 @@ If you change slot ownership, update all of these in the same change:
 4. content-file conventions, if the file/section format changes
 5. a verification note with device readback hashes, if you tested live hardware
 
-## Launchd example
+## Launchd ownership and cadence
+
+On the current Mac, both jobs live under `/Library/LaunchDaemons/`, not the
+old `~/Library/LaunchAgents/` location. Verify the installed domain before
+restarting; the archived agent plists do not establish runtime ownership.
+
+```bash
+launchctl print system/sh.reterminal.family-calendar
+launchctl print system/sh.reterminal.publish
+sudo launchctl kickstart -k system/sh.reterminal.publish
+```
+
+The publisher has KeepAlive and RunAtLoad; the exporter has RunAtLoad and a
+1200-second interval. These run without an interactive login. The host must
+remain awake and reachable on the LAN. The publisher reacts to file writes
+and also recomputes time-relative views every five minutes. The panel pulls
+on its next wake (about 30 minutes by default): allow roughly 55 minutes from
+a calendar edit to its scheduled appearance on the panel. Changing this host
+cadence does not change the firmware's wake interval.
+
+The template below is an alternative per-user installation. Do not install it
+alongside the existing system publisher.
 
 A public-safe template lives at `scripts/sh.reterminal.publish.example.plist`.
 Copy it to `~/Library/LaunchAgents/sh.reterminal.publish.plist`, replace paths
@@ -128,7 +167,7 @@ the launchd service:
 ```bash
 /usr/libexec/ApplicationFirewall/socketfilterfw --add /path/to/Python.app
 /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp /path/to/Python.app
-launchctl kickstart -k gui/$(id -u)/sh.reterminal.publish
+sudo launchctl kickstart -k system/sh.reterminal.publish
 ```
 
 For the current Kunst/Homebrew Python install, the path observed on 2026-05-21
@@ -177,7 +216,7 @@ When the display shows stale or unexpected content, do this in order:
 5. If the watcher is broken, restart the launchd publisher instead of starting
    another loop:
    ```bash
-   launchctl kickstart -k gui/$(id -u)/sh.reterminal.publish
+   sudo launchctl kickstart -k system/sh.reterminal.publish
    ```
 6. If you need physical device readback, put the device in diagnostic mode with
    a 3-second right-button long press, then inspect it during the 10-minute

@@ -1,0 +1,8 @@
+{
+  "providers": [
+    {"type": "calendar", "path": "~/reterminal-content/family/calendar.md", "view": "now", "slot": 0},
+    {"type": "calendar", "path": "~/reterminal-content/family/calendar.md", "view": "week", "slot": 1},
+    {"type": "quest", "path": "~/reterminal-content/family/quest.md", "slot": 2, "fallback": {"type": "calendar", "path": "~/reterminal-content/family/calendar.md", "view": "prepare"}},
+    {"type": "calendar", "path": "~/reterminal-content/family/calendar.md", "view": "weekend", "slot": 3}
+  ]
+}

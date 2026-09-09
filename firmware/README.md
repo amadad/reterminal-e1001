@@ -126,21 +126,61 @@ pio run -e ota -t upload
 
 ## Architecture
 
-The firmware is a **deep-sleep + HTTP-pull client**, not a server. On every
-wake (timer every `RETERMINAL_WAKE_INTERVAL_S`, default 1800s, or any button
-via EXT1) it:
+The firmware is a **deep-sleep + HTTP-pull client**. A timer wake (default
+1800 seconds) or cold boot connects Wi-Fi and runs one bounded publish cycle:
 
-1. Connects WiFi (`WIFI_PS_MIN_MODEM`)
-2. `GET <publisher>/content-hash` — JSON of per-slot SHA-256s
-3. For each slot whose hash differs from the RTC-RAM fingerprint:
-   `GET <publisher>/content/slot-N` → 48000 raw bytes → save to LittleFS;
-   advance the fingerprint only after the full flash write succeeds
-4. Refresh ePaper (only if anything changed)
-5. `esp_deep_sleep_start()`
+1. Compute full SHA-256 hashes from slots loaded from LittleFS.
+2. `GET <publisher>/content-hash` for the desired per-slot hashes. Explicit
+   `null` means unassigned and preserves the cached slot; retiring content
+   requires a replacement bitmap. Missing or malformed hashes are errors.
+3. Fetch changed slots with `GET /content/slot-N?hash=<desired-sha256>`.
+   Require exactly 48,000 bytes and a matching SHA-256. Response body reads
+   have total deadlines (5 seconds for the bounded hash manifest, 10 seconds
+   per bitmap), including when bytes arrive slowly. A publisher edition
+   change during the download returns `409` and is retried on the next wake.
+4. Write each candidate to a temporary LittleFS file, read it back to verify
+   the bytes, and atomically rename it over the previous slot. Failed downloads
+   or writes preserve the last good file and in-memory bitmap.
+5. Fully refresh the selected page when any slot changed, then hibernate the
+   display.
+6. `POST <publisher>/receipt`, then return to deep sleep. Receipt failures are
+   logged and never keep the device awake indefinitely.
 
-That's it for normal operation. The chip draws ~10 µA in deep sleep, ~100 mA
-active. ~9 s awake per 1800 s cycle → ~0.5 mA average → ~60 days on a 750 mAh
-cell. Matches Seeed's spec.
+Short button wakes navigate or redraw cached pages without connecting Wi-Fi.
+An RTC deadline preserves the next scheduled pull through navigation wakes;
+pressing a button no longer restarts the 30-minute countdown. This uses the
+configured RTC-backed `gettimeofday()` clock, which persists through deep sleep
+([ESP-IDF system time](https://docs.espressif.com/projects/esp-idf/en/v4.4.7/esp32s3/api-reference/system/system_time.html));
+it does not require network time. A due pull wakes one second after the button
+interaction. `next_poll_in_s` in status and receipts reports the remaining delay.
+A long right-button hold pulls fresh content once before opening diagnostics.
+Normal operation retains the 30-minute sleep interval; no always-on server or
+additional dependency is required.
+
+### Delivery receipts
+
+`POST /receipt` sends versioned JSON with `schema_version: 1`, `device_id`
+(Wi-Fi MAC), `hostname`, `firmware_version`, `build_sha`, `boot_count`,
+`wake_reason` (`timer`, `diagnostic`, or `boot`), `wake_interval_s`,
+`current_page`, `uptime_ms`, `battery_mv`, and `rssi`.
+
+- `hashes` contains all four `slot-N` keys: SHA-256 of the verified persisted
+  bytes, or `null` when unavailable. These are actual stored hashes, including
+  unchanged slots, rather than a copy of the host's requested manifest.
+- `outcome` is `updated`, `unchanged`, `partial`, or `error`; `error` is a stable
+  reason or `null`, and `slot_errors` identifies failed slot downloads/writes.
+- `refresh_returned` reports that the full-refresh driver call returned during
+  this wake. `displayed_hash` identifies the bitmap submitted in the last such
+  call, retained in RTC memory, or `null` when unknown. The driver can return
+  after a busy timeout, so neither field proves controller success or optical
+  appearance.
+
+The host supplies the receipt timestamp; the device does not invent wall-clock
+freshness. Missing receipts are detectable by the host, including Wi-Fi failures
+that prevent any acknowledgment. These fields also appear in diagnostic
+`GET /status`; the outcome is `not_attempted` until a pull has run in this wake.
+The source implementation must be flashed and physically verified before these
+fields can be claimed for an existing device.
 
 ### Diagnostic mode
 
@@ -148,7 +188,7 @@ Long-press the **right** button for 3 seconds (`RETERMINAL_DIAGNOSTIC_HOLD_MS`)
 while waking from EXT1. The firmware brings up:
 
 - `GET /status` — JSON: uptime, battery_mv, RSSI, free_heap, build SHA, slot state
-- `GET /eventlog` — persistent ring buffer (boot, wake_timer, wake_button, diagnostic, wifi_fail)
+- `GET /eventlog` — persistent ring buffer (boot, wake_timer, wake_button, diagnostic, wifi_fail, pull_updated, pull_unchanged, pull_partial, pull_error, receipt_fail)
 - `GET /snapshot[?page=N]` — exact stored 48000-byte bitmap for inspection
 - `POST /imageraw?page=N` — manual push (legacy; mostly unused)
 - `GET/POST /page` — read or set the visible slot

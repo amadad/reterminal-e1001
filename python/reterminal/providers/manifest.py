@@ -75,6 +75,11 @@ class ProviderEntry:
                 p = Path(raw).expanduser()
                 if p not in seen:
                     seen.append(p)
+        fallback = self.config.get("fallback")
+        if isinstance(fallback, Mapping):
+            for path in ProviderEntry.from_dict(fallback).source_paths():
+                if path not in seen:
+                    seen.append(path)
         return seen
 
     @classmethod
@@ -143,6 +148,21 @@ class SlottedProvider:
         return [replace(scene, preferred_slot=self.slot) for scene in self.provider.fetch()]
 
 
+@dataclass(slots=True)
+class FallbackProvider:
+    """Use another existing provider when a seasonal source is unavailable."""
+
+    primary: SceneProvider
+    fallback: SceneProvider
+
+    @property
+    def name(self) -> str:
+        return self.primary.name
+
+    def fetch(self) -> list[SceneSpec]:
+        return self.primary.fetch() or self.fallback.fetch()
+
+
 def build_providers(manifest: FeedManifest) -> list[SceneProvider]:
     """Resolve manifest entries to SceneProvider instances via the registry.
 
@@ -158,7 +178,21 @@ def build_providers(manifest: FeedManifest) -> list[SceneProvider]:
                 f"Unknown provider type {entry.type!r}. "
                 f"Registered types: {sorted(PROVIDER_REGISTRY)}"
             )
-        provider = factory(entry.config)
+        config = dict(entry.config)
+        fallback = config.pop("fallback", None)
+        if fallback is not None:
+            if not isinstance(fallback, Mapping):
+                raise ValueError("provider fallback must be a provider object")
+            if entry.type not in {"quest", "trip"}:
+                raise ValueError("fallback is supported for quest and trip providers")
+            config["omit_unavailable"] = True
+        provider = factory(config)
+        if fallback is not None:
+            fallback_entry = ProviderEntry.from_dict(fallback)
+            if fallback_entry.slot is not None:
+                raise ValueError("fallback inherits its primary provider slot")
+            alternate = build_providers(FeedManifest([fallback_entry]))[0]
+            provider = FallbackProvider(provider, alternate)
         if entry.slot is not None:
             provider = SlottedProvider(provider=provider, slot=entry.slot)
         providers.append(provider)

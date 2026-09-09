@@ -25,6 +25,7 @@ venv/
 
 # Local runtime/config overrides
 python/examples/*.local.json
+*.delivery.json
 scripts/*.local.plist
 scripts/sh.reterminal.publish.plist
 artifacts/local/

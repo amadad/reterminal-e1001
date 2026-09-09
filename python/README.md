@@ -61,6 +61,7 @@ reterminal/
 ├── assets/fonts/   # bundled deterministic ePaper fonts + OFL license
 ├── cli/            # Typer commands
 ├── device/         # device SDK and capability model
+├── family/         # PIL-free source parsers, agenda projections, calendar acquisition
 ├── payloads.py     # shared device/JSON payload types
 ├── protocols.py    # shared structural interfaces
 ├── providers/      # scene providers
@@ -83,7 +84,7 @@ These are logical scenes. The scheduler maps them into the 4 physical slots the 
 
 Current providers include:
 
-- `CalendarProvider` — today-first agenda with a tomorrow rail from a generated markdown projection
+- `CalendarProvider` — large Today/Tomorrow columns, Week, Next, Prepare, and Weekend views from markdown or structured calendar JSON
 - `MissionsProvider` — mission cards from a markdown file
 - `EventsProvider` — upcoming events from a markdown file
 - `ActivitiesProvider` — recent and queued activities from a markdown file
@@ -95,7 +96,9 @@ Current providers include:
 - `PaperclipSceneProvider` — remote HTTP feed adapter
 - `SystemSceneProvider` — device health scene
 
-Providers are wired via a manifest JSON (`"providers": [{"type": "calendar", "path": "...", "slot": 0}, ...]`). Each type string maps to a factory in `providers/manifest.py::PROVIDER_REGISTRY`. Manifest-level `slot` pins are applied outside provider code so providers stay slot-agnostic.
+Providers are wired via a manifest JSON (`"providers": [{"type": "calendar", "path": "...", "slot": 0}, ...]`). Each type string maps to a factory in `providers/manifest.py::PROVIDER_REGISTRY`. Manifest-level `slot` pins are applied outside provider code so providers stay slot-agnostic. Trip and Quest entries can supply a nested `fallback` provider that inherits the slot when the primary source is missing, invalid, or expired.
+
+Use `reterminal calendar-export` for complete-day Google Calendar acquisition. Use `reterminal doctor --publisher-url http://127.0.0.1:8765` to inspect delivery receipts while the device sleeps; unset `RETERMINAL_HOST` for a publisher-only check. See [calendar acquisition](../docs/calendar-source.md) and [delivery verification](../docs/delivery.md).
 
 For the measured typography/layout approach behind these scenes, see `../docs/layout-system.md`.
 

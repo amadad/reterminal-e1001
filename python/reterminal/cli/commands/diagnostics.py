@@ -126,6 +126,7 @@ def doctor(
     paperclip_url: Optional[str] = typer.Option(None, "--paperclip-url", help="Optional Paperclip-compatible feed URL to validate"),
     include_system: bool = typer.Option(False, "--include-system/--no-include-system", help="Include the built-in system scene in the dry run"),
     skip_lint: bool = typer.Option(False, "--skip-lint", help="Skip linting markdown sources of the manifest"),
+    publisher_url: Optional[str] = typer.Option(None, "--publisher-url", help="Check sleeping-device receipts through the publisher, e.g. http://127.0.0.1:8765"),
     output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
 ):
     """Run operational checks for connectivity, slot truth, and publish-pipeline readiness.
@@ -141,6 +142,7 @@ def doctor(
             feed=feed,
             paperclip_url=paperclip_url,
             include_system=include_system,
+            publisher_url=publisher_url,
         )
         lint_issues = [] if skip_lint else _lint_manifest_if_present(feed)
 
@@ -154,6 +156,7 @@ def doctor(
                 "assignment_count": report.assignment_count,
                 "repo_build_sha": report.repo_build_sha,
                 "firmware_match": report.firmware_match,
+                "publisher": report.publisher,
                 "warnings": report.warnings,
                 "errors": report.errors,
                 "lint_issues": lint_issues,
@@ -168,6 +171,14 @@ def doctor(
         typer.echo(f"{'─' * 48}")
         typer.echo(f"  {'Configured Host':20} {report.configured_host or '<unset>'}")
         typer.echo(f"  {'Reachable':20} {'yes' if report.reachable else 'no'}")
+        if report.publisher:
+            health = report.publisher
+            typer.echo(f"  {'Device delivery':20} {health['delivery_status']}")
+            typer.echo(f"  {'Last render':20} {health.get('rendered_at') or 'unknown'}")
+            receipt = health.get("last_receipt") or {}
+            typer.echo(f"  {'Last device receipt':20} {receipt.get('received_at', 'none')}")
+            typer.echo(f"  {'Selected slot':20} {receipt.get('current_page', 'unknown')}")
+            typer.echo(f"  {'Display reported':20} {'matches' if health.get('reported_display_matches') else 'unconfirmed'}")
         if report.capabilities is not None:
             typer.echo(f"  {'Resolved Host':20} {report.capabilities.host}")
             typer.echo(f"  {'Page Slots':20} {report.capabilities.page_slots}")

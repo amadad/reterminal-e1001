@@ -27,8 +27,10 @@ data-encoding vocabulary it draws on.
 
 1. **Glance, not read.** A slot answers one question from across the kitchen.
    Fewer items, larger type, more whitespace. Now shows at most three items per
-   day; Week shows one line per child group; Focus shows one action; Action shows
-   at most three checks. When in doubt, cut a row.
+   day as space permits; Week shows the first event on up to four scheduled days
+   within the next week, with explicit extra counts; the optional family quest shows one current idea, falling back to tomorrow’s
+   first event and its source-provided location; Weekend groups plans into two day
+   columns. When in doubt, cut a row and disclose the remaining count.
 2. **One frame, many bodies.** Every slot opens with the same chrome (kicker →
    optional rule → body → authoritative metadata when available). The body
    differs by content; the frame never does. That sameness-of-frame is what
@@ -63,6 +65,15 @@ so rendering is identical on macOS and Linux.
 | `BODY_BOLD` | 22 bold | emphasized list text (e.g. the week column) |
 | `HEADLINE` | 28 bold | hero / item headline |
 | `DISPLAY` | 54 bold | big numerals (day-countdowns) |
+| `AGENDA_LABEL` | 18 bold | everyday page labels, dates and event times |
+| `AGENDA_BODY` | 28 regular | everyday calendar event text |
+| `AGENDA_TITLE` | 34 bold | everyday day headings and next-event title |
+
+The everyday calendar edition uses `AGENDA_LEADING = 36` pixels for body
+lines. Now and Weekend use equal-width columns with black text on white;
+times sit above event titles rather than squeezing their reading measure.
+Week uses full-width rows. Overflow is disclosed as a count, not hidden by
+shrinking letters. Other provider layouts retain the original type ladder.
 
 **Legibility floor:** body text is never below 22px; labels are bold. Thin
 weights and sub-20px body copy turn to mush on the panel. Primary content wraps
@@ -81,12 +92,12 @@ exceptions are noted in code with a comment; do not let them spread.
 │ ─────────────────────────────────────────────────────  │  ← draw_rule() (optional)
 │                                                         │
 │   body — composed per slot:                             │
-│     now      : TODAY masthead + bordered TOMORROW rail  │
-│     week     : current-week hero + short lookahead      │
-│     focus    : countdown + one next action              │
-│     action   : three-row household punchlist            │
+│     now      : equal Today and Tomorrow columns         │
+│     week     : up to four full-width dated rows         │
+│     quest    : one current idea; Tomorrow fallback      │
+│     weekend  : Saturday and Sunday columns             │
 │                                                         │
-│                        [generated-feed freshness stamp]  │
+│     Source checked / Source updated + timestamp          │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -125,3 +136,35 @@ time). The tag→shape map lives once, in `kitchen.shape_for`:
 4. If you reach for a size not in the ladder, that's a signal — either it maps
    to an existing role, or the ladder needs a deliberate new rung (update this
    doc + `kitchen.py` together), not a one-off `font(n)`.
+
+## Calendar meaning and freshness
+
+The everyday calendar reserves the last 34 pixels for an 18px source freshness
+line. `Source checked` requires an explicit successful upstream `checked_at`;
+legacy markdown uses `Source updated` and file mtime. A new render cannot renew
+source freshness. After two hours the line begins `STALE`. The renderer
+separately labels missing dates `Calendar unavailable`. An empty Today column
+says `Nothing else today`, since elapsed events may have left an older export.
+
+Structured calendar JSON preserves `timezone`, timezone-aware `checked_at`,
+inclusive `start_date` / `end_date`, and `events` with `id`, `summary`, ISO
+`start` / `end`, `status`, and `location`. All-day event ends are exclusive;
+timed events retain their known end, so ongoing events remain visible until
+they finish. Cancelled events are removed; tentative status stays visible.
+An event title mentioning a time does not override an all-day calendar record.
+Markdown remains supported but cannot supply missing end times.
+
+## Seasonal cards and the optional household slot
+
+A quest’s `Valid until` date is inclusive. Trips must declare `Valid until`
+(or `Ends`) explicitly; undated and expired trips cannot keep claiming `ON TRIP`.
+A manifest quest/trip entry may declare a nested `fallback` provider. Missing,
+invalid, or expired cards then yield to that provider in the same physical slot.
+Both source paths are watched. The everyday example uses a family quest in
+slot 2, falling back to calendar `view: prepare`: tomorrow’s first event,
+its recorded location when it fits, and the count of additional events. It
+does not infer errands or commitments.
+
+Family quest displays the source title, deck, and first Spark idea at the
+everyday 28/34px scale, with an explicit note that more ideas remain in the
+source. It does not relabel Spark/Build/Guide as invented weekday assignments.

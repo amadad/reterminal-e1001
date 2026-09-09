@@ -19,7 +19,10 @@ from PIL import Image, ImageDraw, ImageFont
 from reterminal.payloads import JSONValue
 from reterminal.providers.manifest import register_provider
 from reterminal.render.kitchen import (
-    BODY,
+    AGENDA_BODY,
+    AGENDA_LABEL,
+    AGENDA_LEADING,
+    AGENDA_TITLE,
     BODY_BOLD,
     DISPLAY,
     HEADLINE,
@@ -58,6 +61,7 @@ class TripCard:
     rule: str
     ready: tuple[str, ...] = ()
     reviewed: date | None = None
+    valid_until: date | None = None
 
 
 def _display_fields(path: Path) -> dict[str, str]:
@@ -127,6 +131,8 @@ def parse_trip(path: Path) -> TripCard:
         rule=fields["rule"],
         ready=tuple(fields[key] for key in ("ready 1", "ready 2", "ready 3") if fields.get(key)),
         reviewed=_iso_date(reviewed, "reviewed") if reviewed else None,
+        valid_until=_iso_date(fields.get("valid until") or fields["ends"], "valid until")
+        if fields.get("valid until") or fields.get("ends") else None,
     )
 
 
@@ -193,35 +199,26 @@ def _draw_quest_mark(draw: ImageDraw.ImageDraw, title: str) -> None:
 
 
 def render_quest(card: QuestCard) -> Image.Image:
-    """Render the current household action as a legible kitchen punchlist."""
+    """One current household idea, large enough for a kitchen glance."""
     img, draw = new_canvas()
-    right = f"THRU {card.valid_until.strftime('%b %-d').upper()}"
-    draw_kicker(draw, "Action", right=right)
-
-    title_lines = _text_lines(draw, card.title.upper(), HEADLINE, WIDTH - MARGIN * 2, 2)
-    cursor = _draw_lines(draw, title_lines, x=MARGIN, y=66, f=HEADLINE, line_height=34)
-    deck_lines = _text_lines(draw, card.deck, BODY, WIDTH - MARGIN * 2, 2)
-    cursor = _draw_lines(draw, deck_lines, x=MARGIN, y=cursor + 4, f=BODY, line_height=26)
-
-    list_top = max(154, cursor + 18)
-    label_w = 94
-    action_labels = ("FIND", "WED", "FRI")
-    for index, (_, text) in enumerate(card.levels):
-        label = action_labels[index]
-        y = list_top + index * 72
-        draw.rectangle([MARGIN, y + 4, MARGIN + 20, y + 24], outline=0, width=2)
-        draw.rectangle([MARGIN + 38, y, MARGIN + 38 + label_w, y + 28], fill=0)
-        label_x = MARGIN + 38 + (label_w - draw.textlength(label, font=KICKER)) / 2
-        draw.text((label_x, y + 6), label, font=KICKER, fill=255)
-        lines = _text_lines(draw, text, BODY_BOLD, WIDTH - MARGIN * 2 - label_w - 62, 2)
-        _draw_lines(draw, lines, x=MARGIN + label_w + 116, y=y, f=BODY_BOLD, line_height=26)
-
-    question_top = 392
-    draw.rectangle([MARGIN, question_top, WIDTH - MARGIN, 452], fill=0)
-    draw.text((MARGIN + 16, question_top + 9), "CHECK TOGETHER", font=KICKER, fill=255)
-    question = _text_lines(draw, card.dinner, BODY_BOLD, WIDTH - MARGIN * 2 - 32, 1)[0]
-    draw.text((MARGIN + 16, question_top + 31), question, font=BODY_BOLD, fill=255)
-
+    draw_kicker(draw, "Family quest", right=f"THRU {card.valid_until:%b %-d}".upper(), label_font=AGENDA_LABEL)
+    width = WIDTH - MARGIN * 2
+    title = card.title
+    if len(wrap_text(draw, title, AGENDA_TITLE, width)) > 2:
+        title = "A current family quest"
+    cursor = _draw_lines(draw, wrap_text(draw, title, AGENDA_TITLE, width), x=MARGIN, y=76,
+                         f=AGENDA_TITLE, line_height=40)
+    deck = wrap_text(draw, card.deck, AGENDA_BODY, width)
+    if len(deck) <= 2:
+        cursor = _draw_lines(draw, deck, x=MARGIN, y=cursor + 20, f=AGENDA_BODY, line_height=AGENDA_LEADING)
+    label, action = card.levels[0]
+    cursor = max(244, cursor + 28)
+    draw.text((MARGIN, cursor), label, font=AGENDA_LABEL, fill=0)
+    lines = wrap_text(draw, action, AGENDA_BODY, width)
+    if cursor + 30 + len(lines) * AGENDA_LEADING > 408:
+        lines = ["See the family quest for the full idea."]
+    _draw_lines(draw, lines, x=MARGIN, y=cursor + 30, f=AGENDA_BODY, line_height=AGENDA_LEADING)
+    draw.text((MARGIN, 442), "More ideas and a dinner question in the family quest", font=AGENDA_LABEL, fill=0)
     return to_1bit(img)
 
 
@@ -291,20 +288,27 @@ def render_trip(card: TripCard, *, today: date | None = None) -> Image.Image:
 class QuestProvider:
     name = "quest"
 
-    def __init__(self, path: Path | str):
+    def __init__(self, path: Path | str, *, omit_unavailable: bool = False):
         self.path = Path(path).expanduser()
+        self.omit_unavailable = omit_unavailable
 
     def fetch(self) -> list[SceneSpec]:
         if not self.path.exists():
+            if self.omit_unavailable:
+                return []
             image = render_notice("Family Quest", "quest source missing", str(self.path))
         else:
             try:
                 card = parse_quest(self.path)
                 if date.today() > card.valid_until:
+                    if self.omit_unavailable:
+                        return []
                     image = render_notice("Family Quest", "quest needs a refresh", "choose the next weekly card")
                 else:
                     image = render_quest(card)
             except ValueError as exc:
+                if self.omit_unavailable:
+                    return []
                 image = render_notice("Family Quest", "quest source invalid", str(exc))
         return [
             SceneSpec(
@@ -320,16 +324,29 @@ class QuestProvider:
 class TripProvider:
     name = "trip"
 
-    def __init__(self, path: Path | str):
+    def __init__(self, path: Path | str, *, omit_unavailable: bool = False):
         self.path = Path(path).expanduser()
+        self.omit_unavailable = omit_unavailable
 
     def fetch(self) -> list[SceneSpec]:
         if not self.path.exists():
+            if self.omit_unavailable:
+                return []
             image = render_notice("Trip", "trip source missing", str(self.path))
         else:
             try:
-                image = render_trip(parse_trip(self.path))
+                card = parse_trip(self.path)
+                if card.valid_until is None or date.today() > card.valid_until:
+                    if self.omit_unavailable:
+                        return []
+                    image = render_notice("Trip", "trip needs a current date", "Add an explicit Valid until date to the display card.")
+                elif card.valid_until < card.starts:
+                    raise ValueError("trip Valid until precedes Starts")
+                else:
+                    image = render_trip(card)
             except ValueError as exc:
+                if self.omit_unavailable:
+                    return []
                 image = render_notice("Trip", "trip source invalid", str(exc))
         return [
             SceneSpec(
@@ -346,14 +363,14 @@ def _quest_factory(config: Mapping[str, JSONValue]) -> QuestProvider:
     path = config.get("path")
     if not isinstance(path, str) or not path:
         raise ValueError("quest provider requires a non-empty 'path'")
-    return QuestProvider(path)
+    return QuestProvider(path, omit_unavailable=config.get("omit_unavailable", False))
 
 
 def _trip_factory(config: Mapping[str, JSONValue]) -> TripProvider:
     path = config.get("path")
     if not isinstance(path, str) or not path:
         raise ValueError("trip provider requires a non-empty 'path'")
-    return TripProvider(path)
+    return TripProvider(path, omit_unavailable=config.get("omit_unavailable", False))
 
 
 register_provider("quest", _quest_factory)

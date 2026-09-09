@@ -109,7 +109,7 @@ def test_discover_hosts_returns_only_reachable_results(monkeypatch):
 
 def test_firmware_match_status_compares_prefixes():
     assert firmware_match_status(DeviceCapabilities(host="x", build_sha="abcdef1"), "abcdef123456") == "match"
-    assert firmware_match_status(DeviceCapabilities(host="x", build_sha="abcdef123456-dirty"), "abcdef123456-dirty") == "match"
+    assert firmware_match_status(DeviceCapabilities(host="x", build_sha="abcdef123456-dirty"), "abcdef123456-dirty") == "unknown"
     assert firmware_match_status(DeviceCapabilities(host="x", build_sha="abcdef123456"), "abcdef123456-dirty") == "mismatch"
     assert firmware_match_status(DeviceCapabilities(host="x", build_sha="deadbee"), "abcdef123456") == "mismatch"
     assert firmware_match_status(DeviceCapabilities(host="x", build_sha="unknown"), "abcdef123456") == "unknown"
@@ -158,3 +158,25 @@ def test_run_doctor_reports_connectivity_errors(monkeypatch):
 
     assert report.reachable is False
     assert report.errors == ["device offline"]
+
+
+def test_doctor_checks_sleeping_device_through_publisher(monkeypatch):
+    monkeypatch.setattr("reterminal.diagnostics._get_json", lambda *args: {
+        "delivery_status": "unconfirmed", "sources": [], "rendered_at": "today",
+    })
+    monkeypatch.setattr("reterminal.diagnostics.settings.host", "")
+    report = run_doctor(publisher_url="http://localhost:8765", include_system=False)
+    assert not report.reachable
+    assert report.publisher["delivery_status"] == "unconfirmed"
+    assert not report.errors
+    assert any("not device confirmation" in warning for warning in report.warnings)
+
+
+def test_doctor_fails_for_expired_source_even_with_new_file_timestamp(monkeypatch):
+    monkeypatch.setattr("reterminal.diagnostics._get_json", lambda *args: {
+        "delivery_status": "stored", "sources": [{"path": "calendar.json", "exists": True,
+            "age_s": 0, "checked_at": "2000-01-01T12:00:00+00:00"}],
+    })
+    monkeypatch.setattr("reterminal.diagnostics.settings.host", "")
+    report = run_doctor(publisher_url="http://localhost:8765", include_system=False)
+    assert any("not been checked" in error for error in report.errors)
